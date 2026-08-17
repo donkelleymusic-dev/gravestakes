@@ -1,13 +1,19 @@
 import 'package:flame/components.dart';
 import 'package:flame/palette.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flame_audio/flame_audio.dart';
-import 'game.dart'; // Needed to access the map reference
+import 'dart:math';
+import 'game.dart';
+import 'floating_text.dart';
 
 class Player extends PositionComponent with KeyboardHandler, HasGameReference<GraveStakesGame> {
-  final JoystickComponent joystick;
+  final JoystickComponent leftJoystick;
+  final JoystickComponent rightJoystick; // NEW: Dedicated aiming stick
   final RealtimeChannel channel; 
+  final bool isGunner; // NEW: Role flag
+
   final double maxSpeed = 200.0;
   int score = 0;
   
@@ -19,38 +25,87 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   bool isStunned = false;
   double stunTimer = 0;
   double attackCooldown = 0;
+  
+  String equippedColorString = 'red'; 
 
-  Player(this.joystick, this.channel) : super(size: Vector2.all(32.0), anchor: Anchor.center);
+  Player(this.leftJoystick, this.rightJoystick, this.channel, {this.isGunner = false}) 
+    : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
   @override
   Future<void> onLoad() async {
-    add(RectangleComponent(size: size, paint: BasicPalette.red.paint()));
+    await _fetchEquippedCosmetics();
+  }
+
+  Future<void> _fetchEquippedCosmetics() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      add(RectangleComponent(size: size, paint: BasicPalette.red.paint()));
+      return;
+    }
+
+    try {
+      final res = await Supabase.instance.client
+          .from('user_loadouts')
+          .select('item_value')
+          .eq('user_id', user.id)
+          .eq('slot_type', 'flashlight_color')
+          .maybeSingle();
+
+      Color chosenColor = BasicPalette.red.color; 
+
+      if (res != null) {
+        final val = res['item_value'] as String;
+        equippedColorString = val; 
+        switch (val) {
+          case 'green': chosenColor = Colors.greenAccent; break;
+          case 'purple': chosenColor = Colors.purpleAccent; break;
+          case 'red': chosenColor = Colors.redAccent; break;
+          case 'blue': chosenColor = Colors.cyanAccent; break;
+          default: chosenColor = BasicPalette.red.color;
+        }
+      }
+
+      add(RectangleComponent(size: size, paint: Paint()..color = chosenColor));
+    } catch (e) {
+      debugPrint('Error loading cosmetics: $e');
+      add(RectangleComponent(size: size, paint: BasicPalette.red.paint()));
+    }
   }
 
   void triggerAttack() {
-    if (attackCooldown > 0 || isStunned) return;
-    
+    if (attackCooldown > 0) return;
     attackCooldown = 3.0; 
-    score += 100; 
+
+    // Gunners shouldn't lunge forward, they just flash! Drivers/Solo can lunge.
+    if (!isGunner) {
+      final forward = Vector2(cos(angle), sin(angle));
+      const double lungeDistance = 45.0; 
+      position += forward * lungeDistance;
+    }
 
     FlameAudio.play('ElevenLabs_Scary_stinger.mp3');
-
-    // 1. Send network packet so other players see it
+    
     channel.sendBroadcastMessage(
       event: 'scare',
-      payload: {'x': position.x, 'y': position.y},
+      payload: {
+        'id': game.mySessionId, 
+        'x': position.x, 
+        'y': position.y,
+        'a': angle,
+      },
     );
 
-    // 2. Trigger the local stun check for bots/players near you
-    game.triggerLocalScare(position);
+    int victimsHit = game.triggerLocalScare(position, angle);
 
-    // 3. Visual feedback (flash player yellow)
-    children.whereType<RectangleComponent>().first.paint = BasicPalette.yellow.paint();
-    Future.delayed(const Duration(milliseconds: 200), () {
-      if (isMounted) {
-        children.whereType<RectangleComponent>().first.paint = BasicPalette.red.paint();
-      }
-    });
+    if (victimsHit > 0) {
+      int baseScore = victimsHit * 100;
+      int comboBonus = (victimsHit - 1) * 50 * (victimsHit - 1); 
+      int totalEarned = baseScore + comboBonus;
+      score += totalEarned;
+      
+      String popupText = victimsHit > 1 ? '+$totalEarned COMBO x$victimsHit!' : '+$totalEarned';
+      game.world.add(FloatingText(text: popupText, position: Vector2(position.x - 20, position.y - 50)));
+    }
   }
 
   void applyStun(double duration) {
@@ -69,7 +124,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     if (!keyboardDelta.isZero()) keyboardDelta.normalize();
 
-    // The Attack Trigger (Spacebar)
     if (keysPressed.contains(LogicalKeyboardKey.space)) {
       triggerAttack();
     }
@@ -79,7 +133,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
   @override
   void update(double dt) {
-    if (!game.gameStarted) return; // Do nothing if game hasn't started!
+    if (!game.gameStarted) return; 
     super.update(dt);
 
     if (attackCooldown > 0) attackCooldown -= dt;
@@ -89,41 +143,52 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       return; 
     }
 
-    Vector2 movementDelta = Vector2.zero();
-
-    if (!keyboardDelta.isZero()) {
-      movementDelta = keyboardDelta;
-    } else if (!joystick.delta.isZero()) {
-      movementDelta = joystick.relativeDelta;
+    // 1. AIMING LOGIC (Both Driver and Gunner use Right Stick to aim)
+    if (!rightJoystick.delta.isZero()) {
+      angle = rightJoystick.delta.screenAngle();
     }
 
-    if (!movementDelta.isZero()) {
-      angle = movementDelta.screenAngle();
+    // 2. MOVEMENT LOGIC (Only Drivers/Solo players move!)
+    if (!isGunner) {
+      Vector2 movementDelta = Vector2.zero();
 
-      // Calculate future position for collision testing
-      final potentialPosition = position + (movementDelta * maxSpeed * dt);
-
-      // Check if moving horizontally causes a collision
-      final testX = Vector2(potentialPosition.x, position.y);
-      if (!game.gameMap.checkCollision(testX, size)) {
-        position.x = potentialPosition.x;
+      if (!keyboardDelta.isZero()) {
+        movementDelta = keyboardDelta;
+      } else if (!leftJoystick.delta.isZero()) {
+        movementDelta = leftJoystick.relativeDelta;
       }
 
-      // Check if moving vertically causes a collision
-      final testY = Vector2(position.x, potentialPosition.y);
-      if (!game.gameMap.checkCollision(testY, size)) {
-        position.y = potentialPosition.y;
-      }
+      if (!movementDelta.isZero()) {
+        // If we aren't using the aiming stick, auto-face the direction we are walking
+        if (rightJoystick.delta.isZero()) {
+          angle = movementDelta.screenAngle();
+        }
 
-      // Network throttling
-      networkTick += dt;
-      if (networkTick >= networkRate) {
-        networkTick = 0;
-        channel.sendBroadcastMessage(
-          event: 'move',
-          payload: {'x': position.x, 'y': position.y, 'a': angle},
-        );
+        final potentialPosition = position + (movementDelta * maxSpeed * dt);
+
+        if (!game.gameMap.checkCollision(Vector2(potentialPosition.x, position.y), size)) {
+          position.x = potentialPosition.x;
+        }
+        if (!game.gameMap.checkCollision(Vector2(position.x, potentialPosition.y), size)) {
+          position.y = potentialPosition.y;
+        }
       }
+    }
+
+    // 3. NETWORK SYNC
+    networkTick += dt;
+    if (networkTick >= networkRate) {
+      networkTick = 0;
+      channel.sendBroadcastMessage(
+        event: 'move',
+        payload: {
+          'id': game.mySessionId,
+          'x': position.x, 
+          'y': position.y, 
+          'a': angle,
+          'c': equippedColorString, 
+        },
+      );
     }
   }
 }

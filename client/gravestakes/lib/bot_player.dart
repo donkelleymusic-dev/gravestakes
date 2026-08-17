@@ -14,6 +14,9 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   double stunTimer = 0;
   double attackCooldown = 0;
 
+  double networkTick = 0; 
+  final double networkRate = 0.05; // Broadcast 20 times a second
+
   BotPlayer() : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
   @override
@@ -35,8 +38,11 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
   @override
   void update(double dt) {
-    if (!game.gameStarted) return; // Do nothing if game hasn't started!
+    if (!game.gameStarted) return; 
     super.update(dt);
+
+    // IF WE ARE NOT THE HOST, DO NOT RUN AI MATH!
+    if (!game.isHost) return;
 
     if (isStunned) {
       stunTimer -= dt;
@@ -78,6 +84,27 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       game.jumpScareEffect.trigger(); 
       human.applyStun(2.0);              
       attackCooldown = 8.0;              
+    }
+
+    // ONLY the Host broadcasts bot movements!
+    if (game.isHost) {
+      networkTick += dt;
+      if (networkTick >= networkRate) {
+        networkTick = 0;
+        
+        final botIndex = game.bots.indexOf(this); 
+        if (botIndex != -1) {
+          game.myChannel.sendBroadcastMessage(
+            event: 'bot_move',
+            payload: {
+              'index': botIndex,
+              'x': position.x,
+              'y': position.y,
+              'a': angle,
+            },
+          );
+        }
+      }
     }
   }
 }
