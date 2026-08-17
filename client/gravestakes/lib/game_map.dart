@@ -51,4 +51,25 @@ class GameMap extends Component {
     }
     return false;
   }
+
+  // Casts a ray between two points. Returns false if a wall blocks it.
+  bool hasLineOfSight(Vector2 start, Vector2 end) {
+    final distance = start.distanceTo(end);
+    final direction = (end - start).normalized();
+    
+    // Check points along the line every 10 pixels
+    final steps = (distance / 10).floor(); 
+    
+    for (int i = 0; i <= steps; i++) {
+      final point = start + (direction * (i * 10.0));
+      final offsetPoint = point.toOffset();
+      
+      for (var wall in walls) {
+        if (wall.contains(offsetPoint)) {
+          return false; // A wall blocks the path!
+        }
+      }
+    }
+    return true; // Path is clear!
+  }
 }

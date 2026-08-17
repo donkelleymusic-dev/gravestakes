@@ -70,31 +70,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     if (!keyboardDelta.isZero()) keyboardDelta.normalize();
 
     // The Attack Trigger (Spacebar)
-    if (keysPressed.contains(LogicalKeyboardKey.space) && attackCooldown <= 0 && !isStunned) {
+    if (keysPressed.contains(LogicalKeyboardKey.space)) {
       triggerAttack();
-      attackCooldown = 3.0; 
-      
-      score += 100; // Gain 100 points per successful scare!
-
-      // 2. PLAY THE AUDIO EFFECT INSTANTLY
-      FlameAudio.play('ElevenLabs_Scary_stinger.mp3');
-
-      // 1. Send network packet for other players/clients to see
-      channel.sendBroadcastMessage(
-        event: 'scare',
-        payload: {'x': position.x, 'y': position.y},
-      );
-
-      // 2. INSTANTLY trigger the effect locally so YOU don't miss out on hitting nearby targets!
-      game.triggerLocalScare(position);
-
-      // Visual flash for feedback
-      children.whereType<RectangleComponent>().first.paint = BasicPalette.yellow.paint();
-      Future.delayed(const Duration(milliseconds: 200), () {
-        if (isMounted) {
-          children.whereType<RectangleComponent>().first.paint = BasicPalette.red.paint();
-        }
-      });
     }
 
     return true; 

@@ -6,7 +6,7 @@ import 'game.dart';
 class AttackButton extends CircleComponent with TapCallbacks, HasGameReference<GraveStakesGame> {
   AttackButton() : super(
     radius: 40,
-    paint: Paint()..color = Colors.red.withOpacity(0.7),
+    paint: Paint()..color = Colors.red.withValues(alpha: 0.3),
     priority: 200,
   );
 
@@ -37,7 +37,7 @@ class AttackButton extends CircleComponent with TapCallbacks, HasGameReference<G
   }
 
   @override
-  void onTapUp(TapUpEvent event) {
+  void onTapDown(TapDownEvent event) {
     // Trigger the exact same attack method on your player!
     game.player.triggerAttack();
   }

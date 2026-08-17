@@ -5,6 +5,7 @@ import 'package:flame/game.dart';
 import 'package:flame/palette.dart';
 import 'package:flutter/painting.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flame_audio/flame_audio.dart';
 import 'player.dart';
 import 'remote_player.dart';
 import 'bot_player.dart'; 
@@ -34,14 +35,20 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
   Future<void> onLoad() async {
     camera.viewfinder.anchor = Anchor.topLeft;
     
+    await FlameAudio.audioCache.load('ElevenLabs_Scary_stinger.mp3');
+
+    // Center the physical player hitbox to match the flashlight:
+    camera.viewfinder.anchor = Anchor.center;
+
     // 1. BUILD THE JOYSTICK FIRST
-    final knobPaint = BasicPalette.white.withAlpha(200).paint();
-    final backgroundPaint = BasicPalette.white.withAlpha(100).paint();
+    final knobPaint = BasicPalette.white.withAlpha(100).paint();
+    final backgroundPaint = BasicPalette.white.withAlpha(40).paint();
 
     joystick = JoystickComponent(
       knob: CircleComponent(radius: 20, paint: knobPaint),
       background: CircleComponent(radius: 60, paint: backgroundPaint),
       margin: const EdgeInsets.only(left: 40, bottom: 40),
+      priority: 100,
     );
 
     // 2. Initialize map and world items
@@ -88,12 +95,14 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
     player.score = 0;
     player.position = Vector2.zero();
   }
-  // Call this whenever a scare happens (locally or via network)
+  
   void triggerLocalScare(Vector2 attackerPos) {
-    // Check if it hits any bots
     for (var bot in bots) {
       if (bot.position.distanceTo(attackerPos) < 250) {
-        bot.applyStun(4.0); // Stun the bot for 4 seconds!
+        // ONLY stun if there is no wall between them
+        if (gameMap.hasLineOfSight(bot.position, attackerPos)) {
+          bot.applyStun(4.0); 
+        }
       }
     }
   }
@@ -119,14 +128,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
         callback: (payload) {
           final attackerPos = Vector2(payload['x'] as double, payload['y'] as double);
           triggerLocalScare(attackerPos);
+          
           if (player.position.distanceTo(attackerPos) < 150) {
-            jumpScareEffect.trigger();
-            player.applyStun(2.0);
-          }
-
-          for (var bot in bots) {
-            if (bot.position.distanceTo(attackerPos) < 150) {
-              bot.applyStun(3.0); 
+            // ONLY get scared if there is no wall blocking the attacker
+            if (gameMap.hasLineOfSight(player.position, attackerPos)) {
+              jumpScareEffect.trigger();
+              player.applyStun(2.0);
             }
           }
         },

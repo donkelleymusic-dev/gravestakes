@@ -32,7 +32,7 @@ class StartButton extends RectangleComponent with TapCallbacks, HasGameReference
   }
 
   @override
-  void onTapUp(TapUpEvent event) {
+  void onTapDown(TapDownEvent event) {
     game.startGame(); // Kick off the actual game loop
     removeFromParent(); // Make the button disappear when clicked
   }
