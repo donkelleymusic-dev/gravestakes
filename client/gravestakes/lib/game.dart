@@ -52,16 +52,15 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
   final List<BotPlayer> bots = [];
   late final RealtimeChannel myChannel;
 
-  // 1. DEFINE STANDARD SAFE SPAWN POINTS
   final List<Vector2> baseSpawnPoints = [
-    Vector2(0, 0),         // Center
-    Vector2(800, 800),     // Bottom Right
-    Vector2(-800, -800),   // Top Left
-    Vector2(800, -800),    // Top Right
-    Vector2(-800, 800),    // Bottom Left
-    Vector2(1200, 0),      // Far Right
-    Vector2(-1200, 0),     // Far Left
-    Vector2(0, 1200),      // Far Bottom
+    Vector2(960, 960),     // Center
+    Vector2(1600, 1600),   // Bottom Right
+    Vector2(200, 200),     // Top Left
+    Vector2(1600, 200),    // Top Right
+    Vector2(200, 1600),    // Bottom Left
+    Vector2(1800, 960),    // Far Right
+    Vector2(100, 960),     // Far Left
+    Vector2(960, 1800),    // Far Bottom
   ];
 
   @override

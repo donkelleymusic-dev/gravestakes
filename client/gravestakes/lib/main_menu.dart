@@ -35,23 +35,46 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
-    try {
-      final responses = await Future.wait<dynamic>([
-        supabase.from('profiles').select('username, level').eq('id', user.id).single(),
-        supabase.from('wallets').select('shadows, stakes').eq('id', user.id).single(),
-      ]);
+    int maxRetries = 3;
 
-      if (mounted) {
-        setState(() {
-          _username = responses[0]['username'] ?? 'Ghost';
-          _level = responses[0]['level'] ?? 1;
-          _shadows = responses[1]['shadows'] ?? 0;
-          _stakes = responses[1]['stakes'] ?? 0;
-          _isLoading = false;
-        });
+    for (int i = 0; i < maxRetries; i++) {
+      try {
+        final responses = await Future.wait<dynamic>([
+          supabase.from('profiles').select('username, level').eq('id', user.id).single(),
+          supabase.from('wallets').select('shadows, stakes').eq('id', user.id).single(),
+        ]);
+
+        if (mounted) {
+          setState(() {
+            _username = responses[0]['username'] ?? 'Ghost';
+            _level = responses[0]['level'] ?? 1;
+            _shadows = responses[1]['shadows'] ?? 0;
+            _stakes = responses[1]['stakes'] ?? 0;
+            _isLoading = false;
+          });
+        }
+        
+        break; // Success! Break out of the retry loop.
+
+      } on PostgrestException catch (e) {
+        // Specifically catch the "JWT issued at future" clock drift error
+        if (e.code == 'PGRST303' && i < maxRetries - 1) {
+          debugPrint('Supabase clock drift detected (Attempt ${i + 1}). Waiting 500ms and retrying...');
+          await Future.delayed(const Duration(milliseconds: 500));
+          continue; // Loop again
+        }
+        
+        // If it's a different database error, or we ran out of retries
+        debugPrint('Database error: ${e.message}');
+        if (mounted) setState(() => _isLoading = false); // Stop the infinite loading spinner
+        break;
+        
+      } catch (e) {
+        // Catch any other general Dart errors
+        debugPrint('Error fetching menu data: $e');
+        if (mounted) setState(() => _isLoading = false);
+        break;
       }
-    } catch (e) {
-      debugPrint('Error fetching menu data: $e');
     }
   }
 

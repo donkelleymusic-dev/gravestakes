@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<tileset version="1.10" tiledversion="1.12.2" name="[A]Water_pipo" tilewidth="32" tileheight="32" tilecount="3072" columns="64">
- <image source="../images/[A]Water_pipo.png" width="2048" height="1536"/>
+<tileset version="1.10" tiledversion="1.12.2" name="A_Water_pipo" tilewidth="32" tileheight="32" tilecount="3072" columns="64">
+ <image source="../images/A_Water_pipo.png" width="2048" height="1536"/>
  <wangsets>
   <wangset name="Terrains" type="corner" tile="-1">
    <wangcolor name="water1" color="#ff0000" tile="70" probability="1"/>

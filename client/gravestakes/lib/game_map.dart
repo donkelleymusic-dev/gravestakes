@@ -12,28 +12,72 @@ class GameMap extends Component {
 
   @override
   Future<void> onLoad() async {
-    // 1. Load the Tiled map from assets/tiles/map_01.tmx
-    // Adjust Vector2.all(32.0) if your tileset uses 16x16 instead!
-    //tiledMap = await TiledComponent.load('samplemap_don.tmx', Vector2.all(32.0));
-    //add(tiledMap);
-_buildFallbackBoundaries(); // Force the old invisible walls for a second
-    // 2. Center the map offset (Optional: Centers a 64x64 map around 0,0)
-    tiledMap.position = Vector2(-1024, -1024);
+    priority = 0;
+    
+    // 1. Load the Map
+    tiledMap = await TiledComponent.load(
+      'samplemap_don.tmx', 
+      Vector2.all(32.0),
+      atlasMaxX: 8192, 
+      atlasMaxY: 8192
+    );
+    add(tiledMap);
+    
+    final map = tiledMap.tileMap.map;
 
-    // 3. Scan the map for the invisible collision layer named "Hitboxes"
+    // 2. Parse Asset-Level Hitboxes (Embedded in Tilesets)
+    // Loop through all Tile Layers (e.g., Ground, Walls, Decor)
+    for (final layer in map.layers.whereType<TileLayer>()) {
+      for (int y = 0; y < map.height; y++) {
+        for (int x = 0; x < map.width; x++) {
+          
+          final tileData = layer.tileData?[y][x];
+          final gid = tileData?.tile ?? 0;
+          
+          if (gid == 0) continue; // Skip empty tiles
+          
+          // Find the tileset that contains this specific tile
+          final tileset = map.tilesetByTileGId(gid);
+          final localId = gid - tileset.firstGid!;
+          
+          // Look up the tile's properties inside the tileset
+          final tile = tileset.tiles.cast<Tile?>().firstWhere(
+            (t) => t?.localId == localId, 
+            orElse: () => null,
+          );
+          
+          // If this tile has custom hitboxes, ensure it is treated as an ObjectGroup
+          if (tile != null && tile.objectGroup is ObjectGroup) {
+            final objectGroup = tile.objectGroup as ObjectGroup; // Cast it here
+            
+            for (final obj in objectGroup.objects) {
+              // Calculate the exact world coordinates for this specific hitbox
+              double adjustedX = (x * map.tileWidth) + obj.x + tiledMap.position.x;
+              double adjustedY = (y * map.tileHeight) + obj.y + tiledMap.position.y;
+              
+              obstacles.add(Rect.fromLTWH(adjustedX, adjustedY, obj.width, obj.height));
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Parse Map-Level Hitboxes (The dedicated 'Hitboxes' Object Layer)
+    // We keep this so you can still draw custom invisible walls on the map if needed!
     final obstacleGroup = tiledMap.tileMap.getLayer<ObjectGroup>('Hitboxes');
     
     if (obstacleGroup != null) {
       for (final obj in obstacleGroup.objects) {
-        // We offset the hitbox positions by the map's starting position
         double adjustedX = obj.x + tiledMap.position.x;
         double adjustedY = obj.y + tiledMap.position.y;
-        
         obstacles.add(Rect.fromLTWH(adjustedX, adjustedY, obj.width, obj.height));
       }
-    } else {
-      debugPrint('WARNING: No layer named "Hitboxes" found in Tiled map!');
-      _buildFallbackBoundaries();
+    } 
+    
+    // 4. Plan B: Only build fallback walls if absolutely NO obstacles were found
+    if (obstacles.isEmpty) {
+      debugPrint('WARNING: No hitboxes found in tilesets or object layers! Using fallback walls.');
+      _buildFallbackBoundaries(); 
     }
   }
 
