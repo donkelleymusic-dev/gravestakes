@@ -1,109 +1,210 @@
 import 'dart:math';
 import 'package:flame/components.dart';
-import 'package:flame/palette.dart';
+import 'package:flutter/material.dart';
 import 'game.dart';
+import 'scare_blast.dart';
+
+enum BotState { wander, hunt }
 
 class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
-  final double maxSpeed = 120.0; 
-  final Random _random = Random();
-
-  Vector2 movementDelta = Vector2.zero();
-  double directionTimer = 0;
+  double wanderSpeed = 80.0;
+  double huntSpeed = 130.0; 
+  
+  BotState currentState = BotState.wander;
+  PositionComponent? currentTarget;
 
   bool isStunned = false;
   double stunTimer = 0;
   double attackCooldown = 0;
 
-  double networkTick = 0; 
-  final double networkRate = 0.05; // Broadcast 20 times a second
+  double localImmunityToMe = 0;
+  
+  double directionTimer = 0;
+  Vector2 movementDelta = Vector2.zero();
+  
+  double networkTick = 0;
+  final double networkRate = 0.05;
+
+  late RectangleComponent _sprite;
+  final Random _random = Random();
 
   BotPlayer() : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
   @override
   Future<void> onLoad() async {
-    add(RectangleComponent(size: size, paint: BasicPalette.blue.paint()));
+    _sprite = RectangleComponent(
+      size: size,
+      paint: Paint()..color = Colors.grey, 
+    );
+    add(_sprite);
+    
     _chooseNewDirection();
+  }
+
+  void _chooseNewDirection() {
+    directionTimer = (_random.nextDouble() * 2) + 1; // 1 to 3 seconds
+    double randomAngle = _random.nextDouble() * 2 * pi;
+    movementDelta = Vector2(cos(randomAngle), sin(randomAngle));
   }
 
   void applyStun(double duration) {
     isStunned = true;
     stunTimer = duration;
+    _sprite.paint.color = Colors.cyanAccent;
+    currentState = BotState.wander; // Lose aggro when stunned
+    
+    // Force them to pick a new direction when they wake up
+    _chooseNewDirection(); 
   }
 
-  void _chooseNewDirection() {
-    final angle = _random.nextDouble() * 2 * pi;
-    movementDelta = Vector2(cos(angle), sin(angle));
-    directionTimer = 2.0 + _random.nextDouble() * 3.0; 
+  // AI LOGIC: Find the closest human player
+  PositionComponent? _findClosestVisiblePlayer() {
+    PositionComponent? closest;
+    double minDistance = 350.0; 
+
+    if (!game.player.isStunned) {
+      double dist = position.distanceTo(game.player.position);
+      if (dist < minDistance && game.gameMap.hasLineOfSight(position, game.player.position)) {
+        minDistance = dist;
+        closest = game.player;
+      }
+    }
+
+    for (var remote in game.networkPlayers.values) {
+      double dist = position.distanceTo(remote.position);
+      if (dist < minDistance && game.gameMap.hasLineOfSight(position, remote.position)) {
+        minDistance = dist;
+        closest = remote;
+      }
+    }
+
+    return closest;
   }
 
   @override
   void update(double dt) {
-    if (!game.gameStarted) return; 
+    if (!game.gameStarted) return;
     super.update(dt);
 
-    // IF WE ARE NOT THE HOST, DO NOT RUN AI MATH!
-    if (!game.isHost) return;
+    // Count down the immunity timer
+    if (localImmunityToMe > 0) {
+      localImmunityToMe -= dt;
+    }
 
     if (isStunned) {
       stunTimer -= dt;
-      if (stunTimer <= 0) isStunned = false;
-      return; 
+      
+      int alpha = (150 + sin(stunTimer * 30) * 105).toInt().clamp(0, 255);
+      _sprite.paint.color = Colors.cyanAccent.withAlpha(alpha);
+      _sprite.position = Vector2(sin(stunTimer * 50) * 4, 0);
+
+      if (stunTimer <= 0) {
+        isStunned = false;
+        _sprite.paint.color = Colors.grey; 
+        _sprite.position = Vector2.zero(); 
+      }
     }
 
-    directionTimer -= dt;
-    if (directionTimer <= 0) {
-      _chooseNewDirection();
+    if (!game.isHost || isStunned) return;
+
+    // --- SENSE ---
+    // NEW: If the ghost is on cooldown, it is "Satisfied" and completely ignores humans
+    if (attackCooldown > 0) {
+      currentTarget = null;
+    } else {
+      currentTarget = _findClosestVisiblePlayer();
+    }
+    
+    if (currentTarget != null) {
+      currentState = BotState.hunt;
+    } else {
+      currentState = BotState.wander;
     }
 
-    // Apply movement with wall collisions
-    final potentialPosition = position + (movementDelta * maxSpeed * dt);
+    // --- MOVE ---
+    double currentSpeed = wanderSpeed;
+    bool hitWall = false;
+
+    if (currentState == BotState.hunt) {
+      currentSpeed = huntSpeed;
+      movementDelta = (currentTarget!.position - position).normalized();
+      angle = movementDelta.screenAngle();
+    } else {
+      directionTimer -= dt;
+      if (directionTimer <= 0) _chooseNewDirection();
+      angle = movementDelta.screenAngle();
+    }
+
+    final potentialPosition = position + (movementDelta * currentSpeed * dt);
 
     final testX = Vector2(potentialPosition.x, position.y);
     if (!game.gameMap.checkCollision(testX, size)) {
       position.x = potentialPosition.x;
     } else {
-      _chooseNewDirection(); // Pick a new path if we hit a wall
+      hitWall = true;
     }
 
     final testY = Vector2(position.x, potentialPosition.y);
     if (!game.gameMap.checkCollision(testY, size)) {
       position.y = potentialPosition.y;
     } else {
+      hitWall = true;
+    }
+
+    if (currentState == BotState.wander && hitWall) {
       _chooseNewDirection();
     }
 
-    angle = movementDelta.screenAngle();
-
-    // Attack logic
+    // --- ATTACK LOGIC ---
     if (attackCooldown > 0) attackCooldown -= dt;
 
-    final human = game.player;
-    final distance = position.distanceTo(human.position);
-
-    if (distance < 150 && attackCooldown <= 0 && !human.isStunned) {
-      game.jumpScareEffect.trigger(); 
-      human.applyStun(2.0);              
-      attackCooldown = 8.0;              
+    if (currentTarget != null) {
+      final distance = position.distanceTo(currentTarget!.position);
+      
+      if (distance < 150 && attackCooldown <= 0) {
+        game.world.add(ScareBlast(position: position, angle: angle));
+        
+        if (currentTarget == game.player) {
+          game.jumpScareEffect.trigger(); 
+          game.player.applyStun(2.0);              
+        } else {
+          String? targetId;
+          game.networkPlayers.forEach((key, val) {
+            if (val == currentTarget) targetId = key;
+          });
+          if (targetId != null) {
+            game.myChannel.sendBroadcastMessage(
+              event: 'stun',
+              payload: {'id': targetId, 'duration': 2.0},
+            );
+          }
+        }
+        
+        attackCooldown = 8.0; 
+        
+        // NEW: The ghost is satisfied! Force it to immediately turn around and walk away from the victim.
+        movementDelta = (position - currentTarget!.position).normalized();
+        angle = movementDelta.screenAngle();
+        directionTimer = 3.0; // Keep walking away for at least 3 seconds before picking a new path
+      }
     }
 
-    // ONLY the Host broadcasts bot movements!
-    if (game.isHost) {
-      networkTick += dt;
-      if (networkTick >= networkRate) {
-        networkTick = 0;
-        
-        final botIndex = game.bots.indexOf(this); 
-        if (botIndex != -1) {
-          game.myChannel.sendBroadcastMessage(
-            event: 'bot_move',
-            payload: {
-              'index': botIndex,
-              'x': position.x,
-              'y': position.y,
-              'a': angle,
-            },
-          );
-        }
+    // --- NETWORK BROADCAST ---
+    networkTick += dt;
+    if (networkTick >= networkRate) {
+      networkTick = 0;
+      
+      final botIndex = game.bots.indexOf(this); 
+      if (botIndex != -1) {
+        game.myChannel.sendBroadcastMessage(
+          event: 'bot_move',
+          payload: {
+            'index': botIndex,
+            'x': position.x,
+            'y': position.y,
+            'a': angle,
+          },
+        );
       }
     }
   }

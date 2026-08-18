@@ -37,6 +37,7 @@ dependencies:
   flame: ^1.38.0
   flame_audio: any
   supabase_flutter: ^2.17.2
+  flame_tiled: ^3.1.2
 
 dev_dependencies:
   flutter_test:
@@ -61,6 +62,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/audio/
+    - assets/images/
+    - assets/tiles/
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

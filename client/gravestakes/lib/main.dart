@@ -13,7 +13,8 @@ Future<void> main() async {
     url: 'https://rbpmgzcafsykjbljgfvl.supabase.co', 
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJicG1nemNhZnN5a2pibGpnZnZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5MzEzMTgsImV4cCI6MjEwMjUwNzMxOH0.z-Th0EOWSqr4M7UcDrZUNO4U_ylhJ_nVB0VcUPWAYHA',
   );
-
+  
+   // await Supabase.instance.client.auth.signOut();
   runApp(const GraveStakesApp());
 }
 

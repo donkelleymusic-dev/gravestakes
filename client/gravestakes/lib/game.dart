@@ -19,6 +19,11 @@ import 'game_timer.dart';
 import 'start_button.dart';
 import 'attack_button.dart';
 import 'player_hud.dart';
+import 'scare_blast.dart';
+import 'level_manager.dart';
+import 'tutorial_manager.dart';
+import 'power_up.dart';
+import 'power_up_hud.dart';
 
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
   // Optional room ID so party members can queue into a shared private room
@@ -42,6 +47,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
   late final GameTimer gameTimer;
   late final ScoreHud scoreHud;
   bool gameStarted = false;
+  int myPlayerLevel = 1; // Defaults to 1 until fetched
   
   final List<BotPlayer> bots = [];
   late final RealtimeChannel myChannel;
@@ -62,6 +68,25 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
   Future<void> onLoad() async {
     // Initialize session ID and channel using the passed roomId
     mySessionId = DateTime.now().millisecondsSinceEpoch.toString();
+    final user = Supabase.instance.client.auth.currentUser;
+    // Check if player needs the tutorial
+    bool needsTutorial = false;
+    if (user != null) {
+      try {
+        final profileRes = await Supabase.instance.client
+            .from('profiles')
+            .select('completed_tutorial, level')
+            .eq('id', user.id)
+            .maybeSingle();
+            
+        if (profileRes != null) {
+          needsTutorial = !(profileRes['completed_tutorial'] ?? false);
+          myPlayerLevel = profileRes['level'] as int? ?? 1;
+        }
+      } catch (e) {
+        debugPrint('Error fetching profile data: `e`');
+      }
+    }
     myChannel = Supabase.instance.client.channel('room_$roomId');
 
     camera.viewfinder.anchor = Anchor.topLeft;
@@ -92,7 +117,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
     );
 
     // 2. Initialize map and world items
-    gameMap = GameMap();
+    gameMap = GameMap(roomId: roomId); // Pass the roomId here!
     world.add(gameMap);
 
     // 3. SAFE SPAWNING
@@ -104,6 +129,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
     jumpScareEffect = JumpScareEffect();
 
     world.add(player);
+
+    // Add the power-up tracking HUD to the world
+    world.add(PowerUpHud(player: player));
     
     // We defer spawning bots until the host is established in the network listener!
     camera.follow(player);
@@ -130,27 +158,58 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
 
     camera.viewport.add(PlayerHud());
 
+    if (needsTutorial) {
+      // Force game to start immediately without waiting for StartButton
+      gameStarted = true;
+      gameTimer.start();
+      
+      // FIXED: Added .toList() before .forEach()
+      camera.viewport.children
+          .whereType<StartButton>()
+          .toList() // <--- The missing link!
+          .forEach((btn) => btn.removeFromParent());
+      
+      // Spawn a guaranteed tutorial power-up 100 pixels to the right
+      world.add(PowerUp(id: 'tutorial_spark', position: mySpawnPoint + Vector2(100, 0)));
+      
+      // Add the tutorial manager to the world
+      world.add(TutorialManager());
+    }
+
     _setupSupabaseListener();
   }
 
   // Method to safely spawn bots called by the Host once elected
-  void _spawnBotsSafely() {
-    if (bots.isNotEmpty) return; // Don't spawn twice
+  void _spawnWorldEntities() {
+    if (bots.isNotEmpty) return; 
     
+    final config = LevelManager.getConfigForLevel(myPlayerLevel);
     List<Vector2> availableSpawns = List.from(baseSpawnPoints)..shuffle();
-    const int numberOfBots = 5; 
       
-    for (int i = 0; i < numberOfBots; i++) {
-      Vector2 botSpawn;
-      if (availableSpawns.isNotEmpty) {
-        botSpawn = availableSpawns.removeAt(0);
-      } else {
-        botSpawn = Vector2(500.0 + (i * 100), 500.0); // Fallback if points run out
-      }
+    // 1. Spawn Bots
+    for (int i = 0; i < config.botCount; i++) {
+      Vector2 botSpawn = availableSpawns.isNotEmpty 
+          ? availableSpawns.removeAt(0) 
+          : Vector2(500.0 + (i * 100), 500.0); 
 
-      final bot = BotPlayer()..position = botSpawn;
+      final bot = BotPlayer()
+        ..position = botSpawn
+        ..wanderSpeed = config.wanderSpeed
+        ..huntSpeed = config.huntSpeed;
+        
       bots.add(bot);
       world.add(bot);
+    }
+
+    // 2. Spawn 4 Random Power-Ups
+    final random = Random();
+    for (int i = 0; i < 4; i++) {
+      double x = (random.nextDouble() * 2400) - 1200;
+      double y = (random.nextDouble() * 2400) - 1200;
+      // Ensure they don't spawn inside a wall
+      if (!gameMap.checkCollision(Vector2(x,y), Vector2.all(16))) {
+        world.add(PowerUp(id: 'spark_$i', position: Vector2(x, y)));
+      }
     }
   }
 
@@ -192,26 +251,31 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
     hud?.fetchPlayerData();
   }
   
-  // Now accepts angle to calculate the directional cone
-  int triggerLocalScare(Vector2 attackerPos, double attackerAngle) {
+  int triggerLocalScare(Vector2 attackerPos, double attackerAngle, bool isPoweredUp) {
     int hitCount = 0;
     
-    // Calculate the forward vector based on where the player is facing
     final forward = Vector2(cos(attackerAngle), sin(attackerAngle));
     const double scareRadius = 250.0;
 
+    // Determine the cone width threshold:
+    // If powered up, -0.2 (huge sweeping arc). If normal, 0.1 (standard forward cone).
+    final double coneThreshold = isPoweredUp ? -0.2 : 0.1;
+
     // 1. Check Bots
     for (var bot in bots) {
+      if (bot.localImmunityToMe > 0) continue; 
+
       final toBot = bot.position - attackerPos;
       final distance = toBot.length;
 
       if (distance < scareRadius) {
         toBot.normalize();
-        final dot = forward.dot(toBot); // Measures alignment (-1 behind, +1 directly in front)
+        final dot = forward.dot(toBot); 
 
-        if (dot > 0.1) {
+        if (dot > coneThreshold) { // UNIFIED THRESHOLD
           if (gameMap.hasLineOfSight(bot.position, attackerPos)) {
             bot.applyStun(4.0); 
+            bot.localImmunityToMe = 7.0; 
             hitCount++;
           }
         }
@@ -219,7 +283,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
     }
 
     // 2. Check Remote Human Players
-    for (var remotePlayer in networkPlayers.values) {
+    for (var remoteId in networkPlayers.keys) {
+      var remotePlayer = networkPlayers[remoteId]!;
+      if (remotePlayer.localImmunityToMe > 0) continue; 
+
       final toPlayer = remotePlayer.position - attackerPos;
       final distance = toPlayer.length;
 
@@ -227,9 +294,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
         toPlayer.normalize();
         final dot = forward.dot(toPlayer);
 
-        if (dot > 0.3) {
+        if (dot > coneThreshold) { // UNIFIED THRESHOLD
           if (gameMap.hasLineOfSight(remotePlayer.position, attackerPos)) {
             hitCount++;
+            
+            remotePlayer.localImmunityToMe = 5.0; 
+            
+            myChannel.sendBroadcastMessage(
+              event: 'stun',
+              payload: {'id': remoteId, 'duration': 2.0},
+            );
           }
         }
       }
@@ -277,7 +351,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
         if (allUsers.isNotEmpty && allUsers.first['id'] == mySessionId) {
           if (!isHost) {
             isHost = true;
-            _spawnBotsSafely(); // Spawn bots now that we are officially the host
+            _spawnWorldEntities(); // Spawn bots now that we are officially the host
           }
         } else {
           isHost = false;
@@ -335,6 +409,29 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
             remote.position.x = payload['x'] as double;
             remote.position.y = payload['y'] as double;
             remote.angle = payload['a'] as double;
+            
+            // NEW: Play the audio and show the blast for remote players!
+            FlameAudio.play('ElevenLabs_Scary_stinger.mp3');
+            world.add(ScareBlast(position: remote.position, angle: remote.angle));
+          }
+        },
+      )
+      .onBroadcast(
+        event: 'stun',
+        callback: (payload) {
+          final id = payload['id'] as String?;
+          if (id == null) return;
+          
+          final duration = (payload['duration'] as num).toDouble();
+
+          if (id == mySessionId) {
+            // NEW: If a friend hits US, trigger the terrifying full-screen overlay!
+            jumpScareEffect.trigger();
+            player.applyStun(duration);
+          } 
+          else if (networkPlayers.containsKey(id)) {
+            // Otherwise, just show the remote friend turning blue and shaking
+            networkPlayers[id]!.applyStun(duration);
           }
         },
       )
@@ -390,12 +487,23 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
               
               camera.viewport.children
                   .whereType<StartButton>()
+                  .toList()
                   .forEach((btn) => btn.removeFromParent());
                   
             } else if (!isRunning && gameStarted) {
               endGame();
             }
           }
+        },
+      )
+      .onBroadcast(
+        event: 'consume_powerup',
+        callback: (payload) {
+          final id = payload['id'] as String;
+          // Find the powerup with this ID and remove it so we can't grab it too
+          world.children.whereType<PowerUp>().where((p) => p.id == id).toList().forEach((p) {
+            p.removeFromParent();
+          });
         },
       )
       .subscribe((status, [error]) async {

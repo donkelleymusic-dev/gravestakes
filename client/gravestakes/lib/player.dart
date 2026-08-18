@@ -7,15 +7,21 @@ import 'package:flame_audio/flame_audio.dart';
 import 'dart:math';
 import 'game.dart';
 import 'floating_text.dart';
+import 'scare_blast.dart';
+import 'power_up.dart';
 
 class Player extends PositionComponent with KeyboardHandler, HasGameReference<GraveStakesGame> {
   final JoystickComponent leftJoystick;
-  final JoystickComponent rightJoystick; // NEW: Dedicated aiming stick
+  final JoystickComponent rightJoystick; 
   final RealtimeChannel channel; 
-  final bool isGunner; // NEW: Role flag
+  final bool isGunner; 
 
   final double maxSpeed = 200.0;
   int score = 0;
+
+  //Power-Up State
+  double powerUpTimer = 0;
+  bool get isPoweredUp => powerUpTimer > 0;
   
   double networkTick = 0; 
   final double networkRate = 0.05;
@@ -27,6 +33,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   double attackCooldown = 0;
   
   String equippedColorString = 'red'; 
+  
+  // NEW: Sprite and base color storage for the visual stun effect
+  late RectangleComponent _sprite;
+  Color _baseColor = Colors.redAccent; 
 
   Player(this.leftJoystick, this.rightJoystick, this.channel, {this.isGunner = false}) 
     : super(size: Vector2.all(32.0), anchor: Anchor.center);
@@ -38,38 +48,34 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
   Future<void> _fetchEquippedCosmetics() async {
     final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) {
-      add(RectangleComponent(size: size, paint: BasicPalette.red.paint()));
-      return;
-    }
+    
+    if (user != null) {
+      try {
+        final res = await Supabase.instance.client
+            .from('user_loadouts')
+            .select('item_value')
+            .eq('user_id', user.id)
+            .eq('slot_type', 'flashlight_color')
+            .maybeSingle();
 
-    try {
-      final res = await Supabase.instance.client
-          .from('user_loadouts')
-          .select('item_value')
-          .eq('user_id', user.id)
-          .eq('slot_type', 'flashlight_color')
-          .maybeSingle();
-
-      Color chosenColor = BasicPalette.red.color; 
-
-      if (res != null) {
-        final val = res['item_value'] as String;
-        equippedColorString = val; 
-        switch (val) {
-          case 'green': chosenColor = Colors.greenAccent; break;
-          case 'purple': chosenColor = Colors.purpleAccent; break;
-          case 'red': chosenColor = Colors.redAccent; break;
-          case 'blue': chosenColor = Colors.cyanAccent; break;
-          default: chosenColor = BasicPalette.red.color;
+        if (res != null) {
+          final val = res['item_value'] as String;
+          equippedColorString = val; 
+          switch (val) {
+            case 'green': _baseColor = Colors.greenAccent; break;
+            case 'purple': _baseColor = Colors.purpleAccent; break;
+            case 'red': _baseColor = Colors.redAccent; break;
+            case 'blue': _baseColor = Colors.cyanAccent; break;
+          }
         }
+      } catch (e) {
+        debugPrint('Error loading cosmetics: $e');
       }
-
-      add(RectangleComponent(size: size, paint: Paint()..color = chosenColor));
-    } catch (e) {
-      debugPrint('Error loading cosmetics: $e');
-      add(RectangleComponent(size: size, paint: BasicPalette.red.paint()));
     }
+
+    // NEW: We add it to a managed sprite instead of just blindly adding it to the component tree
+    _sprite = RectangleComponent(size: size, paint: Paint()..color = _baseColor);
+    add(_sprite);
   }
 
   void triggerAttack() {
@@ -85,6 +91,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     FlameAudio.play('ElevenLabs_Scary_stinger.mp3');
     
+    // NEW: Spawn the visual cone blast to the world!
+    game.world.add(ScareBlast(position: position, angle: angle));
+    
     channel.sendBroadcastMessage(
       event: 'scare',
       payload: {
@@ -95,7 +104,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       },
     );
 
-    int victimsHit = game.triggerLocalScare(position, angle);
+    // Pass our powered-up status to the scare calculator!
+    int victimsHit = game.triggerLocalScare(position, angle, isPoweredUp);
 
     if (victimsHit > 0) {
       int baseScore = victimsHit * 100;
@@ -111,6 +121,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   void applyStun(double duration) {
     isStunned = true;
     stunTimer = duration;
+    _sprite.paint.color = Colors.cyanAccent; // NEW: Instantly turn shocked color
   }
 
   @override
@@ -137,10 +148,56 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     super.update(dt);
 
     if (attackCooldown > 0) attackCooldown -= dt;
+    
+    // --- POWER-UP LOGIC ---
+    if (isPoweredUp) {
+      powerUpTimer -= dt;
+      // Optional: Turn the sprite yellow while powered up so everyone knows!
+      _sprite.paint.color = Colors.yellowAccent;
+    } else if (!isStunned) {
+      _sprite.paint.color = _baseColor; 
+    }
+
+    // Check for collisions with PowerUps safely
+    final worldComponents = game.world.children.toList();
+    List<PowerUp> powerUpsToRemove = [];
+    
+    for (var comp in worldComponents) {
+      if (comp is PowerUp) {
+        if (position.distanceTo(comp.position) < 30) {
+          powerUpTimer = 10.0; 
+          try {
+            FlameAudio.play('ElevenLabs_Scary_stinger.mp3');
+          } catch (_) {}
+          
+          powerUpsToRemove.add(comp);
+          
+          channel.sendBroadcastMessage(
+            event: 'consume_powerup',
+            payload: {'id': comp.id},
+          );
+        }
+      }
+    }
+
+    for (var spark in powerUpsToRemove) {
+      spark.removeFromParent();
+    }
+
+    // SHAKE EFFECT FOR HUMANS
     if (isStunned) {
       stunTimer -= dt;
-      if (stunTimer <= 0) isStunned = false;
-      return; 
+      
+      int alpha = (150 + sin(stunTimer * 30) * 105).toInt().clamp(0, 255);
+      _sprite.paint.color = Colors.cyanAccent.withAlpha(alpha);
+      _sprite.position = Vector2(sin(stunTimer * 50) * 4, 0);
+
+      if (stunTimer <= 0) {
+        isStunned = false;
+        _sprite.paint.color = _baseColor; // Return to equipped color
+        _sprite.position = Vector2.zero();
+      }
+      return; // Skip movement processing while stunned
     }
 
     // 1. AIMING LOGIC (Both Driver and Gunner use Right Stick to aim)
@@ -164,7 +221,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           angle = movementDelta.screenAngle();
         }
 
-        final potentialPosition = position + (movementDelta * maxSpeed * dt);
+        // Base speed is 200. Surged speed is 280.
+        double currentSpeed = isPoweredUp ? 280.0 : maxSpeed;
+        final potentialPosition = position + (movementDelta * currentSpeed * dt);
 
         if (!game.gameMap.checkCollision(Vector2(potentialPosition.x, position.y), size)) {
           position.x = potentialPosition.x;
