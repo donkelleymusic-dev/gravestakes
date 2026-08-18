@@ -75,10 +75,12 @@ class GameMap extends Component {
     } 
     
     // 4. Plan B: Only build fallback walls if absolutely NO obstacles were found
-    if (obstacles.isEmpty) {
-      debugPrint('WARNING: No hitboxes found in tilesets or object layers! Using fallback walls.');
-      _buildFallbackBoundaries(); 
-    }
+    //if (obstacles.isEmpty) {
+    //  debugPrint('WARNING: No hitboxes found in tilesets or object layers! Using fallback walls.');
+    //  _buildFallbackBoundaries(); 
+    //}
+
+    _buildMapBorders();
   }
 
   void _buildFallbackBoundaries() {
@@ -103,6 +105,25 @@ class GameMap extends Component {
       if (_lineIntersectsRect(p1, p2, obs)) return false;
     }
     return true;
+  }
+
+  void _buildMapBorders() {
+    final map = tiledMap.tileMap.map;
+    
+    // Calculate the total pixel width and height of the map
+    double mapWidth = (map.width * map.tileWidth).toDouble();
+    double mapHeight = (map.height * map.tileHeight).toDouble();
+    
+    const double thickness = 50.0;
+
+    // Top Wall
+    obstacles.add(Rect.fromLTWH(-thickness, -thickness, mapWidth + (thickness * 2), thickness));
+    // Bottom Wall
+    obstacles.add(Rect.fromLTWH(-thickness, mapHeight, mapWidth + (thickness * 2), thickness));
+    // Left Wall
+    obstacles.add(Rect.fromLTWH(-thickness, 0, thickness, mapHeight));
+    // Right Wall
+    obstacles.add(Rect.fromLTWH(mapWidth, 0, thickness, mapHeight));
   }
 
   bool _lineIntersectsRect(Vector2 p1, Vector2 p2, Rect r) {

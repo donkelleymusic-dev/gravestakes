@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'game.dart';
 
 class GameTimer extends TextComponent with HasGameReference<GraveStakesGame> {
-  double timeLeft = 60.0; // 60 second rounds
+  double timeLeft = 180.0; // 180 second rounds (3 minutes)
   bool isRunning = false;
 
   GameTimer() : super(position: Vector2(20, 80), priority: 100);

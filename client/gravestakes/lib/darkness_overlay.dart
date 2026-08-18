@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui; // NEW: Required for gradients and blur
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 import 'game.dart';
@@ -20,7 +21,6 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
 
     final center = (viewSize / 2).toOffset();
     
-    // Increased length so the beam reaches the edges of the screen
     const coneLength = 600.0; 
     const sweepAngle = math.pi / 2; // 90 degrees
 
@@ -28,7 +28,6 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
     final startAngle = canvasAngle - (sweepAngle / 2);
     final endAngle = canvasAngle + (sweepAngle / 2);
 
-    // Calculate the two far corners of the flashlight beam
     final leftEdge = Offset(
       center.dx + math.cos(startAngle) * coneLength,
       center.dy + math.sin(startAngle) * coneLength,
@@ -38,20 +37,51 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
       center.dy + math.sin(endAngle) * coneLength,
     );
 
-    // Build a straight-edged polygon (triangle). 
-    // No curves = no crashed graphics rendering.
     final conePath = Path()
       ..moveTo(center.dx, center.dy)
       ..lineTo(leftEdge.dx, leftEdge.dy)
       ..lineTo(rightEdge.dx, rightEdge.dy)
       ..close();
 
-    // Draw the solid white shapes
-    final whitePaint = Paint()..color = Colors.white;
-    canvas.drawPath(conePath, whitePaint);
-    canvas.drawCircle(center, 45.0, whitePaint); 
+    // --- Gloomy Midnight Flashlight Paint ---
+    final flashlightPaint = Paint()
+      ..shader = ui.Gradient.radial(
+        center,
+        coneLength,
+        [
+          // Center: Only removes 45% of the darkness. The map will look gritty and dim.
+          Colors.white.withOpacity(0.45), 
+          // Midpoint: Light falls off quickly to simulate heavy air/fog.
+          Colors.white.withOpacity(0.15), 
+          // Edge: Fully merges with the pitch black.
+          Colors.white.withOpacity(0.0),  
+        ],
+        [
+          0.0, // Start of the beam
+          0.4, // Light decay starts much closer to the player now
+          1.0, // Edge of the beam
+        ],
+      )
+      // Increased the blur to 35.0 for a softer, slightly foggier beam edge
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 35.0);
 
-    // Flood the screen with darkness everywhere except the white shapes
+    // --- Dimmer Player Glow ---
+    final playerGlowPaint = Paint()
+      ..shader = ui.Gradient.radial(
+        center,
+        60.0,
+        [
+          // Only removes 35% of the darkness right under the player's feet
+          Colors.white.withOpacity(0.35), 
+          Colors.white.withOpacity(0.0),
+        ],
+      );
+
+    // Draw the new soft gradient shapes
+    canvas.drawPath(conePath, flashlightPaint);
+    canvas.drawCircle(center, 60.0, playerGlowPaint); 
+
+    // Flood the screen with darkness everywhere except the gradient shapes
     final darkPaint = Paint()
       ..color = Colors.black.withOpacity(0.96)
       ..blendMode = BlendMode.srcOut;

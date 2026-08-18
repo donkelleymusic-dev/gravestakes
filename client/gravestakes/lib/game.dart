@@ -53,14 +53,14 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
   late final RealtimeChannel myChannel;
 
   final List<Vector2> baseSpawnPoints = [
-    Vector2(960, 960),     // Center
-    Vector2(1600, 1600),   // Bottom Right
-    Vector2(200, 200),     // Top Left
-    Vector2(1600, 200),    // Top Right
-    Vector2(200, 1600),    // Bottom Left
-    Vector2(1800, 960),    // Far Right
-    Vector2(100, 960),     // Far Left
-    Vector2(960, 1800),    // Far Bottom
+    Vector2(150, 150),     // Top-Left Corner
+    Vector2(1770, 1770),   // Bottom-Right Corner
+    Vector2(1770, 150),    // Top-Right Corner
+    Vector2(150, 1770),    // Bottom-Left Corner
+    Vector2(960, 150),     // Top-Middle
+    Vector2(960, 1770),    // Bottom-Middle
+    Vector2(150, 960),     // Left-Middle
+    Vector2(1770, 960),    // Right-Middle
   ];
 
   @override
