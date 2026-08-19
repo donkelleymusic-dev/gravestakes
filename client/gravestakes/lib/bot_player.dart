@@ -20,6 +20,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   double localImmunityToMe = 0;
   
   double directionTimer = 0;
+  double evasionTimer = 0; // NEW: Helps the bot commit to sliding around obstacles
   Vector2 movementDelta = Vector2.zero();
   
   double networkTick = 0;
@@ -91,6 +92,11 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       localImmunityToMe -= dt;
     }
 
+    // Count down evasion timer
+    if (evasionTimer > 0) {
+      evasionTimer -= dt;
+    }
+
     if (isStunned) {
       stunTimer -= dt;
       
@@ -108,7 +114,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     if (!game.isHost || isStunned) return;
 
     // --- SENSE ---
-    // NEW: If the ghost is on cooldown, it is "Satisfied" and completely ignores humans
+    // If the ghost is on cooldown, it is "Satisfied" and completely ignores humans
     if (attackCooldown > 0) {
       currentTarget = null;
     } else {
@@ -127,12 +133,17 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
     if (currentState == BotState.hunt) {
       currentSpeed = huntSpeed;
-      movementDelta = (currentTarget!.position - position).normalized();
-      angle = movementDelta.screenAngle();
+      // Only recalculate direct path to player if we aren't currently evading an obstacle
+      if (evasionTimer <= 0) {
+        movementDelta = (currentTarget!.position - position).normalized();
+        angle = movementDelta.screenAngle();
+      }
     } else {
       directionTimer -= dt;
       if (directionTimer <= 0) _chooseNewDirection();
-      angle = movementDelta.screenAngle();
+      if (evasionTimer <= 0) {
+        angle = movementDelta.screenAngle();
+      }
     }
 
     final potentialPosition = position + (movementDelta * currentSpeed * dt);
@@ -151,8 +162,24 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       hitWall = true;
     }
 
-    if (currentState == BotState.wander && hitWall) {
-      _chooseNewDirection();
+    // NEW: The "Roomba Whiskers" Obstacle Avoidance
+    // If we hit a wall and aren't already evading, pick a glancing angle and commit to it briefly
+    if (hitWall && evasionTimer <= 0) {
+      double turnAngle = (pi / 4) + (_random.nextDouble() * (pi / 4)); // 45 to 90 degrees
+      
+      // Randomly skirt left or right
+      if (_random.nextBool()) {
+        angle += turnAngle;
+      } else {
+        angle -= turnAngle;
+      }
+      
+      movementDelta = Vector2(cos(angle), sin(angle));
+      evasionTimer = 0.5; // Commit to this slide for half a second
+      
+      if (currentState == BotState.wander) {
+        directionTimer = 0.5;
+      }
     }
 
     // --- ATTACK LOGIC ---
@@ -162,30 +189,34 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       final distance = position.distanceTo(currentTarget!.position);
       
       if (distance < 150 && attackCooldown <= 0) {
-        game.world.add(ScareBlast(position: position, angle: angle));
-        
-        if (currentTarget == game.player) {
-          game.jumpScareEffect.trigger(); 
-          game.player.applyStun(2.0);              
-        } else {
-          String? targetId;
-          game.networkPlayers.forEach((key, val) {
-            if (val == currentTarget) targetId = key;
-          });
-          if (targetId != null) {
-            game.myChannel.sendBroadcastMessage(
-              event: 'stun',
-              payload: {'id': targetId, 'duration': 2.0},
-            );
+        // NEW: Line-of-sight check so they don't attack through solid cliffs or houses
+        if (game.gameMap.hasLineOfSight(position, currentTarget!.position)) {
+          game.world.add(ScareBlast(position: position, angle: angle));
+          
+          if (currentTarget == game.player) {
+            game.jumpScareEffect.trigger(); 
+            game.player.applyStun(2.0);              
+          } else {
+            String? targetId;
+            game.networkPlayers.forEach((key, val) {
+              if (val == currentTarget) targetId = key;
+            });
+            if (targetId != null) {
+              game.myChannel.sendBroadcastMessage(
+                event: 'stun',
+                payload: {'id': targetId, 'duration': 2.0},
+              );
+            }
           }
+          
+          attackCooldown = 8.0; 
+          
+          // The ghost is satisfied! Force it to immediately turn around and walk away from the victim.
+          movementDelta = (position - currentTarget!.position).normalized();
+          angle = movementDelta.screenAngle();
+          directionTimer = 3.0; // Keep walking away for at least 3 seconds before picking a new path
+          evasionTimer = 0; // Clear evasion so it doesn't accidentally slide back toward the player
         }
-        
-        attackCooldown = 8.0; 
-        
-        // NEW: The ghost is satisfied! Force it to immediately turn around and walk away from the victim.
-        movementDelta = (position - currentTarget!.position).normalized();
-        angle = movementDelta.screenAngle();
-        directionTimer = 3.0; // Keep walking away for at least 3 seconds before picking a new path
       }
     }
 

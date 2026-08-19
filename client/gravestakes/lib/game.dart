@@ -117,7 +117,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
 
     // 2. Initialize map and world items
     gameMap = GameMap(roomId: roomId); // Pass the roomId here!
-    world.add(gameMap);
+    await world.add(gameMap);
 
     // 3. SAFE SPAWNING
     List<Vector2> availableSpawns = List.from(baseSpawnPoints)..shuffle();

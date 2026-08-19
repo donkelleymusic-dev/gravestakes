@@ -48,7 +48,7 @@ class GameTimer extends TextComponent with HasGameReference<GraveStakesGame> {
   }
 
   void start() {
-    timeLeft = 60.0;
+    timeLeft = 180.0;
     isRunning = true;
   }
 }

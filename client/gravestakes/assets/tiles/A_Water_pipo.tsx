@@ -1,6 +1,91 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <tileset version="1.10" tiledversion="1.12.2" name="A_Water_pipo" tilewidth="32" tileheight="32" tilecount="3072" columns="64">
  <image source="../images/A_Water_pipo.png" width="2048" height="1536"/>
+ <tile id="389">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="0.25" y="0" width="32" height="32.5"/>
+  </objectgroup>
+ </tile>
+ <tile id="390">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="0" y="-0.25" width="32.75" height="33"/>
+  </objectgroup>
+ </tile>
+ <tile id="391">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="0.25" y="0.25" width="31.25" height="32.25"/>
+  </objectgroup>
+ </tile>
+ <tile id="392">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="-0.5" y="-1.25" width="33.25" height="35"/>
+  </objectgroup>
+ </tile>
+ <tile id="393">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="-0.5" y="-0.75" width="33.5" height="33.5"/>
+  </objectgroup>
+ </tile>
+ <tile id="394">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="-0.75" y="-1" width="33.5" height="33.5"/>
+  </objectgroup>
+ </tile>
+ <tile id="395">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="-0.25" y="-0.25" width="33.25" height="33.5"/>
+  </objectgroup>
+ </tile>
+ <tile id="453">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="0" y="-0.5" width="32.75" height="33.5"/>
+  </objectgroup>
+ </tile>
+ <tile id="454">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="0" y="-0.25" width="32" height="32.5"/>
+  </objectgroup>
+ </tile>
+ <tile id="455">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="-0.25" y="-0.5" width="34" height="33.5"/>
+  </objectgroup>
+ </tile>
+ <tile id="456">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="-0.25" y="-1" width="33.25" height="34.75"/>
+  </objectgroup>
+ </tile>
+ <tile id="457">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="-0.75" y="-0.75" width="33.75" height="34"/>
+  </objectgroup>
+ </tile>
+ <tile id="517">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="-0.75" y="-1" width="33.5" height="34.25"/>
+  </objectgroup>
+ </tile>
+ <tile id="518">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="-0.75" y="-0.5" width="33.75" height="32.5"/>
+  </objectgroup>
+ </tile>
+ <tile id="519">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="-0.75" y="-0.75" width="33.75" height="33.25"/>
+  </objectgroup>
+ </tile>
+ <tile id="520">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="-0.5" y="-1" width="33.5" height="34"/>
+  </objectgroup>
+ </tile>
+ <tile id="521">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="-1.25" y="-0.75" width="35.5" height="34"/>
+  </objectgroup>
+ </tile>
  <wangsets>
   <wangset name="Terrains" type="corner" tile="-1">
    <wangcolor name="water1" color="#ff0000" tile="70" probability="1"/>

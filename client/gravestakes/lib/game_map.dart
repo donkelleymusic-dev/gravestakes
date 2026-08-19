@@ -7,6 +7,7 @@ class GameMap extends Component {
   final String roomId;
   late TiledComponent tiledMap;
   final List<Rect> obstacles = [];
+  final List<Rect> safeZones = [];
 
   GameMap({required this.roomId});
 
@@ -48,17 +49,32 @@ class GameMap extends Component {
           
           // If this tile has custom hitboxes, ensure it is treated as an ObjectGroup
           if (tile != null && tile.objectGroup is ObjectGroup) {
-            final objectGroup = tile.objectGroup as ObjectGroup; // Cast it here
+            final objectGroup = tile.objectGroup as ObjectGroup; 
             
             for (final obj in objectGroup.objects) {
-              // Calculate the exact world coordinates for this specific hitbox
               double adjustedX = (x * map.tileWidth) + obj.x + tiledMap.position.x;
               double adjustedY = (y * map.tileHeight) + obj.y + tiledMap.position.y;
+              final rect = Rect.fromLTWH(adjustedX, adjustedY, obj.width, obj.height);
               
-              obstacles.add(Rect.fromLTWH(adjustedX, adjustedY, obj.width, obj.height));
+              // NEW: Check if you tagged this specific hitbox as a safe zone in Tiled!
+              if (obj.class_ == 'SafeZone' || obj.type == 'SafeZone') {
+                safeZones.add(rect);
+              } else {
+                obstacles.add(rect); // Standard solid wall
+              }
             }
           }
         }
+      }
+    }
+
+    // Parse Map-Level Safe Zones (If you draw a custom Object Layer named 'SafeZones')
+    final safeGroup = tiledMap.tileMap.getLayer<ObjectGroup>('SafeZones');
+    if (safeGroup != null) {
+      for (final obj in safeGroup.objects) {
+        double adjustedX = obj.x + tiledMap.position.x;
+        double adjustedY = obj.y + tiledMap.position.y;
+        safeZones.add(Rect.fromLTWH(adjustedX, adjustedY, obj.width, obj.height));
       }
     }
 
@@ -93,6 +109,13 @@ class GameMap extends Component {
   // --- COLLISION MATH (Unchanged, so your AI and Flashlight still work perfectly) ---
   bool checkCollision(Vector2 pos, Vector2 size) {
     final playerRect = Rect.fromCenter(center: Offset(pos.x, pos.y), width: size.x, height: size.y);
+    
+    // 1. If the player is touching a Safe Zone (like a ladder), ignore ALL walls here!
+    for (final safe in safeZones) {
+      if (playerRect.overlaps(safe)) return false; 
+    }
+
+    // 2. Otherwise, run standard collision checks against cliffs/fences
     for (final obs in obstacles) {
       if (playerRect.overlaps(obs)) return true;
     }

@@ -36,7 +36,7 @@ class LevelManager {
     else {
       // Levels 21+: Nightmare Mode
       // 5+ bots that wander fast and hunt even faster.
-      return LevelConfig(botCount: 5, wanderSpeed: 100.0, huntSpeed: 160.0);
+      return LevelConfig(botCount: 5, wanderSpeed: 100.0, huntSpeed: 1);
     }
   }
 }

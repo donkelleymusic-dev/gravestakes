@@ -85,8 +85,20 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     // Gunners shouldn't lunge forward, they just flash! Drivers/Solo can lunge.
     if (!isGunner) {
       final forward = Vector2(cos(angle), sin(angle));
-      const double lungeDistance = 45.0; 
-      position += forward * lungeDistance;
+      double distanceToMove = 45.0; 
+      
+      // Step forward incrementally to slide up to walls without clipping
+      while (distanceToMove > 0) {
+        double step = min(5.0, distanceToMove);
+        final testPos = position + (forward * step);
+        
+        if (!game.gameMap.checkCollision(testPos, size)) {
+          position = testPos;
+          distanceToMove -= step;
+        } else {
+          break; // Hit a wall, stop lunging immediately
+        }
+      }
     }
 
     FlameAudio.play('ElevenLabs_Scary_stinger.mp3');
