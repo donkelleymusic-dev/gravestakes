@@ -121,10 +121,13 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
 
     // 3. SAFE SPAWNING
     List<Vector2> availableSpawns = List.from(baseSpawnPoints)..shuffle();
-    final mySpawnPoint = availableSpawns.removeAt(0);
+    final rawSpawnPoint = availableSpawns.removeAt(0);
+
+    // Run the coordinate through the safety check!
+    final safeSpawnPoint = gameMap.getSafeSpawnLocation(rawSpawnPoint, Vector2.all(32.0));
 
     // Pass both joysticks and the role flag to the player
-    player = Player(leftJoystick, rightJoystick, myChannel, isGunner: isGunner)..position = mySpawnPoint;
+    player = Player(leftJoystick, rightJoystick, myChannel, isGunner: isGunner)..position = safeSpawnPoint;
     jumpScareEffect = JumpScareEffect();
 
     world.add(player);
@@ -169,7 +172,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
           .forEach((btn) => btn.removeFromParent());
       
       // Spawn a guaranteed tutorial power-up 100 pixels to the right
-      world.add(PowerUp(id: 'tutorial_spark', position: mySpawnPoint + Vector2(100, 0)));
+      world.add(PowerUp(id: 'tutorial_spark', position: safeSpawnPoint + Vector2(100, 0)));
       
       // Add the tutorial manager to the world
       world.add(TutorialManager());
@@ -187,12 +190,15 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
       
     // 1. Spawn Bots
     for (int i = 0; i < config.botCount; i++) {
-      Vector2 botSpawn = availableSpawns.isNotEmpty 
+      Vector2 rawBotSpawn = availableSpawns.isNotEmpty 
           ? availableSpawns.removeAt(0) 
           : Vector2(500.0 + (i * 100), 500.0); 
 
+      // Run the bot coordinate through the safety check!
+      Vector2 safeBotSpawn = gameMap.getSafeSpawnLocation(rawBotSpawn, Vector2.all(32.0));
+
       final bot = BotPlayer()
-        ..position = botSpawn
+        ..position = safeBotSpawn
         ..wanderSpeed = config.wanderSpeed
         ..huntSpeed = config.huntSpeed;
         
@@ -240,7 +246,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
     
     // Pick a new safe spawn point for the next round
     List<Vector2> availableSpawns = List.from(baseSpawnPoints)..shuffle();
-    player.position = availableSpawns.first;
+    
+    // Run the new round coordinate through the safety check!
+    player.position = gameMap.getSafeSpawnLocation(availableSpawns.first, Vector2.all(32.0));
     
     // 4. Bring the start button back!
     camera.viewport.add(StartButton()); 
@@ -253,11 +261,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
   int triggerLocalScare(Vector2 attackerPos, double attackerAngle, bool isPoweredUp) {
     int hitCount = 0;
     
-    final forward = Vector2(cos(attackerAngle), sin(attackerAngle));
+    final forward = Vector2(sin(attackerAngle), -cos(attackerAngle));
     const double scareRadius = 250.0;
-
-    // Determine the cone width threshold:
-    // If powered up, -0.2 (huge sweeping arc). If normal, 0.1 (standard forward cone).
     final double coneThreshold = isPoweredUp ? -0.2 : 0.1;
 
     // 1. Check Bots
@@ -265,16 +270,14 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
       if (bot.localImmunityToMe > 0) continue; 
 
       final toBot = bot.position - attackerPos;
-      final distance = toBot.length;
-
-      if (distance < scareRadius) {
+      if (toBot.length < scareRadius) {
         toBot.normalize();
-        final dot = forward.dot(toBot); 
-
-        if (dot > coneThreshold) { // UNIFIED THRESHOLD
+        if (forward.dot(toBot) > coneThreshold) { 
           if (gameMap.hasLineOfSight(bot.position, attackerPos)) {
             bot.applyStun(4.0); 
             bot.localImmunityToMe = 7.0; 
+            
+            bot.triggerPrivateHighlight(); // NEW: Light up the bot locally
             hitCount++;
           }
         }
@@ -287,25 +290,31 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
       if (remotePlayer.localImmunityToMe > 0) continue; 
 
       final toPlayer = remotePlayer.position - attackerPos;
-      final distance = toPlayer.length;
-
-      if (distance < scareRadius) {
+      if (toPlayer.length < scareRadius) {
         toPlayer.normalize();
-        final dot = forward.dot(toPlayer);
-
-        if (dot > coneThreshold) { // UNIFIED THRESHOLD
+        if (forward.dot(toPlayer) > coneThreshold) { 
           if (gameMap.hasLineOfSight(remotePlayer.position, attackerPos)) {
             hitCount++;
-            
             remotePlayer.localImmunityToMe = 5.0; 
+            
+            remotePlayer.triggerPrivateHighlight(); // NEW: Light up the remote player locally
             
             myChannel.sendBroadcastMessage(
               event: 'stun',
-              payload: {'id': remoteId, 'duration': 2.0},
+              payload: {
+                'id': remoteId, 
+                'duration': 2.0,
+                'attacker_id': mySessionId // NEW: Tell them we are the attacker!
+              },
             );
           }
         }
       }
+    }
+
+    // NEW: If we hit at least one victim, light ourselves up locally!
+    if (hitCount > 0) {
+      player.triggerPrivateHighlight();
     }
 
     return hitCount;
@@ -388,7 +397,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
             // THE TETHER LOGIC FOR CO-OP
             // If I am the gunner, and the Driver moves, snap my position to their back!
             if (isGunner) {
-              final driverBackward = Vector2(cos(angle + pi), sin(angle + pi));
+              final driverBackward = Vector2(sin(angle + pi), -cos(angle + pi));
               player.position.x = x + (driverBackward.x * 20); // 20 pixels behind
               player.position.y = y + (driverBackward.y * 20);
             }
@@ -409,28 +418,35 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
             remote.position.y = payload['y'] as double;
             remote.angle = payload['a'] as double;
             
-            // NEW: Play the audio and show the blast for remote players!
             FlameAudio.play('ElevenLabs_Scary_stinger.mp3');
-            world.add(ScareBlast(position: remote.position, angle: remote.angle));
+            // CHANGE THIS LINE to include the 90-degree visual offset:
+            world.add(ScareBlast(position: remote.position, angle: remote.angle - (pi / 2)));
           }
         },
       )
       .onBroadcast(
         event: 'stun',
         callback: (payload) {
-          final id = payload['id'] as String?;
-          if (id == null) return;
+          final targetId = payload['id'] as String?;
+          if (targetId == null) return;
           
           final duration = (payload['duration'] as num).toDouble();
+          final attackerId = payload['attacker_id'] as String?; // NEW: Grab attacker ID
 
-          if (id == mySessionId) {
-            // NEW: If a friend hits US, trigger the terrifying full-screen overlay!
+          if (targetId == mySessionId) {
+            // NEW: If a friend hits US, trigger full screen, stun, and highlight!
             jumpScareEffect.trigger();
             player.applyStun(duration);
+            player.triggerPrivateHighlight();
+            
+            // NEW: Find the remote player who hit me and light them up locally!
+            if (attackerId != null && networkPlayers.containsKey(attackerId)) {
+              networkPlayers[attackerId]!.triggerPrivateHighlight();
+            }
           } 
-          else if (networkPlayers.containsKey(id)) {
-            // Otherwise, just show the remote friend turning blue and shaking
-            networkPlayers[id]!.applyStun(duration);
+          else if (networkPlayers.containsKey(targetId)) {
+            // Otherwise, just show the remote friend shaking
+            networkPlayers[targetId]!.applyStun(duration);
           }
         },
       )

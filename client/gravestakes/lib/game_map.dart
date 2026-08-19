@@ -99,6 +99,41 @@ class GameMap extends Component {
     _buildMapBorders();
   }
 
+  // Programmatically finds the nearest unblocked coordinate
+  Vector2 getSafeSpawnLocation(Vector2 intendedPos, Vector2 entitySize) {
+    // 1. If the original spot is perfectly safe, use it immediately!
+    if (!checkCollision(intendedPos, entitySize)) {
+      return intendedPos;
+    }
+
+    // 2. If it is blocked, begin searching outward in a circle
+    double searchRadius = 16.0; // Jump outward in 16-pixel increments (half a tile)
+    const double maxSearchRadius = 320.0; // Stop searching if we go 10 tiles away
+    const int directionsToCheck = 8; // N, NE, E, SE, S, SW, W, NW
+
+    while (searchRadius <= maxSearchRadius) {
+      for (int i = 0; i < directionsToCheck; i++) {
+        // Calculate the angle for this point on the circle
+        double angle = (i * 2 * pi) / directionsToCheck;
+        
+        // Calculate the exact X/Y coordinate to test
+        Vector2 testPos = intendedPos + Vector2(cos(angle) * searchRadius, sin(angle) * searchRadius);
+        
+        // If this new spot is clear, return it!
+        if (!checkCollision(testPos, entitySize)) {
+          debugPrint('QA FIX: Moved spawn point out by $searchRadius pixels.');
+          return testPos;
+        }
+      }
+      // If the entire circle is blocked, expand the radius and try again
+      searchRadius += 16.0; 
+    }
+
+    // Fallback: If we searched everywhere and it's all blocked, return the original
+    debugPrint('WARNING: Could not find any safe spawn within $maxSearchRadius pixels!');
+    return intendedPos; 
+  }
+
   void _buildFallbackBoundaries() {
     obstacles.add(const Rect.fromLTWH(-1500, -1500, 3000, 50)); 
     obstacles.add(const Rect.fromLTWH(-1500, 1450, 3000, 50));  

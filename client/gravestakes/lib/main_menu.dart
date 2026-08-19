@@ -24,6 +24,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   int _shadows = 0;
   int _stakes = 0;
   bool _isLoading = true;
+  bool _isSearchingForMatch = false;
 
   @override
   void initState() {
@@ -54,23 +55,20 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           });
         }
         
-        break; // Success! Break out of the retry loop.
+        break; 
 
       } on PostgrestException catch (e) {
-        // Specifically catch the "JWT issued at future" clock drift error
         if (e.code == 'PGRST303' && i < maxRetries - 1) {
           debugPrint('Supabase clock drift detected (Attempt ${i + 1}). Waiting 500ms and retrying...');
           await Future.delayed(const Duration(milliseconds: 500));
-          continue; // Loop again
+          continue; 
         }
         
-        // If it's a different database error, or we ran out of retries
         debugPrint('Database error: ${e.message}');
-        if (mounted) setState(() => _isLoading = false); // Stop the infinite loading spinner
+        if (mounted) setState(() => _isLoading = false); 
         break;
         
       } catch (e) {
-        // Catch any other general Dart errors
         debugPrint('Error fetching menu data: $e');
         if (mounted) setState(() => _isLoading = false);
         break;
@@ -78,16 +76,42 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     }
   }
 
-  void _startGame() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => Scaffold(
-          body: GameWidget(game: GraveStakesGame()),
-        ),
-      ),
-    ).then((_) {
-      _fetchPlayerData();
+  Future<void> _findMatchAndStart(BuildContext context) async {
+    if (_isSearchingForMatch) return;
+    
+    setState(() {
+      _isSearchingForMatch = true;
     });
+
+    try {
+      final response = await supabase.rpc('find_or_create_match');
+      final String safeRoomId = response as String;
+
+      if (!context.mounted) return;
+
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => Scaffold(
+            body: GameWidget(game: GraveStakesGame(roomId: safeRoomId)),
+          ),
+        ),
+      ).then((_) {
+        _fetchPlayerData();
+      });
+    } catch (e) {
+      debugPrint('Matchmaking failed: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to find a match. Try again!')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSearchingForMatch = false;
+        });
+      }
+    }
   }
 
   void _logout() async {
@@ -141,15 +165,15 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
                   // CENTER: Matchmaking & Party Buttons
                   ElevatedButton(
-                    onPressed: _startGame,
+                    onPressed: () => _findMatchAndStart(context),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red[800],
                       padding: const EdgeInsets.symmetric(vertical: 20),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                    child: const Text(
-                      'FIND MATCH',
-                      style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 2),
+                    child: Text(
+                      _isSearchingForMatch ? 'SEARCHING...' : 'FIND MATCH',
+                      style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 2),
                     ),
                   ),
                   

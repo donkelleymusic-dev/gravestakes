@@ -38,6 +38,13 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   late RectangleComponent _sprite;
   Color _baseColor = Colors.redAccent; 
 
+  double highlightTimer = 0;
+
+  void triggerPrivateHighlight() {
+    highlightTimer = 1.0; 
+    _sprite.paint.color = Colors.white; 
+  }
+
   Player(this.leftJoystick, this.rightJoystick, this.channel, {this.isGunner = false}) 
     : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
@@ -84,7 +91,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     // Gunners shouldn't lunge forward, they just flash! Drivers/Solo can lunge.
     if (!isGunner) {
-      final forward = Vector2(cos(angle), sin(angle));
+      final forward = Vector2(sin(angle), -cos(angle));
       double distanceToMove = 45.0; 
       
       // Step forward incrementally to slide up to walls without clipping
@@ -104,7 +111,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     FlameAudio.play('ElevenLabs_Scary_stinger.mp3');
     
     // NEW: Spawn the visual cone blast to the world!
-    game.world.add(ScareBlast(position: position, angle: angle));
+    game.world.add(ScareBlast(position: position, angle: angle - (pi / 2)));
     
     channel.sendBroadcastMessage(
       event: 'scare',
@@ -161,10 +168,13 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     if (attackCooldown > 0) attackCooldown -= dt;
     
-    // --- POWER-UP LOGIC ---
-    if (isPoweredUp) {
+    // --- POWER-UP LOGIC & HIGHLIGHTS ---
+    if (highlightTimer > 0) {
+      highlightTimer -= dt;
+      _sprite.paint.color = Colors.white; // Force white while highlighting
+      if (isPoweredUp) powerUpTimer -= dt; // Keep ticking powerup
+    } else if (isPoweredUp) {
       powerUpTimer -= dt;
-      // Optional: Turn the sprite yellow while powered up so everyone knows!
       _sprite.paint.color = Colors.yellowAccent;
     } else if (!isStunned) {
       _sprite.paint.color = _baseColor; 

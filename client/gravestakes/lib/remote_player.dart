@@ -7,6 +7,13 @@ class RemotePlayer extends PositionComponent {
   late RectangleComponent _sprite;
   Color _baseColor = Colors.redAccent;
 
+  double highlightTimer = 0;
+
+  void triggerPrivateHighlight() {
+    highlightTimer = 1.0; 
+    _sprite.paint.color = Colors.white; 
+  }
+
   bool isStunned = false;
   double stunTimer = 0;
   double localImmunityToMe = 0;
@@ -57,6 +64,14 @@ class RemotePlayer extends PositionComponent {
     // Count down the immunity timer
     if (localImmunityToMe > 0) {
       localImmunityToMe -= dt;
+    }
+
+    // NEW: Highlight timer countdown
+    if (highlightTimer > 0) {
+      highlightTimer -= dt;
+      if (highlightTimer <= 0 && !isStunned) {
+        _sprite.paint.color = _baseColor;
+      }
     }
 
     if (isStunned) {

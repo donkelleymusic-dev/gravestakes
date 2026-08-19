@@ -29,13 +29,20 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   late RectangleComponent _sprite;
   final Random _random = Random();
 
+  double highlightTimer = 0;
+
+  void triggerPrivateHighlight() {
+    highlightTimer = 1.0; 
+    _sprite.paint.color = Colors.white; 
+  }
+
   BotPlayer() : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
   @override
   Future<void> onLoad() async {
     _sprite = RectangleComponent(
       size: size,
-      paint: Paint()..color = Colors.grey, 
+      paint: Paint()..color = Colors.deepOrangeAccent, 
     );
     add(_sprite);
     
@@ -97,6 +104,14 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       evasionTimer -= dt;
     }
 
+    // NEW: Highlight timer countdown
+    if (highlightTimer > 0) {
+      highlightTimer -= dt;
+      if (highlightTimer <= 0 && !isStunned) {
+        _sprite.paint.color = Colors.deepOrangeAccent; 
+      }
+    }
+
     if (isStunned) {
       stunTimer -= dt;
       
@@ -106,7 +121,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
       if (stunTimer <= 0) {
         isStunned = false;
-        _sprite.paint.color = Colors.grey; 
+        _sprite.paint.color = Colors.deepOrangeAccent; 
         _sprite.position = Vector2.zero(); 
       }
     }
@@ -174,7 +189,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         angle -= turnAngle;
       }
       
-      movementDelta = Vector2(cos(angle), sin(angle));
+      movementDelta = Vector2(sin(angle), -cos(angle));
       evasionTimer = 0.5; // Commit to this slide for half a second
       
       if (currentState == BotState.wander) {
@@ -188,14 +203,18 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     if (currentTarget != null) {
       final distance = position.distanceTo(currentTarget!.position);
       
-      if (distance < 150 && attackCooldown <= 0) {
+      if (distance < 110 && attackCooldown <= 0) {//was 150 distance... but maybe we need to shorten that attack window for bots
         // NEW: Line-of-sight check so they don't attack through solid cliffs or houses
         if (game.gameMap.hasLineOfSight(position, currentTarget!.position)) {
-          game.world.add(ScareBlast(position: position, angle: angle));
+          game.world.add(ScareBlast(position: position, angle: angle - (pi / 2)));
           
           if (currentTarget == game.player) {
             game.jumpScareEffect.trigger(); 
-            game.player.applyStun(2.0);              
+            game.player.applyStun(2.0);   
+                       
+            // NEW: Private highlight for the bot and the human victim
+            triggerPrivateHighlight();
+            game.player.triggerPrivateHighlight();
           } else {
             String? targetId;
             game.networkPlayers.forEach((key, val) {
