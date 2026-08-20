@@ -38,6 +38,30 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
   BotPlayer() : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
+  // NEW: Determines if a target is within the bot's forward-facing vision cone
+  bool _isInVisionCone(Vector2 targetPos) {
+    // 1. Calculate the exact angle to the target
+    final vectorToTarget = targetPos - position;
+    final angleToTarget = atan2(vectorToTarget.y, vectorToTarget.x);
+    
+    // 2. Find the difference between the bot's current angle and the target angle
+    double diffAngle = (angleToTarget - angle) % (2 * pi);
+    
+    // Normalize the difference to be between -pi and pi
+    if (diffAngle > pi) {
+      diffAngle -= 2 * pi;
+    } else if (diffAngle < -pi) {
+      diffAngle += 2 * pi;
+    }
+    
+    // 3. Define the Field of View (FOV). 
+    // pi / 1.5 equals 120 degrees (60 degrees on either side of center).
+    // You can narrow this to (pi / 2) for a strict 90-degree flashlight cone!
+    const double fov = pi / 1.5; 
+    
+    return diffAngle.abs() <= (fov / 2);
+  }
+
   @override
   Future<void> onLoad() async {
     _sprite = RectangleComponent(
@@ -72,7 +96,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
     if (!game.player.isStunned) {
       double dist = position.distanceTo(game.player.position);
-      if (dist < minDistance && game.gameMap.hasLineOfSight(position, game.player.position)) {
+      if (dist < minDistance && _isInVisionCone(game.player.position) && game.gameMap.hasLineOfSight(position, game.player.position)) {
         minDistance = dist;
         closest = game.player;
       }
@@ -80,7 +104,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
     for (var remote in game.networkPlayers.values) {
       double dist = position.distanceTo(remote.position);
-      if (dist < minDistance && game.gameMap.hasLineOfSight(position, remote.position)) {
+      if (dist < minDistance && _isInVisionCone(game.player.position) && game.gameMap.hasLineOfSight(position, remote.position)) {
         minDistance = dist;
         closest = remote;
       }

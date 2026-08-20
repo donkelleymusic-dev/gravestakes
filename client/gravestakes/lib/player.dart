@@ -196,8 +196,26 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           
           channel.sendBroadcastMessage(
             event: 'consume_powerup',
-            payload: {'id': comp.id},
+            payload: {
+              'id': comp.id
+            },
           );
+          // 3. NETWORK SYNC
+          networkTick += dt;
+          if (networkTick >= networkRate) {
+            networkTick = 0;
+            channel.sendBroadcastMessage(
+              event: 'move',
+              payload: {
+                'id': game.mySessionId,
+                'x': position.x, 
+                'y': position.y, 
+                'a': angle,
+                'c': equippedColorString, 
+                's': score, // NEW: Broadcast real-time score to spectators!
+              },
+            );
+          }
         }
       }
     }
@@ -268,6 +286,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           'y': position.y, 
           'a': angle,
           'c': equippedColorString, 
+          's': score,
         },
       );
     }

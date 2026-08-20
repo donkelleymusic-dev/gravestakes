@@ -8,6 +8,8 @@ import 'friends_screen.dart';
 import 'guild_screen.dart';
 import 'leaderboard_screen.dart';
 import 'party_screen.dart';
+import 'spectator_mode.dart';
+import 'match_summary_overlay.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -77,6 +79,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   }
 
   Future<void> _findMatchAndStart(BuildContext context) async {
+    debugPrint('--- CURRENT USER ID: ${supabase.auth.currentUser?.id} ---');
     if (_isSearchingForMatch) return;
     
     setState(() {
@@ -92,7 +95,12 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => Scaffold(
-            body: GameWidget(game: GraveStakesGame(roomId: safeRoomId)),
+            body: GameWidget<GraveStakesGame>(
+              game: GraveStakesGame(roomId: safeRoomId),
+              overlayBuilderMap: {
+                'summary': (BuildContext context, GraveStakesGame game) => MatchSummaryOverlay(game: game),
+              },
+            ),
           ),
         ),
       ).then((_) {
@@ -146,6 +154,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                           children: [
                             Text(_username, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 4),
+                            Text('${supabase.auth.currentUser?.email ?? 'Unknown'}', style: const TextStyle(color: Colors.yellowAccent, fontSize: 12)),
+                            const SizedBox(height: 4),
                             Text('Level $_level', style: const TextStyle(color: Colors.grey, fontSize: 14)),
                           ],
                         ),
@@ -187,6 +197,23 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                     },
                     icon: const Icon(Icons.group, color: Colors.white),
                     label: const Text('SQUAD PARTY', style: TextStyle(color: Colors.white, fontSize: 16)),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      side: const BorderSide(color: Colors.grey),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // NEW: Spectate Matches Button
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const SpectatorLobbyScreen()),
+                      );
+                    },
+                    icon: const Icon(Icons.remove_red_eye, color: Colors.white),
+                    label: const Text('SPECTATE MATCHES', style: TextStyle(color: Colors.white, fontSize: 16)),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       side: const BorderSide(color: Colors.grey),

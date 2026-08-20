@@ -90,7 +90,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
 
     camera.viewfinder.anchor = Anchor.topLeft;
     
-    await FlameAudio.audioCache.load('ElevenLabs_Scary_stinger.mp3');
+    try {
+      await FlameAudio.audioCache.load('ElevenLabs_Scary_stinger.mp3');
+    } catch (e) {
+      debugPrint('Audio load blocked by browser policy: $e');
+    }
 
     // Center the physical player hitbox to match the flashlight:
     camera.viewfinder.anchor = Anchor.center;
@@ -155,6 +159,27 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
 
     camera.viewport.add(ScoreHud());
     camera.viewport.add(gameTimer = GameTimer());
+    // ==========================================
+    // BRANDING: In-Game Logo Watermark
+    // ==========================================
+    try {
+      // Flame automatically looks inside the assets/images/ folder!
+      final logoSprite = await Sprite.load('lumen_breach_small.jpg');
+      
+      final logoComponent = SpriteComponent(
+        sprite: logoSprite,
+        size: Vector2(120, 60), 
+        // 1. Calculate the middle of the X axis, and the very bottom of the Y axis (minus a 20px pad)
+        position: Vector2(camera.viewport.size.x / 2, camera.viewport.size.y - 20), 
+        // 2. Change the anchor so it grows upward from the bottom edge
+        anchor: Anchor.bottomCenter,
+        priority: 200, 
+      );
+      
+      camera.viewport.add(logoComponent);
+    } catch (e) {
+      debugPrint('Failed to load small logo: $e');
+    }
     camera.viewport.add(StartButton());
     camera.viewport.add(AttackButton());
 
@@ -241,21 +266,53 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
       }
     }
 
-    // 3. Reset local player state for the next round
+    // 1. Send the broadcast FIRST so spectators always get it
+    if (isHost) {
+      myChannel.sendBroadcastMessage(
+        event: 'match_control',
+        payload: {'action': 'end'},
+      );
+    }
+
+    // 2. Wrap the overlay in a try/catch to prevent fatal grey screens
+    try {
+      overlays.add('summary');
+    } catch (e) {
+      debugPrint('Failed to load summary overlay. Is it registered in the GameWidget? Error: $e');
+    }
+  }
+
+  // NEW: Called by the Flutter Overlay when the player clicks "CONTINUE"
+  void resetForNextRound() async {
+    overlays.remove('summary'); // Hide the scoreboard
+    
     player.score = 0;
+    for (var remote in networkPlayers.values) {
+      remote.score = 0; 
+    }
     
     // Pick a new safe spawn point for the next round
     List<Vector2> availableSpawns = List.from(baseSpawnPoints)..shuffle();
-    
-    // Run the new round coordinate through the safety check!
     player.position = gameMap.getSafeSpawnLocation(availableSpawns.first, Vector2.all(32.0));
     
-    // 4. Bring the start button back!
+    // Bring the start button back!
     camera.viewport.add(StartButton()); 
     
-    // 5. Tell the HUD to refresh the new totals on the screen!
+    // Tell the HUD to refresh the new totals on the screen!
     final hud = camera.viewport.children.whereType<PlayerHud>().firstOrNull;
     hud?.fetchPlayerData();
+
+    // NEW: Put the room back in "waiting" status for the next round
+    if (isHost) {
+      try {
+        await Supabase.instance.client
+            .from('active_matches')
+            .update({'status': 'waiting'})
+            .eq('id', roomId);
+      } catch (e) {
+        debugPrint('Failed to reset match status: $e');
+      }
+    }
   }
   
   int triggerLocalScare(Vector2 attackerPos, double attackerAngle, bool isPoweredUp) {
@@ -326,12 +383,22 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
   }
 
   // The Start Button calls this to tell everyone to start
-  void broadcastStartGame() {
+  void broadcastStartGame() async {
     myChannel.sendBroadcastMessage(
       event: 'match_control',
       payload: {'action': 'start'},
     );
     triggerLocalStart(); // Start it for ourselves too
+
+    // NEW: Tell the database the match has officially started!
+    try {
+      await Supabase.instance.client
+          .from('active_matches')
+          .update({'status': 'playing'})
+          .eq('id', roomId);
+    } catch (e) {
+      debugPrint('Failed to update match status: $e');
+    }
   }
 
   void _setupSupabaseListener() {
@@ -361,6 +428,18 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
             isHost = true;
             _spawnWorldEntities(); // Spawn bots now that we are officially the host
           }
+          
+          // NEW: The Bouncer Logic. 
+          // The Host forces the database to match the ACTUAL number of connected players.
+          try {
+            Supabase.instance.client
+                .from('active_matches')
+                .update({'player_count': allUsers.length})
+                .eq('id', roomId);
+          } catch (e) {
+            debugPrint('Failed to sync player count: $e');
+          }
+          
         } else {
           isHost = false;
         }
@@ -393,9 +472,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
             final y = payload['y'] as double;
             final angle = payload['a'] as double;
             final colorStr = payload['c'] as String?; 
+            final newScore = payload['s'] as int?; // NEW: Grab the score
 
             // THE TETHER LOGIC FOR CO-OP
-            // If I am the gunner, and the Driver moves, snap my position to their back!
             if (isGunner) {
               final driverBackward = Vector2(sin(angle + pi), -cos(angle + pi));
               player.position.x = x + (driverBackward.x * 20); // 20 pixels behind
@@ -403,7 +482,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
             }
 
             if (networkPlayers.containsKey(id)) {
-              networkPlayers[id]!.updatePosition(x, y, angle, colorStr: colorStr);
+              // NEW: Pass the score to the update method
+              networkPlayers[id]!.updatePosition(x, y, angle, colorStr: colorStr, newScore: newScore);
             }
           }
         },
@@ -539,6 +619,18 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
   @override
   void onRemove() {
     myChannel.unsubscribe();
+    
+    // GUARANTEED CLEANUP: Fires whether they tap the exit button, 
+    // hit the Android back button, or swipe back on iOS!
+    try {
+      Supabase.instance.client.rpc(
+        'leave_match',
+        params: {'p_match_id': roomId}, 
+      );
+    } catch (e) {
+      debugPrint('Failed to clean up match on exit: $e');
+    }
+
     super.onRemove();
   }
 }

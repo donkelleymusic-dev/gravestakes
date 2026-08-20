@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'game.dart';
 import 'login_screen.dart';
 import 'main_menu.dart';
+import 'splash_screen.dart'; // Make sure this is here!
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,9 +25,9 @@ class GraveStakesApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Grave Stakes',
+      title: 'Lumen Breach', // Updated the name here
       theme: ThemeData.dark(),
-      home: const AuthGatekeeper(), // Start at the gatekeeper!
+      home: const SplashScreen(), // CHANGED: We now start at the Splash Screen!
     );
   }
 }
@@ -53,7 +54,7 @@ class _AuthGatekeeperState extends State<AuthGatekeeper> {
         
         // If they have a session, boot up the Main Menu!
         if (session != null) {
-          return const MainMenuScreen(); // <-- CHANGED THIS LINE
+          return const MainMenuScreen();
         }
         
         // Otherwise, show the Login UI

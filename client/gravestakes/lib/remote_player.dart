@@ -17,6 +17,8 @@ class RemotePlayer extends PositionComponent {
   bool isStunned = false;
   double stunTimer = 0;
   double localImmunityToMe = 0;
+  
+  int score = 0; // NEW: Track their score locally!
 
   RemotePlayer() : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
@@ -29,7 +31,8 @@ class RemotePlayer extends PositionComponent {
     add(_sprite);
   }
 
-  void updatePosition(double newX, double newY, double newAngle, {String? colorStr}) {
+  // NEW: Added {int? newScore} to the parameters
+  void updatePosition(double newX, double newY, double newAngle, {String? colorStr, int? newScore}) {
     position.x = newX;
     position.y = newY;
     angle = newAngle;
@@ -37,6 +40,11 @@ class RemotePlayer extends PositionComponent {
     if (colorStr != null && colorStr != currentColorStr) {
       currentColorStr = colorStr;
       _updateBaseColor(colorStr);
+    }
+    
+    // NEW: Update their score if the payload included it
+    if (newScore != null) {
+      score = newScore;
     }
   }
 

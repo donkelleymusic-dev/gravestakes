@@ -38,6 +38,7 @@ dependencies:
   flame_audio: any
   supabase_flutter: ^2.17.2
   flame_tiled: ^3.1.2
+  flutter_native_splash: ^2.4.8
 
 dev_dependencies:
   flutter_test:
@@ -94,3 +95,17 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+flutter_native_splash:
+  # The background color of your loading screen
+  color: "#000000"
+  
+  # The path to your large logo
+  image: "assets/images/lumen_breach.png"
+  
+  # Keep the splash screen on until we manually turn it off in the code
+  fullscreen: true
+  
+  # Generate for all platforms
+  android: true
+  ios: true
+  web: true

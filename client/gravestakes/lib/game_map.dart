@@ -2,8 +2,9 @@ import 'dart:math';
 import 'package:flame/components.dart';
 import 'package:flame_tiled/flame_tiled.dart';
 import 'package:flutter/material.dart' hide Image;
+import 'package:flame/game.dart';
 
-class GameMap extends Component {
+class GameMap extends Component with HasGameReference<FlameGame> {
   final String roomId;
   late TiledComponent tiledMap;
   final List<Rect> obstacles = [];

@@ -27,4 +27,4 @@ class ScoreHud extends TextComponent with HasGameReference<GraveStakesGame> {
     // Safely grab the score from the player
     text = 'SOULS COLLECTED: ${game.player.score}';
   }
-}
+}//ElevenLabs_Impact.mp3

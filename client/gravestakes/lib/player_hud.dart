@@ -5,21 +5,20 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'game.dart';
 
-// 1. Create a custom tappable component
-class ExitButton extends TextComponent with TapCallbacks, HasGameReference<GraveStakesGame> {
-  ExitButton() : super(
-    text: '[ EXIT MATCH ]',
-    textRenderer: TextPaint(style: const TextStyle(color: Colors.grey, fontSize: 14)),
-    position: Vector2(0, 50),
-  );
+class ExitButton extends TextComponent with TapCallbacks, HasGameReference<GraveStakesGame> { 
+  ExitButton() : super( 
+    text: '[ EXIT MATCH ]', 
+    textRenderer: TextPaint(style: const TextStyle(color: Colors.grey, fontSize: 14)), 
+    position: Vector2(0, 50), 
+  ); 
 
-  @override
-  void onTapDown(TapDownEvent event) {
-    // This pops the Flame Game engine off the screen and returns to the Main Menu!
-    if (game.buildContext != null) {
-      Navigator.of(game.buildContext!).pop();
-    }
-  }
+  @override 
+  void onTapDown(TapDownEvent event) { 
+    // This pops the Flame Game engine off the screen and returns to the Main Menu! 
+    if (game.buildContext != null) { 
+      Navigator.of(game.buildContext!).pop(); 
+    } 
+  } 
 }
 
 class PlayerHud extends PositionComponent with HasGameReference<GraveStakesGame> {
