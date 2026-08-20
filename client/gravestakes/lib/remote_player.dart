@@ -1,8 +1,10 @@
 import 'dart:math';
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_soloud/flutter_soloud.dart'; // NEW
+import 'game.dart'; // NEW
 
-class RemotePlayer extends PositionComponent {
+class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
   String currentColorStr = 'red';
   late RectangleComponent _sprite;
   Color _baseColor = Colors.redAccent;
@@ -18,7 +20,40 @@ class RemotePlayer extends PositionComponent {
   double stunTimer = 0;
   double localImmunityToMe = 0;
   
-  int score = 0; // NEW: Track their score locally!
+  int score = 0; // Track their score locally!
+
+  // ==========================================
+  // NEW: REMOTE FOOTSTEP VARIABLES
+  // ==========================================
+  double _distanceAccumulator = 0.0;
+  static const double _audioScale = 50.0;
+  final Random _random = Random();
+
+  void _playSpatialFootstep() {
+    if (!game.isAudioReady || game.footstepSource == null) return;
+
+    final distance = (position - game.player.position).length;
+    if (distance > 1000.0) return;
+
+    // Map Flame X/Y to SoLoud X/Z
+    final posX = position.x / _audioScale;
+    final posZ = position.y / _audioScale; 
+
+    final randomPitch = 0.85 + (_random.nextDouble() * 0.30);
+
+    // Play on the X/Z plane (Y elevation is 0.0)
+    final handle = SoLoud.instance.play3d(
+      game.footstepSource!,
+      posX,
+      0.0,   // Elevation must be 0!
+      posZ,  // Passing Flame's Y axis into the Z depth slot
+      volume: 0.85,
+    );
+
+    SoLoud.instance.setRelativePlaySpeed(handle, randomPitch);
+    SoLoud.instance.set3dSourceMinMaxDistance(handle, 2.0, 20.0);
+    SoLoud.instance.set3dSourceAttenuation(handle, 1, 1.2);
+  }
 
   RemotePlayer() : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
@@ -33,6 +68,10 @@ class RemotePlayer extends PositionComponent {
 
   // NEW: Added {int? newScore} to the parameters
   void updatePosition(double newX, double newY, double newAngle, {String? colorStr, int? newScore}) {
+    // NEW: Accumulate distance BEFORE changing position
+    final newPos = Vector2(newX, newY);
+    _distanceAccumulator += position.distanceTo(newPos);
+
     position.x = newX;
     position.y = newY;
     angle = newAngle;
@@ -42,7 +81,6 @@ class RemotePlayer extends PositionComponent {
       _updateBaseColor(colorStr);
     }
     
-    // NEW: Update their score if the payload included it
     if (newScore != null) {
       score = newScore;
     }
@@ -74,7 +112,17 @@ class RemotePlayer extends PositionComponent {
       localImmunityToMe -= dt;
     }
 
-    // NEW: Highlight timer countdown
+    // ==========================================
+    // REMOTE FOOTSTEP TRIGGER
+    // ==========================================
+    // If they move ~85 pixels (one stride length), play a step!
+    if (!isStunned && _distanceAccumulator >= 85.0) {
+      _distanceAccumulator = 0.0; 
+      _playSpatialFootstep();
+    }
+    // ==========================================
+
+    // Highlight timer countdown
     if (highlightTimer > 0) {
       highlightTimer -= dt;
       if (highlightTimer <= 0 && !isStunned) {

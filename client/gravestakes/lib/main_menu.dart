@@ -27,6 +27,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   int _stakes = 0;
   bool _isLoading = true;
   bool _isSearchingForMatch = false;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -36,7 +37,16 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
   Future<void> _fetchPlayerData() async {
     final user = supabase.auth.currentUser;
-    if (user == null) return;
+    
+    if (user == null) {
+      _logout();
+      return; 
+    }
+
+    if (mounted) setState(() {
+      _isLoading = true;
+      _errorMessage = null; // Clear any previous errors
+    });
 
     int maxRetries = 3;
 
@@ -57,23 +67,37 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           });
         }
         
-        break; 
+        return; // Success! Exit the function.
 
       } on PostgrestException catch (e) {
         if (e.code == 'PGRST303' && i < maxRetries - 1) {
-          debugPrint('Supabase clock drift detected (Attempt ${i + 1}). Waiting 500ms and retrying...');
           await Future.delayed(const Duration(milliseconds: 500));
           continue; 
         }
         
-        debugPrint('Database error: ${e.message}');
-        if (mounted) setState(() => _isLoading = false); 
-        break;
+        // AUTH ERRORS ONLY: 401 (Unauthorized), 403 (Forbidden), 301 (JWT Expired), 116 (0 Rows/RLS Blocked)
+        if (e.code == '401' || e.code == '403' || e.code == 'PGRST301' || e.code == 'PGRST116') {
+          debugPrint('Auth failure (${e.code}). Forcing logout...');
+          _logout();
+          return;
+        }
+        
+        // NETWORK/DATABASE ERRORS: Don't log them out, just show the retry screen!
+        if (mounted) setState(() {
+          _errorMessage = 'Server connection lost. (${e.code})';
+          _isLoading = false;
+        });
+        return;
         
       } catch (e) {
-        debugPrint('Error fetching menu data: $e');
-        if (mounted) setState(() => _isLoading = false);
-        break;
+        // TIMEOUTS & WIFI DROPS: Show the retry screen!
+        if (mounted) {
+          setState(() {
+            _errorMessage = 'Network error. Please check your connection.';
+            _isLoading = false;
+          });
+        }
+        return;
       }
     }
   }
@@ -87,16 +111,25 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     });
 
     try {
+      // 1. CAPTURE THE USER GESTURE IMMEDIATELY
+      // Create the game instance and init audio BEFORE any network delays!
+      final gameInstance = GraveStakesGame();
+      await gameInstance.initAudioEngine();
+
+      // 2. NOW perform the network request for matchmaking
       final response = await supabase.rpc('find_or_create_match');
-      final String safeRoomId = response as String;
+      
+      // 3. Inject the real room ID into the game before it renders
+      gameInstance.roomId = response as String;
 
       if (!context.mounted) return;
 
+      // 4. Push the fully prepared game to the screen
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => Scaffold(
             body: GameWidget<GraveStakesGame>(
-              game: GraveStakesGame(roomId: safeRoomId),
+              game: gameInstance,
               overlayBuilderMap: {
                 'summary': (BuildContext context, GraveStakesGame game) => MatchSummaryOverlay(game: game),
               },
@@ -106,13 +139,38 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       ).then((_) {
         _fetchPlayerData();
       });
+      
+    // 1. CATCH DATABASE/TOKEN ERRORS FIRST
+    } on PostgrestException catch (e) {
+      if (e.code == 'PGRST301' || e.code == '401' || e.code == 'PGRST116' || e.code == '42501') {
+          debugPrint('Stale token or RLS block detected (${e.code}). Forcing logout...');
+          _logout();
+          return;
+        }
+      
+      debugPrint('Matchmaking database error: ${e.message}');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Database error. Try again!')),
+        );
+      }
+      
+    // 2. CATCH EVERYTHING ELSE
     } catch (e) {
+      if (e is AuthException) {
+        debugPrint('Auth exception during matchmaking. Forcing logout...');
+        _logout();
+        return; 
+      }
+      
       debugPrint('Matchmaking failed: $e');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to find a match. Try again!')),
         );
       }
+      
+    // 3. ALWAYS UNLOCK THE BUTTON
     } finally {
       if (mounted) {
         setState(() {
@@ -132,13 +190,36 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       backgroundColor: Colors.black,
       body: _isLoading 
         ? const Center(child: CircularProgressIndicator(color: Colors.red))
+        // NEW: If there is a network error, show the Retry UI instead of the menu
+        : _errorMessage != null
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.wifi_off, color: Colors.redAccent, size: 48),
+                    const SizedBox(height: 16),
+                    Text(_errorMessage!, style: const TextStyle(color: Colors.white, fontSize: 16)),
+                    const SizedBox(height: 24),
+                    ElevatedButton.icon(
+                      onPressed: _fetchPlayerData,
+                      icon: const Icon(Icons.refresh, color: Colors.white),
+                      label: const Text('RETRY CONNECTION', style: TextStyle(color: Colors.white)),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800]),
+                    ),
+                    const SizedBox(height: 24),
+                    TextButton(
+                      onPressed: _logout,
+                      child: const Text('LOGOUT', style: TextStyle(color: Colors.grey)),
+                    ),
+                  ],
+                ),
+              )
         : SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // TOP BAR: Player Stats
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -173,7 +254,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   
                   const SizedBox(height: 32),
 
-                  // CENTER: Matchmaking & Party Buttons
                   ElevatedButton(
                     onPressed: () => _findMatchAndStart(context),
                     style: ElevatedButton.styleFrom(
@@ -205,7 +285,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // NEW: Spectate Matches Button
                   OutlinedButton.icon(
                     onPressed: () {
                       Navigator.of(context).push(
@@ -225,7 +304,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   const Text('COMMUNITY & MANAGEMENT', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
                   const SizedBox(height: 12),
 
-                  // VERTICAL STACKED NAVIGATION BUTTONS
                   _buildMenuButton(
                     icon: Icons.store,
                     label: 'THE BLACK MARKET',
@@ -278,7 +356,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
                   const SizedBox(height: 32),
 
-                  // BOTTOM: Logout
                   TextButton(
                     onPressed: _logout,
                     child: const Text('LOGOUT', style: TextStyle(color: Colors.grey)),

@@ -3,7 +3,8 @@ import 'package:flame/palette.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flame_audio/flame_audio.dart';
+//import 'package:flame_audio/flame_audio.dart';
+import 'package:flutter_soloud/flutter_soloud.dart';
 import 'dart:math';
 import 'game.dart';
 import 'floating_text.dart';
@@ -39,6 +40,27 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   Color _baseColor = Colors.redAccent; 
 
   double highlightTimer = 0;
+
+  // ==========================================
+  // LOCAL FOOTSTEP VARIABLES
+  // ==========================================
+  double _footstepTimer = 0.0;
+  final Random _random = Random();
+
+  void _playLocalFootstep() {
+    if (!game.isAudioReady || game.footstepSource == null) return;
+    
+    // Humanize the step
+    final randomPitch = 0.85 + (_random.nextDouble() * 0.30);
+    
+    // Play 2D sound (no 3D math) so your own steps are perfectly centered
+    final handle = SoLoud.instance.play(
+      game.footstepSource!,
+      volume: 0.5, // Quieter than bots/remotes so you can still hear threats!
+    );
+    
+    SoLoud.instance.setRelativePlaySpeed(handle, randomPitch);
+  }
 
   void triggerPrivateHighlight() {
     highlightTimer = 1.0; 
@@ -108,8 +130,11 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       }
     }
 
-    FlameAudio.play('ElevenLabs_Scary_stinger.mp3');
+    //FlameAudio.play('ElevenLabs_Scary_stinger.mp3');
     
+    if (game.isAudioReady && game.scareSource != null) {
+      SoLoud.instance.play(game.scareSource!);
+    }
     // NEW: Spawn the visual cone blast to the world!
     game.world.add(ScareBlast(position: position, angle: angle - (pi / 2)));
     
@@ -189,8 +214,13 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         if (position.distanceTo(comp.position) < 30) {
           powerUpTimer = 10.0; 
           try {
-            FlameAudio.play('ElevenLabs_Scary_stinger.mp3');
-          } catch (_) {}
+            // SOLOUD REPLACEMENT: Play the sound when picking up the orb
+            if (game.isAudioReady && game.powerupSource != null) {
+              SoLoud.instance.play(game.powerupSource!);
+            }
+          } catch (e) {
+            debugPrint('Failed to play powerup sound: $e');
+          }
           
           powerUpsToRemove.add(comp);
           
@@ -256,14 +286,15 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       }
 
       if (!movementDelta.isZero()) {
-        // If we aren't using the aiming stick, auto-face the direction we are walking
         if (rightJoystick.delta.isZero()) {
           angle = movementDelta.screenAngle();
         }
 
-        // Base speed is 200. Surged speed is 280.
         double currentSpeed = isPoweredUp ? 280.0 : maxSpeed;
         final potentialPosition = position + (movementDelta * currentSpeed * dt);
+
+        // 1. Snapshot exactly where we are BEFORE hitting the walls
+        final oldPosition = position.clone();
 
         if (!game.gameMap.checkCollision(Vector2(potentialPosition.x, position.y), size)) {
           position.x = potentialPosition.x;
@@ -271,6 +302,29 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         if (!game.gameMap.checkCollision(Vector2(position.x, potentialPosition.y), size)) {
           position.y = potentialPosition.y;
         }
+
+        // ==========================================
+        // NEW: PHYSICS-BASED LOCAL FOOTSTEPS
+        // ==========================================
+        // 2. Calculate true velocity based on physical pixels moved this frame
+        double actualVelocity = position.distanceTo(oldPosition) / dt; 
+
+        if (actualVelocity > 5.0) {
+           // Base interval of 0.40s scales with physical momentum
+           double dynamicInterval = 0.40 * (200.0 / actualVelocity);
+           dynamicInterval += (_random.nextDouble() * 0.1) - 0.05; 
+           
+           _footstepTimer += dt;
+           if (_footstepTimer >= dynamicInterval) {
+             _footstepTimer = 0.0;
+             _playLocalFootstep();
+           }
+        } else {
+          // If jammed against a wall, true velocity is 0. Mute the footsteps!
+          _footstepTimer = 0.0; 
+        }
+      } else {
+        _footstepTimer = 0.0; 
       }
     }
 

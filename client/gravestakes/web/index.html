@@ -1,4 +1,10 @@
-<!DOCTYPE html><html><head>
+<?php
+header("Cross-Origin-Opener-Policy: same-origin");
+header("Cross-Origin-Embedder-Policy: require-corp");
+?>
+<!DOCTYPE html>
+<html>
+  <head>
   <!--
     If you are serving your web app in a path other than the root, change the
     href value below to reflect the base path you are serving from.
@@ -14,6 +20,7 @@
   -->
   <base href="$FLUTTER_BASE_HREF">
 
+  <script src="coi-serviceworker.js"></script>
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="A new Flutter project.">
@@ -94,6 +101,8 @@
       document.body.style.background = "transparent";
     }
   </script>
+  <script src="assets/packages/flutter_soloud/web/libflutter_soloud_plugin.js" defer></script>
+  <script src="assets/packages/flutter_soloud/web/init_module.dart.js" defer></script>
 </head>
 <body style="background-color: #000000; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh;">
   <picture id="splash">
@@ -101,7 +110,8 @@
       <source srcset="splash/img/dark-1x.png 1x, splash/img/dark-2x.png 2x, splash/img/dark-3x.png 3x, splash/img/dark-4x.png 4x" media="(prefers-color-scheme: dark)">
       <img class="center" aria-hidden="true" src="splash/img/light-1x.png" alt="">
   </picture>
-  
+  <script src="assets/packages/flutter_soloud/web/init_module.dart.js" defer></script>
+  <!--script src="assets/packages/flutter_soloud/web/init_module.js"></script-->
   <!-- This image shows instantly -->
   <!--img src="lumen_breach.png" alt="Lumen Breach Loading..." style="max-width: 80%; max-height: 80%; object-fit: contain;"-->
 

@@ -5,9 +5,9 @@ import 'package:flame/game.dart';
 import 'package:flame/palette.dart';
 import 'package:flutter/painting.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_soloud/flutter_soloud.dart';
 import 'player.dart';
 import 'remote_player.dart';
 import 'bot_player.dart'; 
@@ -25,10 +25,18 @@ import 'tutorial_manager.dart';
 import 'power_up.dart';
 import 'power_up_hud.dart';
 
+// ... (keep your imports at the top)
+
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
   // Optional room ID so party members can queue into a shared private room
-  final String roomId;
+  String roomId;
   final bool isGunner;
+  
+  // 1. Make sources nullable and add a status flag
+  AudioSource? scareSource;
+  AudioSource? footstepSource;
+  AudioSource? powerupSource;
+  bool isAudioReady = false;
   
   GraveStakesGame({this.roomId = 'public_match', this.isGunner = false});
 
@@ -39,29 +47,48 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
   // true multiplayer, with switchable host control rather than central api
   late final String mySessionId; 
   bool isHost = false; 
-  Map<String, RemotePlayer> networkPlayers = {}; // Tracks all other players in the room
+  Map<String, RemotePlayer> networkPlayers = {}; 
 
   late final JumpScareEffect jumpScareEffect;
-  late final GameMap gameMap; // Map reference
+  late final GameMap gameMap; 
 
   late final GameTimer gameTimer;
   late final ScoreHud scoreHud;
   bool gameStarted = false;
-  int myPlayerLevel = 1; // Defaults to 1 until fetched
+  int myPlayerLevel = 1; 
   
   final List<BotPlayer> bots = [];
   late final RealtimeChannel myChannel;
 
   final List<Vector2> baseSpawnPoints = [
-    Vector2(150, 150),     // Top-Left Corner
-    Vector2(1770, 1770),   // Bottom-Right Corner
-    Vector2(1770, 150),    // Top-Right Corner
-    Vector2(150, 1770),    // Bottom-Left Corner
-    Vector2(960, 150),     // Top-Middle
-    Vector2(960, 1770),    // Bottom-Middle
-    Vector2(150, 960),     // Left-Middle
-    Vector2(1770, 960),    // Right-Middle
+    Vector2(150, 150),     
+    Vector2(1770, 1770),   
+    Vector2(1770, 150),    
+    Vector2(150, 1770),    
+    Vector2(960, 150),     
+    Vector2(960, 1770),    
+    Vector2(150, 960),     
+    Vector2(1770, 960),    
   ];
+
+  // ==========================================
+  // NEW: Dedicated Audio Init Method
+  // ==========================================
+  Future<void> initAudioEngine() async {
+    if (isAudioReady) return;
+
+    try {
+      await SoLoud.instance.init();      
+      scareSource = await SoLoud.instance.loadAsset('assets/audio/ElevenLabs_Impact.mp3');
+      footstepSource = await SoLoud.instance.loadAsset('assets/audio/footstep.mp3'); 
+      powerupSource = await SoLoud.instance.loadAsset('assets/audio/ElevenLabs_Scary_stinger.mp3');
+      isAudioReady = true; 
+      debugPrint('SoLoud Web Audio engine initialized successfully!');
+    } catch (e) {
+      debugPrint('AUDIO INIT FAILED: $e');
+      isAudioReady = false;
+    }
+  }
 
   @override
   Future<void> onLoad() async {
@@ -70,6 +97,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
     final user = Supabase.instance.client.auth.currentUser;
     // Check if player needs the tutorial
     bool needsTutorial = false;
+    
+    // NOTE: Removed the try/catch block for SoLoud from here!
+
     if (user != null) {
       try {
         final profileRes = await Supabase.instance.client
@@ -83,19 +113,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
           myPlayerLevel = profileRes['level'] as int? ?? 1;
         }
       } catch (e) {
-        debugPrint('Error fetching profile data: `e`');
+        debugPrint('Error fetching profile data: $e'); // Fixed the backticks to a $ variable
       }
     }
+    
+    // ... [KEEP ALL THE REST OF YOUR onLoad LOGIC EXACTLY AS IT WAS] ...
+    
     myChannel = Supabase.instance.client.channel('room_$roomId');
 
     camera.viewfinder.anchor = Anchor.topLeft;
     
-    try {
-      await FlameAudio.audioCache.load('ElevenLabs_Scary_stinger.mp3');
-    } catch (e) {
-      debugPrint('Audio load blocked by browser policy: $e');
-    }
-
     // Center the physical player hitbox to match the flashlight:
     camera.viewfinder.anchor = Anchor.center;
 
@@ -206,12 +233,68 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
     _setupSupabaseListener();
   }
 
+  @override
+  void update(double dt) {
+    super.update(dt);
+    if (!gameStarted) return; 
+
+    // 3. Only calculate spatial DSP if the engine is alive!
+    if (isAudioReady) {
+      const double audioScale = 50.0; 
+      
+      // 1. Put listener on the 3D floor (Y elevation is 0.0, Z is Flame's Y)
+      SoLoud.instance.set3dListenerPosition(
+        player.position.x / audioScale, 
+        0.0, 
+        player.position.y / audioScale, 
+      );
+      
+      // 2. Ears point exactly where the character is facing/traveling
+      final forwardX = sin(player.angle);
+      final forwardZ = -cos(player.angle);
+      SoLoud.instance.set3dListenerAt(forwardX, 0.0, forwardZ);
+
+      // 3. Top of the head points to the sky
+      SoLoud.instance.set3dListenerUp(0.0, 1.0, 0.0);
+    }
+  }
+
+  @override
+  void onRemove() {
+    myChannel.unsubscribe();
+    
+    // Turn off the C++ DSP engine to prevent memory leaks!
+    // 4. Only deinit if it was active
+    if (isAudioReady) {
+      SoLoud.instance.deinit(); 
+    }
+    
+    // GUARANTEED CLEANUP: Fires whether they tap the exit button, 
+    // hit the Android back button, or swipe back on iOS!
+    try {
+      Supabase.instance.client.rpc(
+        'leave_match',
+        params: {'p_match_id': roomId}, 
+      );
+    } catch (e) {
+      debugPrint('Failed to clean up match on exit: $e');
+    }
+
+    super.onRemove();
+  }
+
   // Method to safely spawn bots called by the Host once elected
   void _spawnWorldEntities() {
     if (bots.isNotEmpty) return; 
     
     final config = LevelManager.getConfigForLevel(myPlayerLevel);
     List<Vector2> availableSpawns = List.from(baseSpawnPoints)..shuffle();
+      
+    // ==========================================
+    // NEW: PREVENT SPAWN KILLING
+    // Remove any spawn points within 300 pixels of the host
+    // ==========================================
+    availableSpawns.removeWhere((spawn) => spawn.distanceTo(player.position) < 300.0);
       
     // 1. Spawn Bots
     for (int i = 0; i < config.botCount; i++) {
@@ -498,7 +581,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
             remote.position.y = payload['y'] as double;
             remote.angle = payload['a'] as double;
             
-            FlameAudio.play('ElevenLabs_Scary_stinger.mp3');
+            //FlameAudio.play('ElevenLabs_Scary_stinger.mp3');
+            // 5. Only play if audio is ready
+            if (isAudioReady && scareSource != null) {
+              SoLoud.instance.play(scareSource!);
+            }
             // CHANGE THIS LINE to include the 90-degree visual offset:
             world.add(ScareBlast(position: remote.position, angle: remote.angle - (pi / 2)));
           }
@@ -616,21 +703,4 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
       });
   }
 
-  @override
-  void onRemove() {
-    myChannel.unsubscribe();
-    
-    // GUARANTEED CLEANUP: Fires whether they tap the exit button, 
-    // hit the Android back button, or swipe back on iOS!
-    try {
-      Supabase.instance.client.rpc(
-        'leave_match',
-        params: {'p_match_id': roomId}, 
-      );
-    } catch (e) {
-      debugPrint('Failed to clean up match on exit: $e');
-    }
-
-    super.onRemove();
-  }
 }

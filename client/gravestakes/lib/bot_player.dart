@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_soloud/flutter_soloud.dart';
 import 'game.dart';
 import 'scare_blast.dart';
 
@@ -10,6 +11,10 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   double wanderSpeed = 80.0;
   double huntSpeed = 130.0; 
   
+  double _footstepTimer = 0.0;
+  final double _stepInterval = 0.45; // Step cadence in seconds
+  final double _audioScale = 50.0;   // Must match game.dart
+
   BotState currentState = BotState.wander;
   PositionComponent? currentTarget;
 
@@ -36,6 +41,32 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     _sprite.paint.color = Colors.white; 
   }
 
+  void _playSpatialFootstep() {
+    if (!game.isAudioReady || game.footstepSource == null) return;
+
+    final distance = (position - game.player.position).length;
+    if (distance > 1000.0) return;
+
+    // Map Flame X/Y to SoLoud X/Z
+    final posX = position.x / _audioScale;
+    final posZ = position.y / _audioScale; 
+
+    final randomPitch = 0.85 + (_random.nextDouble() * 0.30);
+
+    // Play on the X/Z plane (Y elevation is 0.0)
+    final handle = SoLoud.instance.play3d(
+      game.footstepSource!,
+      posX,
+      0.0,   // Elevation must be 0!
+      posZ,  // Passing Flame's Y axis into the Z depth slot
+      volume: 0.85,
+    );
+
+    SoLoud.instance.setRelativePlaySpeed(handle, randomPitch);
+    SoLoud.instance.set3dSourceMinMaxDistance(handle, 2.0, 20.0);
+    SoLoud.instance.set3dSourceAttenuation(handle, 1, 1.2);
+  }
+  
   BotPlayer() : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
   // NEW: Determines if a target is within the bot's forward-facing vision cone
@@ -187,6 +218,9 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
     final potentialPosition = position + (movementDelta * currentSpeed * dt);
 
+    // 1. Snapshot the bot's position before the wall checks
+    final oldPosition = position.clone();
+
     final testX = Vector2(potentialPosition.x, position.y);
     if (!game.gameMap.checkCollision(testX, size)) {
       position.x = potentialPosition.x;
@@ -262,6 +296,32 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         }
       }
     }
+
+    // ==========================================
+    // NEW: DYNAMIC SPATIAL FOOTSTEP TRIGGER
+    // ==========================================
+    if (currentState == BotState.hunt || currentState == BotState.wander) {
+      
+      // 2. Calculate the bot's true physical velocity
+      double actualVelocity = position.distanceTo(oldPosition) / dt;
+
+      // Only step if they physically covered ground!
+      if (actualVelocity > 5.0) {
+        double dynamicInterval = 0.45 * (wanderSpeed / actualVelocity);
+        dynamicInterval += (_random.nextDouble() * 0.1) - 0.05;
+
+        _footstepTimer += dt;
+        if (_footstepTimer >= dynamicInterval) {
+          _footstepTimer = 0.0;
+          _playSpatialFootstep();
+        }
+      } else {
+        _footstepTimer = 0.0;
+      }
+    } else {
+      _footstepTimer = 0.0;
+    }
+    // ==========================================
 
     // --- NETWORK BROADCAST ---
     networkTick += dt;
