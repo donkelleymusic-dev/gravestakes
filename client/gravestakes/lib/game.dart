@@ -244,14 +244,26 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
 
     if (isAudioReady) {
       const double audioScale = 50.0; 
-      SoLoud.instance.set3dListenerPosition(
-        player.position.x / audioScale, 0.0, player.position.y / audioScale, 
-      );
       
-      final forwardX = sin(player.angle);
-      final forwardZ = -cos(player.angle);
-      SoLoud.instance.set3dListenerAt(forwardX, 0.0, forwardZ);
-      SoLoud.instance.set3dListenerUp(0.0, 1.0, 0.0);
+      // 1. Place listener at the player's world position (scaled down to meters)
+      final pX = player.position.x / audioScale;
+      final pY = player.position.y / audioScale;
+      
+      SoLoud.instance.set3dListenerPosition(pX, pY, 0.0);
+      
+      // 2. Calculate the exact forward vector based on your flashlight angle.
+      // Since player.angle rotates your flashlight, this points where you are looking.
+      // NEGATE FORWARD X to flip Left and Right relative to your flashlight
+      final forwardX = -sin(player.angle);
+      final forwardY = -cos(player.angle);
+      
+      SoLoud.instance.set3dListenerAt(forwardX, forwardY, 0.0);
+
+      // 3. Set the 'Up' vector. 
+      // To keep stereo panning locked to your shoulders while looking around a 2D plane,
+      // the top of your head points "out of the screen" at you (Z = 1.0 or -1.0 depending on handedness).
+      // Let's explicitly set the orthogonal 'Up' so left is left and right is right of your flashlight:
+      SoLoud.instance.set3dListenerUp(0.0, 0.0, 1.0);
     }
 
     // ==========================================
@@ -660,6 +672,14 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
             jumpScareEffect.trigger();
             player.applyStun(duration);
             player.triggerPrivateHighlight();
+
+            // ==========================================
+            // FIX: PLAY THE SCARE SOUND EFFECT HERE!
+            // ==========================================
+            if (isAudioReady && scareSource != null) {
+              SoLoud.instance.play(scareSource!);
+            }
+            // ==========================================
             
             // NEW: Find the remote player who hit me and light them up locally!
             if (attackerId != null && networkPlayers.containsKey(attackerId)) {

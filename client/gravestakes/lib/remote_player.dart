@@ -39,16 +39,17 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
 
     // Map Flame X/Y to SoLoud X/Z
     final posX = position.x / _audioScale;
-    final posZ = position.y / _audioScale; 
+    //final posZ = position.y / _audioScale; 
 
     final randomPitch = 0.85 + (_random.nextDouble() * 0.30);
 
-    // Play on the X/Z plane (Y elevation is 0.0)
+    final posY = position.y / _audioScale;
+
     final handle = SoLoud.instance.play3d(
       game.footstepSource!,
       posX,
-      0.0,   // Elevation must be 0!
-      posZ,  // Passing Flame's Y axis into the Z depth slot
+      posY, // Native Flame Y
+      0.0,   // Z elevation
       volume: 0.85,
     );
 

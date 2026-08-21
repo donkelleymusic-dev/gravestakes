@@ -44,15 +44,18 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     if (distance > 1000.0) return;
 
     final posX = position.x / _audioScale;
-    final posZ = position.y / _audioScale; 
+    //final posZ = position.y / _audioScale; 
 
     final randomPitch = 0.85 + (_random.nextDouble() * 0.30);
+
+    //final posX = position.x / _audioScale;
+    final posY = position.y / _audioScale;
 
     final handle = SoLoud.instance.play3d(
       game.footstepSource!,
       posX,
-      0.0,   
-      posZ,  
+      posY, // Native Flame Y
+      0.0,   // Z elevation
       volume: 0.85,
     );
 
