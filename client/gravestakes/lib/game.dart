@@ -369,6 +369,18 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
       }
     }
 
+    // NEW: Officially close the match in the database so Spectators stop seeing it!
+    if (isHost) {
+      try {
+        await Supabase.instance.client
+            .from('active_matches')
+            .update({'status': 'ended'})
+            .eq('id', roomId);
+      } catch (e) {
+        debugPrint('Failed to mark match as ended: $e');
+      }
+    }
+
     // 1. Send the broadcast FIRST so spectators always get it
     if (isHost) {
       myChannel.sendBroadcastMessage(
@@ -528,8 +540,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
           }
         }
 
-        // 2. Sort by join time to find the "Eldest"
-        allUsers.sort((a, b) => (a['joined_at'] as String).compareTo(b['joined_at'] as String));
+        // 2. Sort alphabetically by user ID to guarantee 100% deterministic Host election across all devices!
+        allUsers.sort((a, b) => (a['id'] as String).compareTo(b['id'] as String));
 
         // 3. Crown the Host & Spawn Bots!
         if (allUsers.isNotEmpty && allUsers.first['id'] == mySessionId) {
