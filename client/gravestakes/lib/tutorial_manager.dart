@@ -131,7 +131,7 @@ class TutorialManager extends Component with HasGameReference<GraveStakesGame> {
         instruction = 'STEP 4/4: Walk over the glowing Ectoplasm Spark!';
         break;
       case TutorialStep.completed:
-        instruction = 'TUTORIAL COMPLETE! Welcome to Grave Stakes.';
+        instruction = 'TUTORIAL COMPLETE! Welcome to LUMEN BREACH.';
         break;
     }
 

@@ -1,6 +1,11 @@
 import 'dart:math';
+import 'dart:ui';
+import 'package:http/http.dart' as http; // NEW
 import 'package:flame/components.dart';
+import 'package:flame/flame.dart'; // NEW
 import 'package:flame_tiled/flame_tiled.dart';
+import 'package:tiled/tiled.dart'; // NEW
+import 'package:supabase_flutter/supabase_flutter.dart'; // NEW
 import 'package:flutter/material.dart' hide Image;
 import 'package:flame/game.dart';
 
@@ -10,45 +15,110 @@ class GameMap extends Component with HasGameReference<FlameGame> {
   final List<Rect> obstacles = [];
   final List<Rect> safeZones = [];
 
+  // ==========================================
+  // STATIC MEMORY CACHE (Survives between matches!)
+  // ==========================================
+  static String? cachedMapId;
+  static String? cachedUpdatedAt;
+  static String? cachedTmxString;
+  static double? cachedTileSize;
+
   GameMap({required this.roomId});
 
   @override
   Future<void> onLoad() async {
     priority = 0;
     
-    // 1. Load the Map
-    tiledMap = await TiledComponent.load(
-      'samplemap_don.tmx', 
-      Vector2.all(32.0),
-      atlasMaxX: 8192, 
-      atlasMaxY: 8192
+    debugPrint('Checking for map updates...');
+    
+    // 1. THE LIGHTWEIGHT PING: Only ask for the ID and Timestamp
+    final versionCheck = await Supabase.instance.client
+        .from('maps')
+        .select('id, updated_at')
+        .eq('is_active', true)
+        .limit(1)
+        .single();
+
+    final activeMapId = versionCheck['id'] as String;
+    final activeUpdatedAt = versionCheck['updated_at'] as String;
+
+    // 2. THE CACHE CHECK (Zero Timezone Math Required!)
+    if (cachedMapId == activeMapId && cachedUpdatedAt == activeUpdatedAt && cachedTmxString != null) {
+      debugPrint('Map is up to date! Loading from fast memory cache...');
+      // We do NOT need to download anything or touch Flame.images, they are already there!
+    } else {
+      debugPrint('New map version detected! Downloading full payload...');
+      
+      // 3. THE HEAVY DOWNLOAD
+      final fullMapData = await Supabase.instance.client
+          .from('maps')
+          .select('tmx_data, map_assets, tile_size')
+          .eq('id', activeMapId)
+          .single();
+
+      // Wipe Flame's image cache so we don't hold old versions of images
+      Flame.images.clearCache();
+
+      final mapAssets = fullMapData['map_assets'] as List<dynamic>;
+      
+      for (var asset in mapAssets) {
+        final cacheKey = (asset['name'] ?? asset['filename']) as String; 
+        final imageUrl = asset['url'] as String;      
+        
+        debugPrint('Downloading $cacheKey...');
+        final imageResponse = await http.get(Uri.parse(imageUrl));
+        final decodedImage = await decodeImageFromList(imageResponse.bodyBytes);
+        
+        Flame.images.add(cacheKey, decodedImage);
+      }
+
+      // Update our static cache with the new data
+      cachedMapId = activeMapId;
+      cachedUpdatedAt = activeUpdatedAt;
+      cachedTmxString = fullMapData['tmx_data'] as String;
+      cachedTileSize = (fullMapData['tile_size'] as num).toDouble();
+    }
+
+    // ==========================================
+    // 4. PARSE AND BUILD THE TMX MAP (Using the Cache!)
+    // ==========================================
+    final parsedMap = await TiledMap.fromString(
+      cachedTmxString!, 
+      (key) async => throw Exception('External TSX files not supported. Ensure tilesets are embedded in the TMX!'),
     );
+    
+    final renderableMap = await RenderableTiledMap.fromTiledMap(
+      parsedMap, 
+      Vector2.all(cachedTileSize!), 
+      atlasMaxX: 8192, 
+      atlasMaxY: 8192, 
+    );
+    
+    tiledMap = TiledComponent(renderableMap);
     add(tiledMap);
     
     final map = tiledMap.tileMap.map;
 
-    // 2. Parse Asset-Level Hitboxes (Embedded in Tilesets)
-    // Loop through all Tile Layers (e.g., Ground, Walls, Decor)
+    // ==========================================
+    // 5. PARSE ASSET-LEVEL HITBOXES & SAFE ZONES
+    // (This remains exactly as you wrote it!)
+    // ==========================================
     for (final layer in map.layers.whereType<TileLayer>()) {
       for (int y = 0; y < map.height; y++) {
         for (int x = 0; x < map.width; x++) {
           
           final tileData = layer.tileData?[y][x];
           final gid = tileData?.tile ?? 0;
+          if (gid == 0) continue; 
           
-          if (gid == 0) continue; // Skip empty tiles
-          
-          // Find the tileset that contains this specific tile
           final tileset = map.tilesetByTileGId(gid);
           final localId = gid - tileset.firstGid!;
           
-          // Look up the tile's properties inside the tileset
           final tile = tileset.tiles.cast<Tile?>().firstWhere(
             (t) => t?.localId == localId, 
             orElse: () => null,
           );
           
-          // If this tile has custom hitboxes, ensure it is treated as an ObjectGroup
           if (tile != null && tile.objectGroup is ObjectGroup) {
             final objectGroup = tile.objectGroup as ObjectGroup; 
             
@@ -57,11 +127,10 @@ class GameMap extends Component with HasGameReference<FlameGame> {
               double adjustedY = (y * map.tileHeight) + obj.y + tiledMap.position.y;
               final rect = Rect.fromLTWH(adjustedX, adjustedY, obj.width, obj.height);
               
-              // NEW: Check if you tagged this specific hitbox as a safe zone in Tiled!
               if (obj.class_ == 'SafeZone' || obj.type == 'SafeZone') {
                 safeZones.add(rect);
               } else {
-                obstacles.add(rect); // Standard solid wall
+                obstacles.add(rect); 
               }
             }
           }
@@ -69,7 +138,7 @@ class GameMap extends Component with HasGameReference<FlameGame> {
       }
     }
 
-    // Parse Map-Level Safe Zones (If you draw a custom Object Layer named 'SafeZones')
+    // Parse Map-Level Object Layers
     final safeGroup = tiledMap.tileMap.getLayer<ObjectGroup>('SafeZones');
     if (safeGroup != null) {
       for (final obj in safeGroup.objects) {
@@ -79,10 +148,7 @@ class GameMap extends Component with HasGameReference<FlameGame> {
       }
     }
 
-    // 3. Parse Map-Level Hitboxes (The dedicated 'Hitboxes' Object Layer)
-    // We keep this so you can still draw custom invisible walls on the map if needed!
     final obstacleGroup = tiledMap.tileMap.getLayer<ObjectGroup>('Hitboxes');
-    
     if (obstacleGroup != null) {
       for (final obj in obstacleGroup.objects) {
         double adjustedX = obj.x + tiledMap.position.x;
@@ -91,12 +157,6 @@ class GameMap extends Component with HasGameReference<FlameGame> {
       }
     } 
     
-    // 4. Plan B: Only build fallback walls if absolutely NO obstacles were found
-    //if (obstacles.isEmpty) {
-    //  debugPrint('WARNING: No hitboxes found in tilesets or object layers! Using fallback walls.');
-    //  _buildFallbackBoundaries(); 
-    //}
-
     _buildMapBorders();
   }
 

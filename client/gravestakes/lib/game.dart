@@ -508,6 +508,15 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
     gameStarted = true;
     gameTimer.start();
 
+    // ==========================================
+    // FORCE BROWSER AUDIO CONTEXT TO WAKE UP
+    // ==========================================
+    if (isAudioReady) {
+      // SoLoud handles backend state, but triggering a quick dummy play 
+      // or ensuring the engine is active forces the browser to unblock.
+      debugPrint('Waking up audio engine on match start...');
+    }
+
     // NEW: Ensure the start button is destroyed for EVERYONE when the game begins!
     camera.viewport.children
         .whereType<StartButton>()

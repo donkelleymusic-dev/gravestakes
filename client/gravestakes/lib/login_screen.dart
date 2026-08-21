@@ -76,7 +76,7 @@ class _LoginScreenState extends State<LoginScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'GRAVE STAKES',
+                'LUMEN BREACH',
                 style: TextStyle(color: Colors.red, fontSize: 28, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 24),
