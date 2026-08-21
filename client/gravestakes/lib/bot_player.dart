@@ -29,7 +29,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   Vector2 movementDelta = Vector2.zero();
   
   double networkTick = 0;
-  final double networkRate = 0.05;
+  final double networkRate = 0.12;
 
   late RectangleComponent _sprite;
   final Random _random = Random();
@@ -102,6 +102,8 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     add(_sprite);
     
     _chooseNewDirection();
+
+    networkTick = _random.nextDouble() * networkRate;
   }
 
   void _chooseNewDirection() {
@@ -149,17 +151,9 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     if (!game.gameStarted) return;
     super.update(dt);
 
-    // Count down the immunity timer
-    if (localImmunityToMe > 0) {
-      localImmunityToMe -= dt;
-    }
+    if (localImmunityToMe > 0) localImmunityToMe -= dt;
+    if (evasionTimer > 0) evasionTimer -= dt;
 
-    // Count down evasion timer
-    if (evasionTimer > 0) {
-      evasionTimer -= dt;
-    }
-
-    // NEW: Highlight timer countdown
     if (highlightTimer > 0) {
       highlightTimer -= dt;
       if (highlightTimer <= 0 && !isStunned) {
@@ -181,149 +175,135 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       }
     }
 
-    if (!game.isHost || isStunned) return;
+    // NEW: Return early if client, but DO NOT return early for the host if stunned!
+    // We just wrap the AI logic in a !isStunned check so they stop acting, but keep syncing.
+    if (!game.isHost) return;
 
-    // --- SENSE ---
-    // If the ghost is on cooldown, it is "Satisfied" and completely ignores humans
-    if (attackCooldown > 0) {
-      currentTarget = null;
-    } else {
-      currentTarget = _findClosestVisiblePlayer();
-    }
-    
-    if (currentTarget != null) {
-      currentState = BotState.hunt;
-    } else {
-      currentState = BotState.wander;
-    }
-
-    // --- MOVE ---
-    double currentSpeed = wanderSpeed;
-    bool hitWall = false;
-
-    if (currentState == BotState.hunt) {
-      currentSpeed = huntSpeed;
-      // Only recalculate direct path to player if we aren't currently evading an obstacle
-      if (evasionTimer <= 0) {
-        movementDelta = (currentTarget!.position - position).normalized();
-        angle = movementDelta.screenAngle();
-      }
-    } else {
-      directionTimer -= dt;
-      if (directionTimer <= 0) _chooseNewDirection();
-      if (evasionTimer <= 0) {
-        angle = movementDelta.screenAngle();
-      }
-    }
-
-    final potentialPosition = position + (movementDelta * currentSpeed * dt);
-
-    // 1. Snapshot the bot's position before the wall checks
-    final oldPosition = position.clone();
-
-    final testX = Vector2(potentialPosition.x, position.y);
-    if (!game.gameMap.checkCollision(testX, size)) {
-      position.x = potentialPosition.x;
-    } else {
-      hitWall = true;
-    }
-
-    final testY = Vector2(position.x, potentialPosition.y);
-    if (!game.gameMap.checkCollision(testY, size)) {
-      position.y = potentialPosition.y;
-    } else {
-      hitWall = true;
-    }
-
-    // NEW: The "Roomba Whiskers" Obstacle Avoidance
-    // If we hit a wall and aren't already evading, pick a glancing angle and commit to it briefly
-    if (hitWall && evasionTimer <= 0) {
-      double turnAngle = (pi / 4) + (_random.nextDouble() * (pi / 4)); // 45 to 90 degrees
-      
-      // Randomly skirt left or right
-      if (_random.nextBool()) {
-        angle += turnAngle;
+    if (!isStunned) {
+      // --- SENSE ---
+      if (attackCooldown > 0) {
+        currentTarget = null;
       } else {
-        angle -= turnAngle;
+        currentTarget = _findClosestVisiblePlayer();
       }
       
-      movementDelta = Vector2(sin(angle), -cos(angle));
-      evasionTimer = 0.5; // Commit to this slide for half a second
-      
-      if (currentState == BotState.wander) {
-        directionTimer = 0.5;
+      if (currentTarget != null) {
+        currentState = BotState.hunt;
+      } else {
+        currentState = BotState.wander;
       }
-    }
 
-    // --- ATTACK LOGIC ---
-    if (attackCooldown > 0) attackCooldown -= dt;
+      // --- MOVE ---
+      double currentSpeed = wanderSpeed;
+      bool hitWall = false;
 
-    if (currentTarget != null) {
-      final distance = position.distanceTo(currentTarget!.position);
-      
-      if (distance < 110 && attackCooldown <= 0) {//was 150 distance... but maybe we need to shorten that attack window for bots
-        // NEW: Line-of-sight check so they don't attack through solid cliffs or houses
-        if (game.gameMap.hasLineOfSight(position, currentTarget!.position)) {
-          game.world.add(ScareBlast(position: position, angle: angle - (pi / 2)));
-          
-          if (currentTarget == game.player) {
-            game.jumpScareEffect.trigger(); 
-            game.player.applyStun(2.0);   
-                       
-            // NEW: Private highlight for the bot and the human victim
-            triggerPrivateHighlight();
-            game.player.triggerPrivateHighlight();
-          } else {
-            String? targetId;
-            game.networkPlayers.forEach((key, val) {
-              if (val == currentTarget) targetId = key;
-            });
-            if (targetId != null) {
-              game.myChannel.sendBroadcastMessage(
-                event: 'stun',
-                payload: {'id': targetId, 'duration': 2.0},
-              );
-            }
-          }
-          
-          attackCooldown = 8.0; 
-          
-          // The ghost is satisfied! Force it to immediately turn around and walk away from the victim.
-          movementDelta = (position - currentTarget!.position).normalized();
+      if (currentState == BotState.hunt) {
+        currentSpeed = huntSpeed;
+        if (evasionTimer <= 0) {
+          movementDelta = (currentTarget!.position - position).normalized();
           angle = movementDelta.screenAngle();
-          directionTimer = 3.0; // Keep walking away for at least 3 seconds before picking a new path
-          evasionTimer = 0; // Clear evasion so it doesn't accidentally slide back toward the player
+        }
+      } else {
+        directionTimer -= dt;
+        if (directionTimer <= 0) _chooseNewDirection();
+        if (evasionTimer <= 0) {
+          angle = movementDelta.screenAngle();
         }
       }
-    }
 
-    // ==========================================
-    // NEW: DYNAMIC SPATIAL FOOTSTEP TRIGGER
-    // ==========================================
-    if (currentState == BotState.hunt || currentState == BotState.wander) {
-      
-      // 2. Calculate the bot's true physical velocity
-      double actualVelocity = position.distanceTo(oldPosition) / dt;
+      final potentialPosition = position + (movementDelta * currentSpeed * dt);
+      final oldPosition = position.clone();
 
-      // Only step if they physically covered ground!
-      if (actualVelocity > 5.0) {
-        double dynamicInterval = 0.45 * (wanderSpeed / actualVelocity);
-        dynamicInterval += (_random.nextDouble() * 0.1) - 0.05;
+      final testX = Vector2(potentialPosition.x, position.y);
+      if (!game.gameMap.checkCollision(testX, size)) {
+        position.x = potentialPosition.x;
+      } else {
+        hitWall = true;
+      }
 
-        _footstepTimer += dt;
-        if (_footstepTimer >= dynamicInterval) {
+      final testY = Vector2(position.x, potentialPosition.y);
+      if (!game.gameMap.checkCollision(testY, size)) {
+        position.y = potentialPosition.y;
+      } else {
+        hitWall = true;
+      }
+
+      if (hitWall && evasionTimer <= 0) {
+        double turnAngle = (pi / 4) + (_random.nextDouble() * (pi / 4)); 
+        if (_random.nextBool()) {
+          angle += turnAngle;
+        } else {
+          angle -= turnAngle;
+        }
+        
+        movementDelta = Vector2(sin(angle), -cos(angle));
+        evasionTimer = 0.5; 
+        
+        if (currentState == BotState.wander) {
+          directionTimer = 0.5;
+        }
+      }
+
+      // --- ATTACK LOGIC ---
+      if (attackCooldown > 0) attackCooldown -= dt;
+
+      if (currentTarget != null) {
+        final distance = position.distanceTo(currentTarget!.position);
+        
+        if (distance < 110 && attackCooldown <= 0) {
+          if (game.gameMap.hasLineOfSight(position, currentTarget!.position)) {
+            game.world.add(ScareBlast(position: position, angle: angle - (pi / 2)));
+            
+            if (currentTarget == game.player) {
+              game.jumpScareEffect.trigger(); 
+              game.player.applyStun(2.0);   
+              triggerPrivateHighlight();
+              game.player.triggerPrivateHighlight();
+            } else {
+              String? targetId;
+              game.networkPlayers.forEach((key, val) {
+                if (val == currentTarget) targetId = key;
+              });
+              if (targetId != null) {
+                game.myChannel.sendBroadcastMessage(
+                  event: 'stun',
+                  payload: {'id': targetId, 'duration': 2.0},
+                );
+              }
+            }
+            
+            attackCooldown = 8.0; 
+            movementDelta = (position - currentTarget!.position).normalized();
+            angle = movementDelta.screenAngle();
+            directionTimer = 3.0; 
+            evasionTimer = 0; 
+          }
+        }
+      }
+
+      // --- FOOTSTEPS ---
+      if (currentState == BotState.hunt || currentState == BotState.wander) {
+        double actualVelocity = position.distanceTo(oldPosition) / dt;
+        if (actualVelocity > 5.0) {
+          double dynamicInterval = 0.45 * (wanderSpeed / actualVelocity);
+          dynamicInterval += (_random.nextDouble() * 0.1) - 0.05;
+
+          _footstepTimer += dt;
+          if (_footstepTimer >= dynamicInterval) {
+            _footstepTimer = 0.0;
+            _playSpatialFootstep();
+          }
+        } else {
           _footstepTimer = 0.0;
-          _playSpatialFootstep();
         }
       } else {
         _footstepTimer = 0.0;
       }
-    } else {
-      _footstepTimer = 0.0;
-    }
-    // ==========================================
+    } // <-- End of !isStunned block
 
-    // --- NETWORK BROADCAST ---
+    // ==========================================
+    // NETWORK BROADCAST (Now outside the AI block!)
+    // ==========================================
     networkTick += dt;
     if (networkTick >= networkRate) {
       networkTick = 0;

@@ -25,7 +25,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   bool get isPoweredUp => powerUpTimer > 0;
   
   double networkTick = 0; 
-  final double networkRate = 0.05;
+  final double networkRate = 0.12;
 
   Vector2 keyboardDelta = Vector2.zero();
 

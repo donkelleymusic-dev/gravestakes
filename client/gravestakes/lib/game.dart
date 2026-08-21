@@ -463,6 +463,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
   void triggerLocalStart() {
     gameStarted = true;
     gameTimer.start();
+
+    // NEW: Ensure the start button is destroyed for EVERYONE when the game begins!
+    camera.viewport.children
+        .whereType<StartButton>()
+        .toList()
+        .forEach((btn) => btn.removeFromParent());
   }
 
   // The Start Button calls this to tell everyone to start
@@ -581,13 +587,30 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
             remote.position.y = payload['y'] as double;
             remote.angle = payload['a'] as double;
             
-            //FlameAudio.play('ElevenLabs_Scary_stinger.mp3');
-            // 5. Only play if audio is ready
             if (isAudioReady && scareSource != null) {
               SoLoud.instance.play(scareSource!);
             }
-            // CHANGE THIS LINE to include the 90-degree visual offset:
             world.add(ScareBlast(position: remote.position, angle: remote.angle - (pi / 2)));
+
+            // NEW: The Host MUST check if the remote player's attack hit any bots!
+            if (isHost) {
+              final forward = Vector2(sin(remote.angle), -cos(remote.angle));
+              for (var bot in bots) {
+                if (bot.localImmunityToMe > 0) continue; 
+                
+                final toBot = bot.position - remote.position;
+                if (toBot.length < 250.0) {
+                  toBot.normalize();
+                  if (forward.dot(toBot) > 0.1) { // Standard cone threshold
+                    if (gameMap.hasLineOfSight(bot.position, remote.position)) {
+                      bot.applyStun(4.0); 
+                      bot.localImmunityToMe = 7.0; 
+                      bot.triggerPrivateHighlight(); 
+                    }
+                  }
+                }
+              }
+            }
           }
         },
       )
@@ -647,11 +670,18 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
         callback: (payload) {
           if (!isHost) {
             final index = payload['index'] as int;
-            if (index >= 0 && index < bots.length) {
-              bots[index].position.x = payload['x'] as double;
-              bots[index].position.y = payload['y'] as double;
-              bots[index].angle = payload['a'] as double;
+            
+            // NEW: Dynamically instantiate the bot if the client doesn't have it yet!
+            while (bots.length <= index) {
+              final dummyBot = BotPlayer()..position = Vector2(-1000, -1000);
+              bots.add(dummyBot);
+              world.add(dummyBot);
             }
+
+            // Now it is safe to apply the coordinates
+            bots[index].position.x = payload['x'] as double;
+            bots[index].position.y = payload['y'] as double;
+            bots[index].angle = payload['a'] as double;
           }
         },
       )
