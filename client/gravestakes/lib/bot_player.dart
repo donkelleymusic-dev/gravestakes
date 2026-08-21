@@ -12,8 +12,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   double huntSpeed = 130.0; 
   
   double _footstepTimer = 0.0;
-  final double _stepInterval = 0.45; // Step cadence in seconds
-  final double _audioScale = 50.0;   // Must match game.dart
+  final double _audioScale = 50.0;   
 
   BotState currentState = BotState.wander;
   PositionComponent? currentTarget;
@@ -25,12 +24,9 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   double localImmunityToMe = 0;
   
   double directionTimer = 0;
-  double evasionTimer = 0; // NEW: Helps the bot commit to sliding around obstacles
+  double evasionTimer = 0; 
   Vector2 movementDelta = Vector2.zero();
   
-  double networkTick = 0;
-  final double networkRate = 0.12;
-
   late RectangleComponent _sprite;
   final Random _random = Random();
 
@@ -47,18 +43,16 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     final distance = (position - game.player.position).length;
     if (distance > 1000.0) return;
 
-    // Map Flame X/Y to SoLoud X/Z
     final posX = position.x / _audioScale;
     final posZ = position.y / _audioScale; 
 
     final randomPitch = 0.85 + (_random.nextDouble() * 0.30);
 
-    // Play on the X/Z plane (Y elevation is 0.0)
     final handle = SoLoud.instance.play3d(
       game.footstepSource!,
       posX,
-      0.0,   // Elevation must be 0!
-      posZ,  // Passing Flame's Y axis into the Z depth slot
+      0.0,   
+      posZ,  
       volume: 0.85,
     );
 
@@ -69,27 +63,19 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   
   BotPlayer() : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
-  // NEW: Determines if a target is within the bot's forward-facing vision cone
   bool _isInVisionCone(Vector2 targetPos) {
-    // 1. Calculate the exact angle to the target
     final vectorToTarget = targetPos - position;
     final angleToTarget = atan2(vectorToTarget.y, vectorToTarget.x);
     
-    // 2. Find the difference between the bot's current angle and the target angle
     double diffAngle = (angleToTarget - angle) % (2 * pi);
     
-    // Normalize the difference to be between -pi and pi
     if (diffAngle > pi) {
       diffAngle -= 2 * pi;
     } else if (diffAngle < -pi) {
       diffAngle += 2 * pi;
     }
     
-    // 3. Define the Field of View (FOV). 
-    // pi / 1.5 equals 120 degrees (60 degrees on either side of center).
-    // You can narrow this to (pi / 2) for a strict 90-degree flashlight cone!
     const double fov = pi / 1.5; 
-    
     return diffAngle.abs() <= (fov / 2);
   }
 
@@ -102,12 +88,10 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     add(_sprite);
     
     _chooseNewDirection();
-
-    networkTick = _random.nextDouble() * networkRate;
   }
 
   void _chooseNewDirection() {
-    directionTimer = (_random.nextDouble() * 2) + 1; // 1 to 3 seconds
+    directionTimer = (_random.nextDouble() * 2) + 1; 
     double randomAngle = _random.nextDouble() * 2 * pi;
     movementDelta = Vector2(cos(randomAngle), sin(randomAngle));
   }
@@ -116,13 +100,10 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     isStunned = true;
     stunTimer = duration;
     _sprite.paint.color = Colors.cyanAccent;
-    currentState = BotState.wander; // Lose aggro when stunned
-    
-    // Force them to pick a new direction when they wake up
+    currentState = BotState.wander; 
     _chooseNewDirection(); 
   }
 
-  // AI LOGIC: Find the closest human player
   PositionComponent? _findClosestVisiblePlayer() {
     PositionComponent? closest;
     double minDistance = 350.0; 
@@ -175,12 +156,9 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       }
     }
 
-    // NEW: Return early if client, but DO NOT return early for the host if stunned!
-    // We just wrap the AI logic in a !isStunned check so they stop acting, but keep syncing.
     if (!game.isHost) return;
 
     if (!isStunned) {
-      // --- SENSE ---
       if (attackCooldown > 0) {
         currentTarget = null;
       } else {
@@ -193,7 +171,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         currentState = BotState.wander;
       }
 
-      // --- MOVE ---
       double currentSpeed = wanderSpeed;
       bool hitWall = false;
 
@@ -244,7 +221,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         }
       }
 
-      // --- ATTACK LOGIC ---
       if (attackCooldown > 0) attackCooldown -= dt;
 
       if (currentTarget != null) {
@@ -281,7 +257,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         }
       }
 
-      // --- FOOTSTEPS ---
       if (currentState == BotState.hunt || currentState == BotState.wander) {
         double actualVelocity = position.distanceTo(oldPosition) / dt;
         if (actualVelocity > 5.0) {
@@ -298,27 +273,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         }
       } else {
         _footstepTimer = 0.0;
-      }
-    } // <-- End of !isStunned block
-
-    // ==========================================
-    // NETWORK BROADCAST (Now outside the AI block!)
-    // ==========================================
-    networkTick += dt;
-    if (networkTick >= networkRate) {
-      networkTick = 0;
-      
-      final botIndex = game.bots.indexOf(this); 
-      if (botIndex != -1) {
-        game.myChannel.sendBroadcastMessage(
-          event: 'bot_move',
-          payload: {
-            'index': botIndex,
-            'x': position.x,
-            'y': position.y,
-            'a': angle,
-          },
-        );
       }
     }
   }

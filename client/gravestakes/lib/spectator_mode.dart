@@ -168,18 +168,22 @@ class SpectatorGame extends FlameGame with PanDetector {
         },
       )
       .onBroadcast(
-        event: 'bot_move',
+        event: 'sync_bots',
         callback: (payload) {
-          final index = payload['index'] as int;
-          final x = payload['x'] as double;
-          final y = payload['y'] as double;
+          final botList = payload['bots'] as List<dynamic>;
+          
+          for (int i = 0; i < botList.length; i++) {
+            final data = botList[i] as Map<String, dynamic>;
+            final x = data['x'] as double;
+            final y = data['y'] as double;
 
-          if (!botPlayers.containsKey(index)) {
-            final newDot = SpectatorDot(isBot: true)..position = Vector2(x, y);
-            botPlayers[index] = newDot;
-            world.add(newDot);
-          } else {
-            botPlayers[index]!.updatePosition(x, y);
+            if (!botPlayers.containsKey(i)) {
+              final newDot = SpectatorDot(isBot: true)..position = Vector2(x, y);
+              botPlayers[i] = newDot;
+              world.add(newDot);
+            } else {
+              botPlayers[i]!.updatePosition(x, y);
+            }
           }
         },
       )

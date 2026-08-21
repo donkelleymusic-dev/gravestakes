@@ -22,6 +22,8 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
   
   int score = 0; // Track their score locally!
 
+  Vector2 _targetPosition = Vector2.zero();
+
   // ==========================================
   // NEW: REMOTE FOOTSTEP VARIABLES
   // ==========================================
@@ -66,14 +68,17 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     add(_sprite);
   }
 
-  // NEW: Added {int? newScore} to the parameters
   void updatePosition(double newX, double newY, double newAngle, {String? colorStr, int? newScore}) {
-    // NEW: Accumulate distance BEFORE changing position
     final newPos = Vector2(newX, newY);
-    _distanceAccumulator += position.distanceTo(newPos);
-
-    position.x = newX;
-    position.y = newY;
+    
+    // Snap instantly on first spawn or huge teleports
+    if (_targetPosition.isZero() || position.distanceTo(newPos) > 200.0) {
+      position = newPos.clone();
+    }
+    
+    _distanceAccumulator += _targetPosition.distanceTo(newPos);
+    
+    _targetPosition = newPos;
     angle = newAngle;
 
     if (colorStr != null && colorStr != currentColorStr) {
@@ -107,22 +112,22 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
   void update(double dt) {
     super.update(dt);
 
-    // Count down the immunity timer
+    // ==========================================
+    // NEW: SMOOTH NETWORK GLIDING (LERP)
+    // ==========================================
+    if (!_targetPosition.isZero()) {
+      position.lerp(_targetPosition, 15 * dt);
+    }
+
     if (localImmunityToMe > 0) {
       localImmunityToMe -= dt;
     }
 
-    // ==========================================
-    // REMOTE FOOTSTEP TRIGGER
-    // ==========================================
-    // If they move ~85 pixels (one stride length), play a step!
     if (!isStunned && _distanceAccumulator >= 85.0) {
       _distanceAccumulator = 0.0; 
       _playSpatialFootstep();
     }
-    // ==========================================
 
-    // Highlight timer countdown
     if (highlightTimer > 0) {
       highlightTimer -= dt;
       if (highlightTimer <= 0 && !isStunned) {

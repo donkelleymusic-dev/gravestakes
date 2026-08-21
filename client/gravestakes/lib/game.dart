@@ -58,6 +58,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
   int myPlayerLevel = 1; 
   
   final List<BotPlayer> bots = [];
+
+  double hostBotSyncTick = 0;
+  final double hostBotSyncRate = 0.12;
+
   late final RealtimeChannel myChannel;
 
   final List<Vector2> baseSpawnPoints = [
@@ -238,24 +242,40 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
     super.update(dt);
     if (!gameStarted) return; 
 
-    // 3. Only calculate spatial DSP if the engine is alive!
     if (isAudioReady) {
       const double audioScale = 50.0; 
-      
-      // 1. Put listener on the 3D floor (Y elevation is 0.0, Z is Flame's Y)
       SoLoud.instance.set3dListenerPosition(
-        player.position.x / audioScale, 
-        0.0, 
-        player.position.y / audioScale, 
+        player.position.x / audioScale, 0.0, player.position.y / audioScale, 
       );
       
-      // 2. Ears point exactly where the character is facing/traveling
       final forwardX = sin(player.angle);
       final forwardZ = -cos(player.angle);
       SoLoud.instance.set3dListenerAt(forwardX, 0.0, forwardZ);
-
-      // 3. Top of the head points to the sky
       SoLoud.instance.set3dListenerUp(0.0, 1.0, 0.0);
+    }
+
+    // ==========================================
+    // NEW: UNIFIED HOST BOT SYNC
+    // ==========================================
+    if (isHost && bots.isNotEmpty) {
+      hostBotSyncTick += dt;
+      if (hostBotSyncTick >= hostBotSyncRate) {
+        hostBotSyncTick = 0;
+        
+        List<Map<String, dynamic>> botData = [];
+        for (var bot in bots) {
+          botData.add({
+            'x': bot.position.x,
+            'y': bot.position.y,
+            'a': bot.angle,
+          });
+        }
+        
+        myChannel.sendBroadcastMessage(
+          event: 'sync_bots', 
+          payload: {'bots': botData},
+        );
+      }
     }
   }
 
@@ -666,22 +686,24 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
         },
       )
       .onBroadcast(
-        event: 'bot_move',
+        event: 'sync_bots',
         callback: (payload) {
           if (!isHost) {
-            final index = payload['index'] as int;
+            final botList = payload['bots'] as List<dynamic>;
             
-            // NEW: Dynamically instantiate the bot if the client doesn't have it yet!
-            while (bots.length <= index) {
-              final dummyBot = BotPlayer()..position = Vector2(-1000, -1000);
-              bots.add(dummyBot);
-              world.add(dummyBot);
-            }
+            for (int i = 0; i < botList.length; i++) {
+              final data = botList[i] as Map<String, dynamic>;
+              
+              while (bots.length <= i) {
+                final dummyBot = BotPlayer()..position = Vector2(-1000, -1000);
+                bots.add(dummyBot);
+                world.add(dummyBot);
+              }
 
-            // Now it is safe to apply the coordinates
-            bots[index].position.x = payload['x'] as double;
-            bots[index].position.y = payload['y'] as double;
-            bots[index].angle = payload['a'] as double;
+              bots[i].position.x = data['x'] as double;
+              bots[i].position.y = data['y'] as double;
+              bots[i].angle = data['a'] as double;
+            }
           }
         },
       )
