@@ -3,7 +3,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flame/game.dart';
 import 'package:flame/components.dart';
 import 'package:flame/events.dart';
+import 'dart:math';
 import 'game_map.dart';
+import 'mask_data.dart';
+import 'flying_scare_blast.dart';
+import 'critter.dart';
+import 'scare_blast.dart';
 
 // ==========================================
 // 1. FLUTTER UI: ROOM SELECTOR
@@ -28,15 +33,18 @@ class _SpectatorLobbyScreenState extends State<SpectatorLobbyScreen> {
 
   Future<void> _fetchRooms() async {
     try {
-      // 1. Pull the 20 most recent matches (No SDK filters!)
+      // 1. Calculate the cutoff time for 5 minutes ago (UTC)
+      final fiveMinutesAgo = DateTime.now().toUtc().subtract(const Duration(minutes: 5)).toIso8601String();
+
+      // 2. Query Supabase, filtering for rooms modified or created within the last 5 minutes
       final response = await supabase
           .from('active_matches')
-          .select('id, player_count, status, created_at, map_name')
+          .select('id, player_count, status, created_at, updated_at, map_name')
+          .gte('created_at', fiveMinutesAgo) // Ignore anything older than 5 mins
           .order('created_at', ascending: false)
           .limit(20);
       
       if (mounted) {
-        // 2. Filter out completed matches instantly in Dart
         final allRooms = List<Map<String, dynamic>>.from(response);
         final liveRooms = allRooms.where((room) {
           return room['status'] == 'waiting' || room['status'] == 'playing';
@@ -207,6 +215,47 @@ class SpectatorGame extends FlameGame with PanDetector {
             humanPlayers[victimId]!.triggerFlash(Colors.cyanAccent);
           }
           // Flash the successful attacker Yellow!
+          if (attackerId != null && humanPlayers.containsKey(attackerId)) {
+            humanPlayers[attackerId]!.triggerFlash(Colors.yellowAccent);
+          }
+        },
+      )
+      .onBroadcast(
+        event: 'scare',
+        callback: (payload) {
+          final id = payload['id'] as String?;
+          final attackerId = payload['attacker_id'] as String?;
+
+          // Spawning the blasts for spectators!
+          if (id != null && humanPlayers.containsKey(id)) {
+            final remote = humanPlayers[id]!;
+            final angle = payload['a'] as double;
+            final maskId = payload['mask_id'] as String? ?? 'standard';
+            final seed = payload['seed'] as int? ?? 0;
+
+            if (maskId == 'flying') {
+              world.add(FlyingScareBlast(position: remote.position.clone(), angle: angle));
+            } else if (maskId == 'vermin') {
+              for (int i = 0; i < 15; i++) {
+                world.add(Critter(
+                  position: remote.position.clone(),
+                  behavior: SwarmBehavior.scatter,
+                  seed: seed,
+                  index: i,
+                  initialAngle: angle,
+                  ownerId: id, // Assign ownership
+                ));
+              }
+            } else {
+              world.add(ScareBlast(position: remote.position, angle: angle - (pi / 2)));
+            }
+          }
+
+          // Visual flashes for the dots
+          final victimId = payload['id'] as String?;
+          if (victimId != null && humanPlayers.containsKey(victimId)) {
+            humanPlayers[victimId]!.triggerFlash(Colors.cyanAccent);
+          }
           if (attackerId != null && humanPlayers.containsKey(attackerId)) {
             humanPlayers[attackerId]!.triggerFlash(Colors.yellowAccent);
           }

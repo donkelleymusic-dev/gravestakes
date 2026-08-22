@@ -28,6 +28,9 @@ import 'power_up_hud.dart';
 import 'spooky_box.dart';
 import 'special_button.dart';
 import 'chest_reward.dart';
+import 'mask_data.dart';
+import 'flying_scare_blast.dart';
+import 'critter.dart';
 
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
   // Optional room ID so party members can queue into a shared private room
@@ -750,13 +753,32 @@ void claimSpookyBox(String boxId) {
             remote.position.y = payload['y'] as double;
             remote.angle = payload['a'] as double;
             
+            final maskId = payload['mask_id'] as String? ?? 'standard'; 
+            final seed = payload['seed'] as int? ?? 0;
+
             if (isAudioReady && scareSource != null) {
               SoLoud.instance.play(scareSource!);
             }
-            world.add(ScareBlast(position: remote.position, angle: remote.angle - (pi / 2)));
 
-            // NEW: The Host MUST check if the remote player's attack hit any bots!
-            if (isHost) {
+            if (maskId == 'flying') {
+              world.add(FlyingScareBlast(position: remote.position.clone(), angle: remote.angle));
+            } else if (maskId == 'vermin') {
+              for (int i = 0; i < 15; i++) { 
+                world.add(Critter(
+                  position: remote.position.clone(),
+                  behavior: SwarmBehavior.scatter,
+                  seed: seed,
+                  index: i,
+                  initialAngle: remote.angle,
+                  ownerId: id, // Assign ownership to the remote player
+                ));
+              }
+            } else {
+              world.add(ScareBlast(position: remote.position, angle: remote.angle - (pi / 2)));
+            }
+
+            // Host Damage Calculation for standard ground blasts
+            if (isHost && maskId != 'flying' && maskId != 'vermin') {
               final forward = Vector2(sin(remote.angle), -cos(remote.angle));
               for (var bot in bots) {
                 if (bot.localImmunityToMe > 0) continue; 
@@ -764,7 +786,7 @@ void claimSpookyBox(String boxId) {
                 final toBot = bot.position - remote.position;
                 if (toBot.length < 250.0) {
                   toBot.normalize();
-                  if (forward.dot(toBot) > 0.1) { // Standard cone threshold
+                  if (forward.dot(toBot) > 0.1) { 
                     if (gameMap.hasLineOfSight(bot.position, remote.position)) {
                       bot.applyStun(4.0); 
                       bot.localImmunityToMe = 7.0; 

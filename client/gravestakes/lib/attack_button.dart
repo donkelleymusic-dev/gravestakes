@@ -1,68 +1,74 @@
 import 'package:flame/components.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
+import 'dart:math';
 import 'game.dart';
 
-class AttackButton extends CircleComponent with TapCallbacks, HasGameReference<GraveStakesGame> {
-  late final TextComponent label;
-
-  AttackButton() : super(
-    radius: 40,
-    paint: Paint()..color = Colors.red.withValues(alpha: 0.85),
-    priority: 200,
-  );
-
-  @override
-  Future<void> onLoad() async {
-    // Position it in the bottom-right corner of the viewport
-    position = Vector2(game.camera.viewport.size.x - 100, game.camera.viewport.size.y - 120);
-    
-    // FIXED: Anchor the text in the absolute center of the circle so it looks professional!
-    label = TextComponent(
-      text: 'SCARE',
-      textRenderer: TextPaint(
-        style: const TextStyle(
-          color: Colors.white, 
-          fontSize: 14, 
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      anchor: Anchor.center,
-      position: Vector2(radius, radius), // Center point of a CircleComponent of radius 40
-    );
-    add(label);
+class AttackButton extends PositionComponent with HasGameReference<GraveStakesGame>, TapCallbacks {
+  final double buttonRadius = 50.0;
+  
+  AttackButton() {
+    size = Vector2(buttonRadius * 2, buttonRadius * 2);
+    anchor = Anchor.center;
+    priority = 200;
   }
 
   @override
-  void update(double dt) {
-    super.update(dt);
-    final player = game.player;
-    final isOnCooldown = player.attackCooldown > 0;
-
-    // FIXED: Ghost out the button and change color during cooldown
-    paint.color = isOnCooldown 
-        ? Colors.grey.withValues(alpha: 0.3) 
-        : Colors.red.withValues(alpha: 0.85);
-
-    // FIXED: Display countdown timer text when on cooldown, otherwise show 'SCARE'
-    if (isOnCooldown) {
-      label.text = '${player.attackCooldown.toStringAsFixed(1)}s';
-    } else {
-      label.text = 'SCARE';
-    }
-  }
-
-  @override
-  void onGameResize(Vector2 size) {
-    super.onGameResize(size);
-    // Keep it locked to the bottom-right if the screen orientation changes
-    position = Vector2(size.x - 100, size.y - 120);
+  void onGameResize(Vector2 gameSize) {
+    super.onGameResize(gameSize);
+    position = Vector2(gameSize.x - 100, gameSize.y - 120);
   }
 
   @override
   void onTapDown(TapDownEvent event) {
-    // Prevent tapping while on cooldown
-    if (game.player.attackCooldown > 0) return;
-    game.player.triggerAttack();
+    if (!game.gameStarted || game.player.isStunned) return;
+
+    final tapPosition = event.localPosition;
+    if (tapPosition.x < buttonRadius) {
+      game.player.triggerAttack(forceMaskIndex: 0); // Left Side
+    } else {
+      game.player.triggerAttack(forceMaskIndex: 1); // Right Side
+    }
+  }
+
+  @override
+  void render(Canvas canvas) {
+    if (!game.gameStarted) return;
+    
+    final player = game.player;
+    if (player.equippedMasks.length < 2) return;
+
+    final maskLeft = player.equippedMasks[0];
+    final maskRight = player.equippedMasks[1];
+
+    final center = Offset(buttonRadius, buttonRadius);
+
+    // Background
+    final bgPaint = Paint()..color = Colors.black54;
+    canvas.drawCircle(center, buttonRadius, bgPaint);
+
+    // Fill percentages
+    final leftFill = (player.energy / maskLeft.energyCost).clamp(0.0, 1.0);
+    final rightFill = (player.energy / maskRight.energyCost).clamp(0.0, 1.0);
+
+    // Left Arc
+    final leftColor = leftFill >= 1.0 ? Colors.redAccent : Colors.red.withOpacity(0.3);
+    final leftPaint = Paint()..color = leftColor..style = PaintingStyle.fill;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: buttonRadius * leftFill),
+      pi / 2, pi, true, leftPaint,
+    );
+
+    // Right Arc
+    final rightColor = rightFill >= 1.0 ? Colors.purpleAccent : Colors.purple.withOpacity(0.3);
+    final rightPaint = Paint()..color = rightColor..style = PaintingStyle.fill;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: buttonRadius * rightFill),
+      -pi / 2, pi, true, rightPaint,
+    );
+
+    // Split Line
+    final linePaint = Paint()..color = Colors.white24..strokeWidth = 2.0;
+    canvas.drawLine(Offset(buttonRadius, 0), Offset(buttonRadius, buttonRadius * 2), linePaint);
   }
 }
