@@ -5,13 +5,27 @@ import 'game.dart';
 class GameTimer extends TextComponent with HasGameReference<GraveStakesGame> {
   double timeLeft = 180.0; // 180 second rounds (3 minutes)
   bool isRunning = false;
+  double syncTick = 0;
 
-  GameTimer() : super(position: Vector2(20, 80), priority: 100);
+  // 1. Swap hardcoded position for the topCenter anchor
+  GameTimer() : super(
+    anchor: Anchor.topCenter, 
+    priority: 100,
+  );
 
-  double syncTick = 0; // Add this variable at the top of your GameTimer class
+  // 2. Add the dynamic resize method to keep it dead-center!
+  @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
+    // Dynamically track the exact center of the screen width
+    position = Vector2(size.x / 2, 40); 
+    anchor = Anchor.topCenter;
+  }
 
   @override
   void update(double dt) {
+    super.update(dt); // Good practice to include super.update
+    
     if (isRunning) {
       timeLeft -= dt;
       

@@ -3,13 +3,14 @@ import 'package:flame/palette.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-//import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
+import 'package:flame/collisions.dart';
 import 'dart:math';
 import 'game.dart';
 import 'floating_text.dart';
 import 'scare_blast.dart';
 import 'power_up.dart';
+import 'chest_reward.dart';
 
 class Player extends PositionComponent with KeyboardHandler, HasGameReference<GraveStakesGame> {
   final JoystickComponent leftJoystick;
@@ -35,11 +36,19 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   
   String equippedColorString = 'red'; 
   
-  // NEW: Sprite and base color storage for the visual stun effect
+  // Sprite and base color storage for the visual stun effect
   late RectangleComponent _sprite;
   Color _baseColor = Colors.redAccent; 
 
+  // NEW: The hovering text timer!
+  late TextComponent _buffTimerText;
+
   double highlightTimer = 0;
+
+  double disguiseTimer = 0.0;
+  double _tickAccumulator = 0.0;
+
+  bool get isMoving => !keyboardDelta.isZero() || (!isGunner && !leftJoystick.delta.isZero());
 
   // ==========================================
   // LOCAL FOOTSTEP VARIABLES
@@ -47,16 +56,79 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   double _footstepTimer = 0.0;
   final Random _random = Random();
 
+  bool hasInvisibilityCharge = false;
+  bool isInvisible = false;
+  double invisibilityTimer = 0.0;
+  bool isDisguised = false;
+  bool hasExtendedRange = false;
+  int coinsEarned = 0;
+  SpriteComponent? _bushSprite;
+
+  void applyChestReward(ChestReward reward) {
+    switch (reward.type) {
+      case ChestRewardType.points:
+        score += reward.value;
+        break;
+      case ChestRewardType.currency:
+        coinsEarned += reward.value;
+        break;
+      case ChestRewardType.invisibility:
+        hasInvisibilityCharge = true;
+        break;
+      case ChestRewardType.disguise:
+        isDisguised = true;
+        disguiseTimer = 40.0; 
+        _tickAccumulator = 0.0; 
+        break;
+      case ChestRewardType.rangeIncrease:
+        hasExtendedRange = true;
+        break;
+      case ChestRewardType.teleport:
+        game.camera.viewport.add(FloatingText(text: 'WHOOSH!', worldPosition: Vector2(position.x - 20, position.y - 40)));
+
+        // 1. Gather every known safe floor node on the active map
+        final List<Vector2> allSafeNodes = [
+          ...game.gameMap.playerSpawns,
+          ...game.gameMap.potentialBoxSpawns,
+        ];
+        
+        // 2. Pick a safe node far away from where we currently are
+        if (allSafeNodes.isNotEmpty) {
+          allSafeNodes.shuffle();
+          Vector2 bestNode = allSafeNodes.first;
+          
+          for (var node in allSafeNodes) {
+            if (node.distanceTo(position) > 300.0) {
+              bestNode = node;
+              break;
+            }
+          }
+          
+          // 3. Snap to it safely
+          position = game.gameMap.getSafeSpawnLocation(bestNode, size);
+        }
+
+        game.camera.viewport.add(FloatingText(text: 'POOF!', worldPosition: Vector2(position.x - 20, position.y - 40)));
+        
+        networkTick = networkRate; 
+        break;
+    }
+  }
+
+  void activateInvisibility() {
+    if (!hasInvisibilityCharge || isInvisible) return;
+    hasInvisibilityCharge = false;
+    isInvisible = true;
+    invisibilityTimer = 15.0; 
+  }
+
   void _playLocalFootstep() {
     if (!game.isAudioReady || game.footstepSource == null) return;
-    
-    // Humanize the step
     final randomPitch = 0.85 + (_random.nextDouble() * 0.30);
     
-    // Play 2D sound (no 3D math) so your own steps are perfectly centered
     final handle = SoLoud.instance.play(
       game.footstepSource!,
-      volume: 0.5, // Quieter than bots/remotes so you can still hear threats!
+      volume: 0.5, 
     );
     
     SoLoud.instance.setRelativePlaySpeed(handle, randomPitch);
@@ -73,6 +145,39 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   @override
   Future<void> onLoad() async {
     await _fetchEquippedCosmetics();
+
+    add(RectangleHitbox(
+      size: Vector2(32, 32), 
+      anchor: Anchor.center,
+    ));
+
+    // NEW: Build the Hovering Timer Text Component!
+    _buffTimerText = TextComponent(
+      position: Vector2(size.x / 2, -15), // Placed just above the player's head
+      anchor: Anchor.center,
+      textRenderer: TextPaint(
+        style: const TextStyle(
+          color: Colors.yellowAccent,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.0,
+          fontFamily: 'Courier',
+          shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+        ),
+      ),
+    );
+    add(_buffTimerText);
+
+    try {
+      final sheet = game.images.fromCache('Base_BaseChip_pipo.png');
+      _bushSprite = SpriteComponent(
+        sprite: Sprite(sheet, srcPosition: Vector2(0, 160), srcSize: Vector2(32, 32)),
+        size: Vector2.all(32),
+        anchor: Anchor.center,
+      );
+    } catch (e) {
+      debugPrint('Bush sprite not found in cache: $e');
+    }
   }
 
   Future<void> _fetchEquippedCosmetics() async {
@@ -102,21 +207,18 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       }
     }
 
-    // NEW: We add it to a managed sprite instead of just blindly adding it to the component tree
     _sprite = RectangleComponent(size: size, paint: Paint()..color = _baseColor);
     add(_sprite);
   }
 
   void triggerAttack() {
     if (attackCooldown > 0) return;
-    attackCooldown = 3.0; 
+    attackCooldown = 9.0; 
 
-    // Gunners shouldn't lunge forward, they just flash! Drivers/Solo can lunge.
     if (!isGunner) {
       final forward = Vector2(sin(angle), -cos(angle));
       double distanceToMove = 45.0; 
       
-      // Step forward incrementally to slide up to walls without clipping
       while (distanceToMove > 0) {
         double step = min(5.0, distanceToMove);
         final testPos = position + (forward * step);
@@ -125,17 +227,15 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           position = testPos;
           distanceToMove -= step;
         } else {
-          break; // Hit a wall, stop lunging immediately
+          break; 
         }
       }
     }
 
-    //FlameAudio.play('ElevenLabs_Scary_stinger.mp3');
-    
     if (game.isAudioReady && game.scareSource != null) {
       SoLoud.instance.play(game.scareSource!);
     }
-    // NEW: Spawn the visual cone blast to the world!
+    
     game.world.add(ScareBlast(position: position, angle: angle - (pi / 2)));
     
     channel.sendBroadcastMessage(
@@ -148,8 +248,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       },
     );
 
-    // Pass our powered-up status to the scare calculator!
-    int victimsHit = game.triggerLocalScare(position, angle, isPoweredUp);
+    int victimsHit = game.triggerLocalScare(position, angle, isPoweredUp, hasExtendedRange: hasExtendedRange);
 
     if (victimsHit > 0) {
       int baseScore = victimsHit * 100;
@@ -158,14 +257,14 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       score += totalEarned;
       
       String popupText = victimsHit > 1 ? '+$totalEarned COMBO x$victimsHit!' : '+$totalEarned';
-      game.world.add(FloatingText(text: popupText, position: Vector2(position.x - 20, position.y - 50)));
+      game.camera.viewport.add(FloatingText(text: popupText, worldPosition: Vector2(position.x - 20, position.y - 50)));
     }
   }
 
   void applyStun(double duration) {
     isStunned = true;
     stunTimer = duration;
-    _sprite.paint.color = Colors.cyanAccent; // NEW: Instantly turn shocked color
+    _sprite.paint.color = Colors.cyanAccent; 
   }
 
   @override
@@ -193,16 +292,96 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     if (attackCooldown > 0) attackCooldown -= dt;
     
-    // --- POWER-UP LOGIC & HIGHLIGHTS ---
+    // ==========================================
+    // UNIFIED BUFF TIMERS, UI & TICKING
+    // ==========================================
+    bool isBuffActive = false;
+    double lowestTimer = 999.0;
+    List<String> activeBuffs = [];
+
+    // 1. Process Disguise
+    if (isDisguised) {
+      disguiseTimer -= dt;
+      isBuffActive = true;
+      if (disguiseTimer < lowestTimer) lowestTimer = disguiseTimer;
+      activeBuffs.add('BUSH: ${disguiseTimer.ceil()}s');
+      
+      if (disguiseTimer <= 0) {
+        isDisguised = false;
+        disguiseTimer = 0.0;
+      }
+    }
+
+    // 2. Process Invisibility
+    if (isInvisible) {
+      invisibilityTimer -= dt;
+      isBuffActive = true;
+      if (invisibilityTimer < lowestTimer) lowestTimer = invisibilityTimer;
+      activeBuffs.add('INVIS: ${invisibilityTimer.ceil()}s');
+      
+      if (invisibilityTimer <= 0) {
+        isInvisible = false;
+        invisibilityTimer = 0.0;
+      }
+    }
+
+    // 3. Process Power-Ups
+    if (powerUpTimer > 0) {
+      powerUpTimer -= dt; // Moved this up here so they all decrement together!
+      isBuffActive = true;
+      if (powerUpTimer < lowestTimer) lowestTimer = powerUpTimer;
+      
+      // Only add to the UI if it didn't just expire this exact frame
+      if (powerUpTimer > 0) {
+        activeBuffs.add('POWER: ${powerUpTimer.ceil()}s');
+      }
+    }
+
+    // UPDATE THE UI TEXT!
+    _buffTimerText.text = activeBuffs.join('\n'); 
+
+    // AUDIO TICKING LOGIC (Remains exactly the same)
+    if (isBuffActive) {
+      _tickAccumulator += dt;
+      if (_tickAccumulator >= 1.0) {
+        _tickAccumulator -= 1.0;
+        
+        if (game.isAudioReady && game.tickSource != null) {
+          // Much quieter normally (5% volume), Loud (100% volume) for the last 8 seconds!
+          final tickVolume = lowestTimer <= 8.0 ? 1.0 : 0.05;
+          SoLoud.instance.play(game.tickSource!, volume: tickVolume);
+        }
+      }
+    } else {
+      _tickAccumulator = 0.0;
+    }
+
+    // --- HIGHLIGHTS AND OPACITY HANDLING ---
     if (highlightTimer > 0) {
       highlightTimer -= dt;
-      _sprite.paint.color = Colors.white; // Force white while highlighting
-      if (isPoweredUp) powerUpTimer -= dt; // Keep ticking powerup
-    } else if (isPoweredUp) {
-      powerUpTimer -= dt;
+      _sprite.paint.color = Colors.white; 
+      // (Removed the powerUpTimer decrement from here)
+    } else if (powerUpTimer > 0) {
       _sprite.paint.color = Colors.yellowAccent;
     } else if (!isStunned) {
-      _sprite.paint.color = _baseColor; 
+      if (isDisguised) {
+        _sprite.paint.color = Colors.transparent; 
+      } else if (isInvisible) {
+        _sprite.paint.color = _baseColor.withAlpha(80); 
+      } else {
+        _sprite.paint.color = _baseColor; 
+      }
+    }
+
+    // Toggle the Bush Sprite overlay
+    if (isDisguised) {
+      if (_bushSprite != null && _bushSprite!.parent == null) {
+        add(_bushSprite!);
+      }
+    } else {
+      if (_bushSprite != null && _bushSprite!.parent != null) {
+        _bushSprite!.removeFromParent();
+      }
     }
 
     // Check for collisions with PowerUps safely
@@ -214,7 +393,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         if (position.distanceTo(comp.position) < 30) {
           powerUpTimer = 10.0; 
           try {
-            // SOLOUD REPLACEMENT: Play the sound when picking up the orb
             if (game.isAudioReady && game.powerupSource != null) {
               SoLoud.instance.play(game.powerupSource!);
             }
@@ -230,7 +408,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
               'id': comp.id
             },
           );
-          // 3. NETWORK SYNC
+          
           networkTick += dt;
           if (networkTick >= networkRate) {
             networkTick = 0;
@@ -242,7 +420,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
                 'y': position.y, 
                 'a': angle,
                 'c': equippedColorString, 
-                's': score, // NEW: Broadcast real-time score to spectators!
+                's': score,
+                'd': isDisguised, 
+                'm': isMoving,    
+                'i': isInvisible,
               },
             );
           }
@@ -264,18 +445,18 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
       if (stunTimer <= 0) {
         isStunned = false;
-        _sprite.paint.color = _baseColor; // Return to equipped color
+        _sprite.paint.color = _baseColor; 
         _sprite.position = Vector2.zero();
       }
-      return; // Skip movement processing while stunned
+      return; 
     }
 
-    // 1. AIMING LOGIC (Both Driver and Gunner use Right Stick to aim)
+    // 1. AIMING LOGIC 
     if (!rightJoystick.delta.isZero()) {
       angle = rightJoystick.delta.screenAngle();
     }
 
-    // 2. MOVEMENT LOGIC (Only Drivers/Solo players move!)
+    // 2. MOVEMENT LOGIC 
     if (!isGunner) {
       Vector2 movementDelta = Vector2.zero();
 
@@ -293,7 +474,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         double currentSpeed = isPoweredUp ? 280.0 : maxSpeed;
         final potentialPosition = position + (movementDelta * currentSpeed * dt);
 
-        // 1. Snapshot exactly where we are BEFORE hitting the walls
         final oldPosition = position.clone();
 
         if (!game.gameMap.checkCollision(Vector2(potentialPosition.x, position.y), size)) {
@@ -303,14 +483,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           position.y = potentialPosition.y;
         }
 
-        // ==========================================
-        // NEW: PHYSICS-BASED LOCAL FOOTSTEPS
-        // ==========================================
-        // 2. Calculate true velocity based on physical pixels moved this frame
         double actualVelocity = position.distanceTo(oldPosition) / dt; 
 
         if (actualVelocity > 5.0) {
-           // Base interval of 0.40s scales with physical momentum
            double dynamicInterval = 0.40 * (200.0 / actualVelocity);
            dynamicInterval += (_random.nextDouble() * 0.1) - 0.05; 
            
@@ -320,7 +495,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
              _playLocalFootstep();
            }
         } else {
-          // If jammed against a wall, true velocity is 0. Mute the footsteps!
           _footstepTimer = 0.0; 
         }
       } else {
@@ -341,6 +515,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           'a': angle,
           'c': equippedColorString, 
           's': score,
+          'd': isDisguised, 
+          'm': isMoving,
+          'i': isInvisible,
         },
       );
     }

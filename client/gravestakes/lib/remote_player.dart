@@ -1,8 +1,8 @@
 import 'dart:math';
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_soloud/flutter_soloud.dart'; // NEW
-import 'game.dart'; // NEW
+import 'package:flutter_soloud/flutter_soloud.dart'; 
+import 'game.dart'; 
 
 class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
   String currentColorStr = 'red';
@@ -20,16 +20,21 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
   double stunTimer = 0;
   double localImmunityToMe = 0;
   
-  int score = 0; // Track their score locally!
+  int score = 0; 
 
   Vector2 _targetPosition = Vector2.zero();
 
   // ==========================================
-  // NEW: REMOTE FOOTSTEP VARIABLES
+  // REMOTE FOOTSTEP VARIABLES
   // ==========================================
   double _distanceAccumulator = 0.0;
   static const double _audioScale = 50.0;
   final Random _random = Random();
+
+  bool isDisguised = false;
+  bool isMoving = false;
+  bool isInvisible = false;
+  SpriteComponent? _bushSprite;
 
   void _playSpatialFootstep() {
     if (!game.isAudioReady || game.footstepSource == null) return;
@@ -37,19 +42,15 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     final distance = (position - game.player.position).length;
     if (distance > 1000.0) return;
 
-    // Map Flame X/Y to SoLoud X/Z
     final posX = position.x / _audioScale;
-    //final posZ = position.y / _audioScale; 
-
     final randomPitch = 0.85 + (_random.nextDouble() * 0.30);
-
     final posY = position.y / _audioScale;
 
     final handle = SoLoud.instance.play3d(
       game.footstepSource!,
       posX,
-      posY, // Native Flame Y
-      0.0,   // Z elevation
+      posY, 
+      0.0,  
       volume: 0.85,
     );
 
@@ -67,12 +68,28 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
       paint: Paint()..color = _baseColor,
     );
     add(_sprite);
+
+    // ==========================================
+    // CROP THE BUSH SPRITE
+    // ==========================================
+    try {
+      final sheet = game.images.fromCache('Base_BaseChip_pipo.png');
+      _bushSprite = SpriteComponent(
+        sprite: Sprite(sheet, srcPosition: Vector2(0, 160), srcSize: Vector2(32, 32)),
+        size: Vector2.all(32),
+        anchor: Anchor.center,
+      );
+    } catch (e) {
+      debugPrint('Bush sprite not found in cache: $e');
+    }
   }
 
-  void updatePosition(double newX, double newY, double newAngle, {String? colorStr, int? newScore}) {
+  // ==========================================
+  // ADDED NEW DISGUISE & MOVEMENT FLAGS HERE
+  // ==========================================
+  void updatePosition(double newX, double newY, double newAngle, {String? colorStr, int? newScore, bool isDisguised = false, bool isMoving = false, bool isInvisible = false}) {
     final newPos = Vector2(newX, newY);
     
-    // Snap instantly on first spawn or huge teleports
     if (_targetPosition.isZero() || position.distanceTo(newPos) > 200.0) {
       position = newPos.clone();
     }
@@ -90,6 +107,11 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     if (newScore != null) {
       score = newScore;
     }
+
+    // Save the incoming network flags!
+    this.isDisguised = isDisguised;
+    this.isMoving = isMoving;
+    this.isInvisible = isInvisible;
   }
 
   void _updateBaseColor(String colorStr) {
@@ -113,9 +135,6 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
   void update(double dt) {
     super.update(dt);
 
-    // ==========================================
-    // NEW: SMOOTH NETWORK GLIDING (LERP)
-    // ==========================================
     if (!_targetPosition.isZero()) {
       position.lerp(_targetPosition, 15 * dt);
     }
@@ -149,13 +168,35 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
         _sprite.position = Vector2.zero();
       }
     }
+
+    // ==========================================
+    // VISUAL STEALTH TOGGLE
+    // ==========================================
+    if (isDisguised) {
+      _sprite.paint.color = Colors.transparent; 
+      if (_bushSprite != null && _bushSprite!.parent == null) {
+        add(_bushSprite!);
+      }
+    } else if (isInvisible) {
+      // Completely invisible to other humans!
+      _sprite.paint.color = Colors.transparent; 
+      if (_bushSprite != null && _bushSprite!.parent != null) {
+        _bushSprite!.removeFromParent();
+      }
+    } else {
+      if (_bushSprite != null && _bushSprite!.parent != null) {
+        _bushSprite!.removeFromParent();
+      }
+      if (!isStunned && highlightTimer <= 0) {
+        _sprite.paint.color = _baseColor; 
+      }
+    }
   }
 
   @override
   void render(Canvas canvas) {
-    super.render(canvas); // Renders the sprite first
+    super.render(canvas); 
 
-    // Draw a pulsating immunity shield ring if they are immune to us
     if (localImmunityToMe > 0) {
       final alpha = (150 + sin(localImmunityToMe * 10) * 105).toInt().clamp(0, 255);
       final paint = Paint()
@@ -163,7 +204,6 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3;
       
-      // Draw the circle slightly larger than the 32x32 sprite (radius 24)
       canvas.drawCircle(Offset(size.x / 2, size.y / 2), 24, paint);
     }
   }

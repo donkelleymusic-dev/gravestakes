@@ -1,5 +1,5 @@
 import 'package:flame/components.dart';
-import 'package:flame/events.dart'; // <-- Required for TapCallbacks!
+import 'package:flame/events.dart'; 
 import 'package:flame/text.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -9,12 +9,12 @@ class ExitButton extends TextComponent with TapCallbacks, HasGameReference<Grave
   ExitButton() : super( 
     text: '[ EXIT MATCH ]', 
     textRenderer: TextPaint(style: const TextStyle(color: Colors.grey, fontSize: 14)), 
-    position: Vector2(0, 50), 
+    position: Vector2(0, 72), // Moved down to clear space!
+    anchor: Anchor.topRight,  // <-- Align to the right edge
   ); 
 
   @override 
   void onTapDown(TapDownEvent event) { 
-    // This pops the Flame Game engine off the screen and returns to the Main Menu! 
     if (game.buildContext != null) { 
       Navigator.of(game.buildContext!).pop(); 
     } 
@@ -24,32 +24,76 @@ class ExitButton extends TextComponent with TapCallbacks, HasGameReference<Grave
 class PlayerHud extends PositionComponent with HasGameReference<GraveStakesGame> {
   late TextComponent _profileText;
   late TextComponent _walletText;
+  late TextComponent _matchStatsText;
 
-  PlayerHud() : super(position: Vector2(20, 20), priority: 200);
+  int _cachedShadows = 0;
+
+  PlayerHud() : super(priority: 200);
+
+  // ==========================================
+  // NEW: Dynamic Resizing for Portrait Screens!
+  // ==========================================
+  @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
+    // Pin to the far right edge (minus 20px padding), 40px down
+    position = Vector2(size.x - 20, 40); 
+    anchor = Anchor.topRight;
+  }
 
   @override
   Future<void> onLoad() async {
     final regularStyle = TextPaint(
-      style: const TextStyle(color: Colors.white70, fontSize: 16, fontFamily: 'Courier'),
+      style: const TextStyle(color: Colors.white70, fontSize: 14, fontFamily: 'Courier'), // Slightly smaller font for mobile
     );
     final economyStyle = TextPaint(
-      style: const TextStyle(color: Colors.redAccent, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Courier'),
+      style: const TextStyle(color: Colors.redAccent, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Courier'),
+    );
+    final statsStyle = TextPaint(
+      style: const TextStyle(color: Colors.cyanAccent, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Courier'),
     );
 
-    _profileText = TextComponent(text: 'Syncing profile...', textRenderer: regularStyle);
+    _profileText = TextComponent(
+      text: 'Syncing profile...', 
+      textRenderer: regularStyle, 
+      position: Vector2(0, 0),
+      anchor: Anchor.topRight, // <-- Align to the right edge
+    );
     _walletText = TextComponent(
-      text: 'Shadows: -- | Stakes: --', 
+      text: 'Shadows: --', 
       textRenderer: economyStyle, 
-      position: Vector2(0, 25), 
+      position: Vector2(0, 22), 
+      anchor: Anchor.topRight, // <-- Align to the right edge
+    );
+    _matchStatsText = TextComponent(
+      text: '', 
+      textRenderer: statsStyle, 
+      position: Vector2(0, 44), 
+      anchor: Anchor.topRight, // <-- Align to the right edge
     );
 
     add(_profileText);
     add(_walletText);
-    
-    // 2. Add our new tappable button instead of the basic TextComponent
+    add(_matchStatsText);
     add(ExitButton());
 
     await fetchPlayerData();
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    
+    final player = game.player;
+    final coins = player.coinsEarned;
+    
+    final activeBuffs = <String>[];
+    if (player.isInvisible) activeBuffs.add('Invis (${player.invisibilityTimer.toStringAsFixed(0)}s)');
+    if (player.isDisguised) activeBuffs.add('Bush (${player.disguiseTimer.toStringAsFixed(0)}s)');
+    if (player.hasExtendedRange) activeBuffs.add('Range+');
+
+    String buffStr = activeBuffs.isNotEmpty ? ' | Buffs: ${activeBuffs.join(", ")}' : '';
+    _matchStatsText.text = 'Coins: $coins$buffStr';
   }
 
   Future<void> fetchPlayerData() async {
@@ -58,13 +102,14 @@ class PlayerHud extends PositionComponent with HasGameReference<GraveStakesGame>
     
     if (user == null) {
       _profileText.text = 'Guest Player';
+      _walletText.text = 'Shadows: 0';
       return;
     }
 
     try {
       final responses = await Future.wait([
         client.from('profiles').select('username, level').eq('id', user.id).single(),
-        client.from('wallets').select('shadows, stakes').eq('id', user.id).single(),
+        client.from('wallets').select('shadows').eq('id', user.id).single(),
       ]);
 
       final profile = responses[0];
@@ -72,15 +117,14 @@ class PlayerHud extends PositionComponent with HasGameReference<GraveStakesGame>
 
       final username = profile['username'] ?? 'Unknown Ghost';
       final level = profile['level'] ?? 1;
-      final shadows = wallet['shadows'] ?? 0;
-      final stakes = wallet['stakes'] ?? 0;
+      _cachedShadows = wallet['shadows'] ?? 0;
 
       _profileText.text = '$username (Lv. $level)';
-      _walletText.text = 'Shadows: $shadows | Stakes: $stakes';
+      _walletText.text = 'Shadows: $_cachedShadows';
       
     } catch (e) {
       _profileText.text = 'Database Sync Failed';
-      _walletText.text = '';
+      _walletText.text = 'Shadows: 0';
       debugPrint('Error fetching HUD data: $e');
     }
   }

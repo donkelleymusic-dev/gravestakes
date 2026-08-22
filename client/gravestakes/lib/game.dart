@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'player.dart';
 import 'remote_player.dart';
+import 'floating_text.dart';
 import 'bot_player.dart'; 
 import 'game_map.dart';
 import 'darkness_overlay.dart';
@@ -24,21 +25,27 @@ import 'level_manager.dart';
 import 'tutorial_manager.dart';
 import 'power_up.dart';
 import 'power_up_hud.dart';
+import 'spooky_box.dart';
+import 'special_button.dart';
+import 'chest_reward.dart';
 
-// ... (keep your imports at the top)
-
-class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
+class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
   // Optional room ID so party members can queue into a shared private room
   String roomId;
   final bool isGunner;
+  final String mapName;
   
   // 1. Make sources nullable and add a status flag
   AudioSource? scareSource;
   AudioSource? footstepSource;
   AudioSource? powerupSource;
+  AudioSource? tickSource;
+
   bool isAudioReady = false;
   
-  GraveStakesGame({this.roomId = 'public_match', this.isGunner = false});
+  GraveStakesGame({this.roomId = 'public_match', 
+  this.isGunner = false,
+  this.mapName = 'L1T1V1.0.0',});
 
   late final JoystickComponent leftJoystick;
   late final JoystickComponent rightJoystick;
@@ -86,6 +93,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
       scareSource = await SoLoud.instance.loadAsset('assets/audio/ElevenLabs_Impact.mp3');
       footstepSource = await SoLoud.instance.loadAsset('assets/audio/footstep.mp3'); 
       powerupSource = await SoLoud.instance.loadAsset('assets/audio/ElevenLabs_Scary_stinger.mp3');
+      tickSource = await SoLoud.instance.loadAsset('assets/audio/tick.mp3');
       isAudioReady = true; 
       debugPrint('SoLoud Web Audio engine initialized successfully!');
     } catch (e) {
@@ -101,8 +109,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
     final user = Supabase.instance.client.auth.currentUser;
     // Check if player needs the tutorial
     bool needsTutorial = false;
-    
-    // NOTE: Removed the try/catch block for SoLoud from here!
 
     if (user != null) {
       try {
@@ -117,11 +123,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
           myPlayerLevel = profileRes['level'] as int? ?? 1;
         }
       } catch (e) {
-        debugPrint('Error fetching profile data: $e'); // Fixed the backticks to a $ variable
+        debugPrint('Error fetching profile data: $e'); 
       }
     }
-    
-    // ... [KEEP ALL THE REST OF YOUR onLoad LOGIC EXACTLY AS IT WAS] ...
+  
     
     myChannel = Supabase.instance.client.channel('room_$roomId');
 
@@ -151,11 +156,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
     );
 
     // 2. Initialize map and world items
-    gameMap = GameMap(roomId: roomId); // Pass the roomId here!
+    gameMap = GameMap(roomId: roomId, mapName: mapName); // Pass the roomId here!
     await world.add(gameMap);
 
-    // 3. SAFE SPAWNING
-    List<Vector2> availableSpawns = List.from(baseSpawnPoints)..shuffle();
+    // 3. SAFE SPAWNING (Dynamic based on the loaded map!)
+    List<Vector2> availableSpawns = gameMap.playerSpawns.isNotEmpty 
+        ? List<Vector2>.from(gameMap.playerSpawns)
+        : [Vector2(150, 150), Vector2(400, 400)]; // Fallback if Tiled layer is missing
+    
+    availableSpawns.shuffle(); // Shuffle it safely on the next line!
+
     final rawSpawnPoint = availableSpawns.removeAt(0);
 
     // Run the coordinate through the safety check!
@@ -224,15 +234,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
       // FIXED: Added .toList() before .forEach()
       camera.viewport.children
           .whereType<StartButton>()
-          .toList() // <--- The missing link!
+          .toList() 
           .forEach((btn) => btn.removeFromParent());
       
       // Spawn a guaranteed tutorial power-up 100 pixels to the right
       world.add(PowerUp(id: 'tutorial_spark', position: safeSpawnPoint + Vector2(100, 0)));
       
       // Add the tutorial manager to the world
-      world.add(TutorialManager());
+      camera.viewport.add(TutorialManager());
     }
+
+    camera.viewport.add(SpecialButton());
 
     _setupSupabaseListener();
   }
@@ -295,14 +307,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
   void onRemove() {
     myChannel.unsubscribe();
     
-    // Turn off the C++ DSP engine to prevent memory leaks!
-    // 4. Only deinit if it was active
-    if (isAudioReady) {
-      SoLoud.instance.deinit(); 
-    }
+    // We are leaving the SoLoud Web Worker running permanently!
+    // Do NOT call deinit() or change isAudioReady here.
     
-    // GUARANTEED CLEANUP: Fires whether they tap the exit button, 
-    // hit the Android back button, or swipe back on iOS!
     try {
       Supabase.instance.client.rpc(
         'leave_match',
@@ -320,7 +327,13 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
     if (bots.isNotEmpty) return; 
     
     final config = LevelManager.getConfigForLevel(myPlayerLevel);
-    List<Vector2> availableSpawns = List.from(baseSpawnPoints)..shuffle();
+    
+    // CHANGED: Use the map's dynamic spawns for bots too!
+    List<Vector2> availableSpawns = gameMap.playerSpawns.isNotEmpty 
+        ? List<Vector2>.from(gameMap.playerSpawns)
+        : [Vector2(150, 150), Vector2(400, 400)];
+        
+    availableSpawns.shuffle();
       
     // ==========================================
     // NEW: PREVENT SPAWN KILLING
@@ -356,26 +369,55 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
         world.add(PowerUp(id: 'spark_$i', position: Vector2(x, y)));
       }
     }
+
+    // ==========================================
+    // THE SPOOKY BOX SPAWNER (Host Only)
+    // ==========================================
+    if (gameMap.potentialBoxSpawns.isNotEmpty) {
+      // 1. Shuffle all possible spawn nodes
+      List<Vector2> shuffledNodes = List.from(gameMap.potentialBoxSpawns)..shuffle();
+      
+      // 2. BUMPED UP: Spawn up to 8 chests (or as many as your map has nodes for)
+      int boxesToSpawn = min(8, shuffledNodes.length);
+      List<Map<String, dynamic>> boxPayload = [];
+
+      // 3. Create them and prep the network payload
+      for (int i = 0; i < boxesToSpawn; i++) {
+        String boxId = 'spooky_box_${DateTime.now().millisecondsSinceEpoch}_$i';
+        Vector2 pos = shuffledNodes[i];
+        
+        world.add(SpookyBox(id: boxId, position: pos));
+        boxPayload.add({'id': boxId, 'x': pos.x, 'y': pos.y});
+      }
+
+      // 4. Tell all clients to spawn these exact boxes
+      myChannel.sendBroadcastMessage(
+        event: 'spawn_boxes',
+        payload: {'boxes': boxPayload},
+      );
+    }
   }
 
   Future<void> endGame() async {
     gameStarted = false; // Freeze gameplay
 
-    // 1. Calculate Rewards (e.g., 100 score = 10 XP and 5 Shadows)
+    // 1. Calculate Rewards
     final xpEarned = (player.score * 0.1).toInt();
     final shadowsEarned = (player.score * 0.05).toInt();
+    final coinsEarned = player.coinsEarned; // Grab the coins collected from chests!
 
     // 2. Send to Supabase safely!
-    if (player.score > 0) {
+    if (player.score > 0 || player.coinsEarned > 0) {
       try {
         await Supabase.instance.client.rpc(
           'process_match_rewards',
           params: {
             'xp_earned': xpEarned,
             'shadows_earned': shadowsEarned,
+            'coins_earned': player.coinsEarned, // <--- This passes the looted coins to your DB!
           },
         );
-        print('Payout successful: $xpEarned XP, $shadowsEarned Shadows');
+        print('Payout successful!');
       } catch (e) {
         print('Failed to save rewards: $e');
       }
@@ -409,15 +451,71 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
     }
   }
 
-  // NEW: Called by the Flutter Overlay when the player clicks "CONTINUE"
+void claimSpookyBox(String boxId) {
+    // 1. Send the claim request to the network immediately
+    myChannel.sendBroadcastMessage(
+      event: 'claim_box',
+      payload: {
+        'player_id': mySessionId,
+        'box_id': boxId,
+      },
+    );
+
+    // 2. We can optionally execute the reward locally right away, 
+    // or wait for a server confirmation if you want strict authority.
+    // For fast-paced games, predicting the success locally feels best:
+    _executeBoxClaim(boxId, mySessionId);
+  }
+
+  void _executeBoxClaim(String boxId, String playerId) {
+    final boxes = world.children.whereType<SpookyBox>().where((b) => b.id == boxId).toList();
+    if (boxes.isEmpty) return;
+
+    final boxPos = boxes.first.position.clone();
+    for (var box in boxes) {
+      box.removeFromParent();
+    }
+
+    if (isAudioReady && powerupSource != null) {
+      SoLoud.instance.play(powerupSource!);
+    }
+
+    if (playerId == mySessionId) {
+      // 1. Roll Random Chest Reward
+      final rewards = [
+        ChestReward(type: ChestRewardType.points, label: '+250 SOULS', value: 250),
+        ChestReward(type: ChestRewardType.currency, label: '+10 COINS', value: 10),
+        ChestReward(type: ChestRewardType.invisibility, label: 'INVISIBILITY!'),
+        ChestReward(type: ChestRewardType.disguise, label: 'BUSH DISGUISE!'),
+        ChestReward(type: ChestRewardType.rangeIncrease, label: 'RANGE EXTENDED!'),
+        ChestReward(type: ChestRewardType.teleport, label: 'TELEPORTED!'),
+      ];
+      
+      final selectedReward = rewards[Random().nextInt(rewards.length)];
+      player.applyChestReward(selectedReward);
+
+      // FIXED: Spawns to camera viewport and uses worldPosition
+      camera.viewport.add(FloatingText(
+        text: selectedReward.label,
+        worldPosition: Vector2(boxPos.x - 20, boxPos.y - 40),
+      ));
+    }
+  }
+
+  // Called by the Flutter Overlay when the player clicks "CONTINUE"
   void resetForNextRound() async {
     overlays.remove('summary'); // Hide the scoreboard
     
     player.score = 0;
+    player.hasExtendedRange = false; // <-- RESET IT ON THE PLAYER HERE!
+    player.isDisguised = false;      // (Good idea to reset disguise too!)
+    player.isInvisible = false;      // (And invisibility!)
+
     for (var remote in networkPlayers.values) {
       remote.score = 0; 
     }
     
+
     // Pick a new safe spawn point for the next round
     List<Vector2> availableSpawns = List.from(baseSpawnPoints)..shuffle();
     player.position = gameMap.getSafeSpawnLocation(availableSpawns.first, Vector2.all(32.0));
@@ -442,11 +540,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
     }
   }
   
-  int triggerLocalScare(Vector2 attackerPos, double attackerAngle, bool isPoweredUp) {
+  int triggerLocalScare(Vector2 attackerPos, double attackerAngle, bool isPoweredUp, {bool hasExtendedRange = false}) {
     int hitCount = 0;
     
     final forward = Vector2(sin(attackerAngle), -cos(attackerAngle));
-    const double scareRadius = 250.0;
+    final double scareRadius = hasExtendedRange ? 600.0 : 250.0;
+    
     final double coneThreshold = isPoweredUp ? -0.2 : 0.1;
 
     // 1. Check Bots
@@ -614,18 +713,29 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
             final y = payload['y'] as double;
             final angle = payload['a'] as double;
             final colorStr = payload['c'] as String?; 
-            final newScore = payload['s'] as int?; // NEW: Grab the score
+            final newScore = payload['s'] as int?; 
+            
+            // Extract the new disguise and movement flags
+            final isDisguised = payload['d'] as bool? ?? false;
+            final isMoving = payload['m'] as bool? ?? false;
+            final isInvisible = payload['i'] as bool? ?? false;
 
-            // THE TETHER LOGIC FOR CO-OP
             if (isGunner) {
               final driverBackward = Vector2(sin(angle + pi), -cos(angle + pi));
-              player.position.x = x + (driverBackward.x * 20); // 20 pixels behind
+              player.position.x = x + (driverBackward.x * 20); 
               player.position.y = y + (driverBackward.y * 20);
             }
 
             if (networkPlayers.containsKey(id)) {
-              // NEW: Pass the score to the update method
-              networkPlayers[id]!.updatePosition(x, y, angle, colorStr: colorStr, newScore: newScore);
+              // Pass the flags to the RemotePlayer
+              networkPlayers[id]!.updatePosition(
+                x, y, angle, 
+                colorStr: colorStr, 
+                newScore: newScore,
+                isDisguised: isDisguised, // Update method call!
+                isMoving: isMoving,       // Update method call!
+                isInvisible: isInvisible,
+              );
             }
           }
         },
@@ -699,6 +809,29 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents {
             // Otherwise, just show the remote friend shaking
             networkPlayers[targetId]!.applyStun(duration);
           }
+        },
+      )
+      .onBroadcast(
+        event: 'spawn_boxes',
+        callback: (payload) {
+          if (!isHost) {
+            final boxList = payload['boxes'] as List<dynamic>;
+            for (var data in boxList) {
+              world.add(SpookyBox(
+                id: data['id'] as String,
+                position: Vector2(data['x'] as double, data['y'] as double),
+              ));
+            }
+          }
+        },
+      )
+      .onBroadcast(
+        event: 'claim_box',
+        callback: (payload) {
+          // Whenever ANYONE claims a box, execute the removal for everyone
+          final boxId = payload['box_id'] as String;
+          final playerId = payload['player_id'] as String;
+          _executeBoxClaim(boxId, playerId);
         },
       )
       .onBroadcast(

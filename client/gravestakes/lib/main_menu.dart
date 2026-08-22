@@ -24,16 +24,20 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   String _username = 'Loading...';
   int _level = 1;
   int _shadows = 0;
-  int _stakes = 0;
+  int _coins = 0; // <-- Swapped stakes for coins
   bool _isLoading = true;
   bool _isSearchingForMatch = false;
   String? _errorMessage;
+  // The map that will be passed into the game
+  String _selectedMapName = 'L1T1V1.0.0';// db row name value of level 1 map. new dungeon map name is 'L2T1V1.0.0'
 
   @override
   void initState() {
     super.initState();
     _fetchPlayerData();
   }
+
+  
 
   Future<void> _fetchPlayerData() async {
     final user = supabase.auth.currentUser;
@@ -45,7 +49,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
     if (mounted) setState(() {
       _isLoading = true;
-      _errorMessage = null; // Clear any previous errors
+      _errorMessage = null; 
     });
 
     int maxRetries = 3;
@@ -54,7 +58,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       try {
         final responses = await Future.wait<dynamic>([
           supabase.from('profiles').select('username, level').eq('id', user.id).single(),
-          supabase.from('wallets').select('shadows, stakes').eq('id', user.id).single(),
+          supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(), // <-- Fetching coins now
         ]);
 
         if (mounted) {
@@ -62,12 +66,12 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             _username = responses[0]['username'] ?? 'Ghost';
             _level = responses[0]['level'] ?? 1;
             _shadows = responses[1]['shadows'] ?? 0;
-            _stakes = responses[1]['stakes'] ?? 0;
+            _coins = responses[1]['coins'] ?? 0; // <-- Assigning coins
             _isLoading = false;
           });
         }
         
-        return; // Success! Exit the function.
+        return; 
 
       } on PostgrestException catch (e) {
         if (e.code == 'PGRST303' && i < maxRetries - 1) {
@@ -75,14 +79,12 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           continue; 
         }
         
-        // AUTH ERRORS ONLY: 401 (Unauthorized), 403 (Forbidden), 301 (JWT Expired), 116 (0 Rows/RLS Blocked)
         if (e.code == '401' || e.code == '403' || e.code == 'PGRST301' || e.code == 'PGRST116') {
           debugPrint('Auth failure (${e.code}). Forcing logout...');
           _logout();
           return;
         }
         
-        // NETWORK/DATABASE ERRORS: Don't log them out, just show the retry screen!
         if (mounted) setState(() {
           _errorMessage = 'Server connection lost. (${e.code})';
           _isLoading = false;
@@ -90,7 +92,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         return;
         
       } catch (e) {
-        // TIMEOUTS & WIFI DROPS: Show the retry screen!
         if (mounted) {
           setState(() {
             _errorMessage = 'Network error. Please check your connection.';
@@ -111,25 +112,47 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     });
 
     try {
-      // 1. CAPTURE THE USER GESTURE IMMEDIATELY
-      // Create the game instance and init audio BEFORE any network delays!
-      final gameInstance = GraveStakesGame();
+      final gameInstance = GraveStakesGame(mapName: _selectedMapName);
       await gameInstance.initAudioEngine();
 
-      // 2. NOW perform the network request for matchmaking
-      final response = await supabase.rpc('find_or_create_match');
+      final response = await supabase.rpc(
+        'find_or_create_match',
+        params: {'p_map_name': _selectedMapName}, // This sends the dropdown value!
+      );
       
-      // 3. Inject the real room ID into the game before it renders
       gameInstance.roomId = response as String;
 
       if (!context.mounted) return;
 
-      // 4. Push the fully prepared game to the screen
+      // Inside _findMatchAndStart in main_menu.dart:
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => Scaffold(
             body: GameWidget<GraveStakesGame>(
               game: gameInstance,
+              // 1. Move the loading UI to the dedicated loadingBuilder!
+              loadingBuilder: (context) => Container(
+                color: Colors.black,
+                child: const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(color: Colors.redAccent),
+                      SizedBox(height: 20),
+                      Text(
+                        'LOADING MAP...',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 2.0,
+                          fontFamily: 'Courier',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
               overlayBuilderMap: {
                 'summary': (BuildContext context, GraveStakesGame game) => MatchSummaryOverlay(game: game),
               },
@@ -140,7 +163,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         _fetchPlayerData();
       });
       
-    // 1. CATCH DATABASE/TOKEN ERRORS FIRST
     } on PostgrestException catch (e) {
       if (e.code == 'PGRST301' || e.code == '401' || e.code == 'PGRST116' || e.code == '42501') {
           debugPrint('Stale token or RLS block detected (${e.code}). Forcing logout...');
@@ -155,7 +177,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         );
       }
       
-    // 2. CATCH EVERYTHING ELSE
     } catch (e) {
       if (e is AuthException) {
         debugPrint('Auth exception during matchmaking. Forcing logout...');
@@ -170,7 +191,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         );
       }
       
-    // 3. ALWAYS UNLOCK THE BUTTON
     } finally {
       if (mounted) {
         setState(() {
@@ -190,7 +210,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       backgroundColor: Colors.black,
       body: _isLoading 
         ? const Center(child: CircularProgressIndicator(color: Colors.red))
-        // NEW: If there is a network error, show the Retry UI instead of the menu
         : _errorMessage != null
             ? Center(
                 child: Column(
@@ -245,7 +264,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                           children: [
                             Text('Shadows: $_shadows', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 4),
-                            Text('Stakes: $_stakes', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                            // <-- Updated to display Coins in Amber!
+                            Text('Coins: $_coins', style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold)),
                           ],
                         ),
                       ],
@@ -253,6 +273,36 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   ),
                   
                   const SizedBox(height: 32),
+                  // --- THE MAP CHOOSER ---
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[900],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedMapName,
+                        dropdownColor: Colors.black87,
+                        isExpanded: true,
+                        style: const TextStyle(color: Colors.yellowAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold),
+                        items: const [
+                          DropdownMenuItem(value: 'L1T1V1.0.0', child: Text('MAP 1: ORIGINAL COMPOUND')),
+                          DropdownMenuItem(value: 'L2T1V1.0.0', child: Text('MAP 2: THE CATACOMBS')),
+                        ],
+                        onChanged: (String? newValue) {
+                          if (newValue != null) {
+                            setState(() {
+                              _selectedMapName = newValue;
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // -----------------------
 
                   ElevatedButton(
                     onPressed: () => _findMatchAndStart(context),

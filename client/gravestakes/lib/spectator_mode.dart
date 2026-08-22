@@ -31,7 +31,7 @@ class _SpectatorLobbyScreenState extends State<SpectatorLobbyScreen> {
       // 1. Pull the 20 most recent matches (No SDK filters!)
       final response = await supabase
           .from('active_matches')
-          .select('id, player_count, status, created_at')
+          .select('id, player_count, status, created_at, map_name')
           .order('created_at', ascending: false)
           .limit(20);
       
@@ -84,7 +84,10 @@ class _SpectatorLobbyScreenState extends State<SpectatorLobbyScreen> {
                             children: [
                               // Layer 1: The Flame Game
                               GameWidget<SpectatorGame>(
-                                game: SpectatorGame(roomId: room['id']),
+                                game: SpectatorGame(
+                                  roomId: room['id'], 
+                                  mapName: room['map_name'] ?? 'L1T1V1.0.0', 
+                                ),
                                 overlayBuilderMap: {
                                   'spectator_summary': (context, SpectatorGame game) => SpectatorSummaryOverlay(game: game),
                                 },
@@ -122,7 +125,10 @@ class _SpectatorLobbyScreenState extends State<SpectatorLobbyScreen> {
 // ==========================================
 class SpectatorGame extends FlameGame with PanDetector {
   final String roomId;
-  SpectatorGame({required this.roomId});
+  final String mapName; // 1. Add the variable
+
+  // 2. Add it to the constructor (Default to Map 1 for now)
+  SpectatorGame({required this.roomId, this.mapName = 'L1T1V1.0.0'});
 
   late final GameMap gameMap;
   late final RealtimeChannel ghostChannel;
@@ -132,8 +138,11 @@ class SpectatorGame extends FlameGame with PanDetector {
 
   @override
   Future<void> onLoad() async {
-    gameMap = GameMap(roomId: roomId);
+    // 3. Pass BOTH variables to GameMap
+    gameMap = GameMap(roomId: roomId, mapName: mapName);
     await world.add(gameMap);
+    
+    // ... the rest of the onLoad method stays exactly the same!
 
     final mapWidth = gameMap.tiledMap.tileMap.map.width * 32.0;
     final mapHeight = gameMap.tiledMap.tileMap.map.height * 32.0;

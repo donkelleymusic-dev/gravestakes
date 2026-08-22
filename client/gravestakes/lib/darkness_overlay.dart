@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'dart:ui' as ui; // NEW: Required for gradients and blur
+import 'dart:ui' as ui; 
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 import 'game.dart';
@@ -21,7 +21,9 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
 
     final center = (viewSize / 2).toOffset();
     
-    const coneLength = 600.0; 
+    // CHANGED: Base range is now much shorter (350.0). 
+    // If you grab the extended range buff, it blooms out to the full 600.0!
+    final double coneLength = player.hasExtendedRange ? 600.0 : 350.0; 
     const sweepAngle = math.pi / 2; // 90 degrees
 
     final canvasAngle = player.angle - (math.pi / 2);
@@ -49,20 +51,16 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
         center,
         coneLength,
         [
-          // Center: Only removes 45% of the darkness. The map will look gritty and dim.
           Colors.white.withOpacity(0.45), 
-          // Midpoint: Light falls off quickly to simulate heavy air/fog.
           Colors.white.withOpacity(0.15), 
-          // Edge: Fully merges with the pitch black.
           Colors.white.withOpacity(0.0),  
         ],
         [
-          0.0, // Start of the beam
-          0.4, // Light decay starts much closer to the player now
-          1.0, // Edge of the beam
+          0.0, 
+          0.4, 
+          1.0, 
         ],
       )
-      // Increased the blur to 35.0 for a softer, slightly foggier beam edge
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 35.0);
 
     // --- Dimmer Player Glow ---
@@ -71,17 +69,14 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
         center,
         60.0,
         [
-          // Only removes 35% of the darkness right under the player's feet
           Colors.white.withOpacity(0.35), 
           Colors.white.withOpacity(0.0),
         ],
       );
 
-    // Draw the new soft gradient shapes
     canvas.drawPath(conePath, flashlightPaint);
     canvas.drawCircle(center, 60.0, playerGlowPaint); 
 
-    // Flood the screen with darkness everywhere except the gradient shapes
     final darkPaint = Paint()
       ..color = Colors.black.withOpacity(0.96)
       ..blendMode = BlendMode.srcOut;

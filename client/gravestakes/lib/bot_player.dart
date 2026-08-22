@@ -111,19 +111,31 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     PositionComponent? closest;
     double minDistance = 350.0; 
 
+    // 1. Check the Local Player
     if (!game.player.isStunned) {
-      double dist = position.distanceTo(game.player.position);
-      if (dist < minDistance && _isInVisionCone(game.player.position) && game.gameMap.hasLineOfSight(position, game.player.position)) {
-        minDistance = dist;
-        closest = game.player;
+      // STEALTH CHECK: Invisible OR (Disguised + Holding Still)
+      bool isStealthing = game.player.isInvisible || (game.player.isDisguised && !game.player.isMoving);
+      
+      if (!isStealthing) {
+        double dist = position.distanceTo(game.player.position);
+        if (dist < minDistance && _isInVisionCone(game.player.position) && game.gameMap.hasLineOfSight(position, game.player.position)) {
+          minDistance = dist;
+          closest = game.player;
+        }
       }
     }
 
+    // 2. Check all Remote Players
     for (var remote in game.networkPlayers.values) {
-      double dist = position.distanceTo(remote.position);
-      if (dist < minDistance && _isInVisionCone(game.player.position) && game.gameMap.hasLineOfSight(position, remote.position)) {
-        minDistance = dist;
-        closest = remote;
+      // STEALTH CHECK: Invisible OR (Disguised + Holding Still)
+      bool isStealthing = remote.isInvisible || (remote.isDisguised && !remote.isMoving);
+      
+      if (!isStealthing) {
+        double dist = position.distanceTo(remote.position);
+        if (dist < minDistance && _isInVisionCone(remote.position) && game.gameMap.hasLineOfSight(position, remote.position)) {
+          minDistance = dist;
+          closest = remote;
+        }
       }
     }
 

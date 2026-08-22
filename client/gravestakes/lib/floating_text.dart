@@ -1,15 +1,17 @@
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
+import 'game.dart'; 
 
-class FloatingText extends PositionComponent {
+class FloatingText extends PositionComponent with HasGameReference<GraveStakesGame> {
   final String text;
   late TextComponent textComponent;
   
-  double lifeTime = 1.5; // How long it stays on screen
+  double lifeTime = 1.5; 
   double timeElapsed = 0;
+  Vector2 worldPosition; 
 
-  FloatingText({required this.text, required Vector2 position}) : super(position: position) {
-    priority = 150; // High priority so it renders ABOVE the darkness overlay!
+  FloatingText({required this.text, required this.worldPosition}) : super() {
+    priority = 150; // Defeats the darkness overlay!
   }
 
   @override
@@ -34,10 +36,15 @@ class FloatingText extends PositionComponent {
     super.update(dt);
     timeElapsed += dt;
     
-    // Float upwards at 50 pixels per second
-    position.y -= 50 * dt; 
+    // Float upwards in world space
+    worldPosition.y -= 50 * dt; 
     
-    // Self-destruct when time is up
+    // MANUAL CONVERSION: Safely calculate screen coordinates from world coordinates!
+    final cameraWorldPos = game.camera.viewfinder.position;
+    final screenCenter = game.camera.viewport.size / 2;
+    
+    position = (worldPosition - cameraWorldPos) + screenCenter;
+    
     if (timeElapsed >= lifeTime) {
       removeFromParent();
     }

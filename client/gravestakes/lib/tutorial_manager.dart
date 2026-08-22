@@ -11,7 +11,8 @@ enum TutorialStep {
   completed,
 }
 
-class TutorialManager extends Component with HasGameReference<GraveStakesGame> {
+// CHANGED: Attached to PositionComponent on the Viewport so it locks to the screen window!
+class TutorialManager extends PositionComponent with HasGameReference<GraveStakesGame> {
   TutorialStep currentStep = TutorialStep.movement;
   
   double stepTimer = 0;
@@ -20,12 +21,13 @@ class TutorialManager extends Component with HasGameReference<GraveStakesGame> {
   bool hasAttacked = false;
   bool hasPickedUpPowerUp = false;
 
-  // UI tracking variables
   Vector2? initialPosition;
 
+  TutorialManager() : super(priority: 300); // Ensure it draws above game layers
+
   @override
-  void onMount() {
-    super.onMount();
+  Future<void> onLoad() async {
+    super.onLoad();
     initialPosition = game.player.position.clone();
   }
 
@@ -38,7 +40,6 @@ class TutorialManager extends Component with HasGameReference<GraveStakesGame> {
 
     switch (currentStep) {
       case TutorialStep.movement:
-        // Advance if the player moves more than 50 pixels from start
         if (initialPosition != null && player.position.distanceTo(initialPosition!) > 50) {
           hasMoved = true;
           _advanceStep();
@@ -46,7 +47,6 @@ class TutorialManager extends Component with HasGameReference<GraveStakesGame> {
         break;
 
       case TutorialStep.aiming:
-        // Advance if the player rotates or uses the right joystick
         if (!game.rightJoystick.delta.isZero() || player.angle != 0) {
           hasAimed = true;
           _advanceStep();
@@ -54,7 +54,6 @@ class TutorialManager extends Component with HasGameReference<GraveStakesGame> {
         break;
 
       case TutorialStep.attacking:
-        // Advance if the player attacks (we can check attack cooldown triggering)
         if (player.attackCooldown > 0) {
           hasAttacked = true;
           _advanceStep();
@@ -62,7 +61,6 @@ class TutorialManager extends Component with HasGameReference<GraveStakesGame> {
         break;
 
       case TutorialStep.powerUp:
-        // Advance if the player collects a power-up
         if (player.isPoweredUp) {
           hasPickedUpPowerUp = true;
           _advanceStep();
@@ -95,7 +93,6 @@ class TutorialManager extends Component with HasGameReference<GraveStakesGame> {
   }
 
   Future<void> _concludeTutorial() async {
-    // 1. Mark tutorial as completed in Supabase
     final user = Supabase.instance.client.auth.currentUser;
     if (user != null) {
       try {
@@ -107,8 +104,6 @@ class TutorialManager extends Component with HasGameReference<GraveStakesGame> {
         debugPrint('Error updating tutorial status: $e');
       }
     }
-
-    // 2. Clean up tutorial manager and let the game start normally
     removeFromParent();
   }
 
@@ -135,7 +130,6 @@ class TutorialManager extends Component with HasGameReference<GraveStakesGame> {
         break;
     }
 
-    // Render an instructional HUD box at the top center of the screen
     final textPainter = TextPainter(
       text: TextSpan(
         text: instruction,
@@ -151,13 +145,16 @@ class TutorialManager extends Component with HasGameReference<GraveStakesGame> {
 
     textPainter.layout();
     
-    // Position near the top of the viewport camera
-    final offset = Offset(
-      (game.camera.viewport.size.x / 2) - (textPainter.width / 2),
-      40.0,
-    );
+    // --- position near bottom in middle of screen ---
+    final screenWidth = game.camera.viewport.size.x;
+    final screenHeight = game.camera.viewport.size.y;
     
-    // Background banner
+    final offset = Offset(
+      (screenWidth / 2) - (textPainter.width / 2),
+      screenHeight - 120.0, // Fixed padding from the BOTTOM of the screen!
+    );
+    // -------------------------
+    
     final bgRect = Rect.fromCenter(
       center: offset + Offset(textPainter.width / 2, textPainter.height / 2),
       width: textPainter.width + 40,
@@ -166,7 +163,7 @@ class TutorialManager extends Component with HasGameReference<GraveStakesGame> {
     
     canvas.drawRRect(
       RRect.fromRectAndRadius(bgRect, const Radius.circular(8)),
-      Paint()..color = Colors.black.withAlpha(200),
+      Paint()..color = Colors.black.withAlpha(220),
     );
 
     textPainter.paint(canvas, offset);

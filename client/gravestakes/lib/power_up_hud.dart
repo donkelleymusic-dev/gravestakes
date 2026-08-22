@@ -48,4 +48,13 @@ class PowerUpHud extends PositionComponent with HasGameReference {
       fillPaint,
     );
   }
+  
+  String getActiveAbilitiesText(Player player) {
+    final active = <String>[];
+    if (player.isInvisible) active.add('Ghost Mode (${player.invisibilityTimer.toStringAsFixed(0)}s)');
+    if (player.isDisguised) active.add('Disguised');
+    if (player.hasExtendedRange) active.add('Extended Range');
+    if (player.hasInvisibilityCharge) active.add('Invisibility Ready');
+    return active.isEmpty ? 'No Active Buffs' : active.join(' • ');
+  }
 }

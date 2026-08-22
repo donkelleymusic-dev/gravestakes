@@ -5,7 +5,7 @@ import 'game.dart';
 class ScoreHud extends TextComponent with HasGameReference<GraveStakesGame> {
   ScoreHud() : super(
     position: Vector2(20, 20),
-    anchor: Anchor.topLeft,
+    anchor: Anchor.topRight,
     priority: 100, // Even higher priority so it's always on top
   );
 
@@ -19,6 +19,15 @@ class ScoreHud extends TextComponent with HasGameReference<GraveStakesGame> {
         shadows: [Shadow(color: Colors.red, blurRadius: 4)],
       ),
     );
+  }
+
+  // NEW: Automatically position it 20px from the top-right corner
+  @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
+    // 10px from left edge, 40px down to clear the mobile status bar
+    position = Vector2(10, 40); 
+    anchor = Anchor.topLeft;
   }
 
   @override

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<map version="1.10" tiledversion="1.12.2" orientation="orthogonal" renderorder="right-down" width="60" height="60" tilewidth="32" tileheight="32" infinite="0" nextlayerid="19" nextobjectid="77">
+<map version="1.10" tiledversion="1.12.2" orientation="orthogonal" renderorder="right-down" width="60" height="60" tilewidth="32" tileheight="32" infinite="0" nextlayerid="21" nextobjectid="114">
  <tileset firstgid="1" name="A_WaterFall_pipo" tilewidth="32" tileheight="32" tilecount="576" columns="32">
   <image source="../images/A_WaterFall_pipo.png" width="1024" height="576"/>
  </tileset>
@@ -1505,5 +1505,114 @@
   <object id="73" x="174.667" y="600" width="134.667" height="170.667"/>
   <object id="74" x="557.333" y="912" width="225.333" height="148"/>
   <object id="75" x="736" y="1369.33" width="264" height="105.333"/>
+ </objectgroup>
+ <objectgroup id="19" name="BoxSpawns">
+  <object id="78" x="1308" y="1396">
+   <point/>
+  </object>
+  <object id="79" x="1156" y="1712">
+   <point/>
+  </object>
+  <object id="80" x="572" y="1408">
+   <point/>
+  </object>
+  <object id="81" x="124" y="388">
+   <point/>
+  </object>
+  <object id="82" x="508" y="156">
+   <point/>
+  </object>
+  <object id="83" x="1888" y="44">
+   <point/>
+  </object>
+  <object id="84" x="1164" y="84">
+   <point/>
+  </object>
+  <object id="85" x="872" y="624">
+   <point/>
+  </object>
+  <object id="86" x="1336" y="664">
+   <point/>
+  </object>
+  <object id="87" x="1816" y="1488">
+   <point/>
+  </object>
+  <object id="88" x="684" y="1792">
+   <point/>
+  </object>
+  <object id="89" x="36" y="1468">
+   <point/>
+  </object>
+  <object id="90" x="24" y="932">
+   <point/>
+  </object>
+  <object id="91" x="436" y="864">
+   <point/>
+  </object>
+  <object id="92" x="1292" y="392">
+   <point/>
+  </object>
+  <object id="93" x="1120" y="1024">
+   <point/>
+  </object>
+  <object id="94" x="1840" y="764">
+   <point/>
+  </object>
+  <object id="95" x="1892" y="1896">
+   <point/>
+  </object>
+  <object id="97" x="96" y="96">
+   <point/>
+  </object>
+  <object id="98" x="952" y="196">
+   <point/>
+  </object>
+  <object id="99" x="840" y="1220">
+   <point/>
+  </object>
+  <object id="100" x="628" y="472">
+   <point/>
+  </object>
+  <object id="101" x="1804" y="1152">
+   <point/>
+  </object>
+  <object id="102" x="272" y="1140">
+   <point/>
+  </object>
+  <object id="103" x="1740" y="416">
+   <point/>
+  </object>
+ </objectgroup>
+ <objectgroup id="20" name="PlayerSpawns">
+  <object id="104" x="997.403" y="872.727">
+   <point/>
+  </object>
+  <object id="105" x="380.588" y="347.779">
+   <point/>
+  </object>
+  <object id="106" x="114.833" y="905.537">
+   <point/>
+  </object>
+  <object id="107" x="1440.33" y="1791.39">
+   <point/>
+  </object>
+  <object id="108" x="1722.49" y="1591.25">
+   <point/>
+  </object>
+  <object id="109" x="882.57" y="1771.7">
+   <point/>
+  </object>
+  <object id="110" x="275.598" y="1453.45">
+   <point/>
+  </object>
+  <object id="111" x="1610.94" y="331.374">
+   <point/>
+  </object>
+  <object id="112" x="761.176" y="82.0232">
+   <point/>
+  </object>
+  <object id="113" x="1548.6" y="1154.89">
+   <point/>
+  </object>
  </objectgroup>
 </map>
