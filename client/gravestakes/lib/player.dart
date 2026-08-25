@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:flame/collisions.dart';
 import 'dart:math';
+
 import 'game.dart';
 import 'floating_text.dart';
 import 'scare_blast.dart';
@@ -14,6 +15,7 @@ import 'chest_reward.dart';
 import 'mask_data.dart';
 import 'flying_scare_blast.dart';
 import 'critter.dart';
+import 'voxel_character_component.dart';
 
 class Player extends PositionComponent with KeyboardHandler, HasGameReference<GraveStakesGame> {
   final JoystickComponent leftJoystick;
@@ -24,9 +26,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   final double maxSpeed = 200.0;
   int score = 0;
 
-  // ==========================================
-  // ENERGY & MASK LOADOUT
-  // ==========================================
   double energy = 10.0;
   final double maxEnergy = 10.0;
   final double energyRegenRate = 0.5;
@@ -46,8 +45,12 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   double attackCooldown = 0;
   
   String equippedColorString = 'red'; 
-  late RectangleComponent _sprite;
   Color _baseColor = Colors.redAccent; 
+
+  // Safely nullable components to prevent LateInitializationErrors
+  VoxelCharacterComponent? voxelComponent;
+  RectangleComponent? _fallbackSprite;
+
   late TextComponent _buffTimerText;
 
   double highlightTimer = 0;
@@ -114,7 +117,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
   void triggerPrivateHighlight() {
     highlightTimer = 1.0; 
-    _sprite.paint.color = Colors.white; 
+    if (_fallbackSprite != null) _fallbackSprite!.paint.color = Colors.white; 
   }
 
   Player(this.leftJoystick, this.rightJoystick, this.channel, {this.isGunner = false}) 
@@ -123,11 +126,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   @override
   Future<void> onLoad() async {
     await _fetchEquippedCosmetics();
-
     add(RectangleHitbox(size: Vector2(32, 32), anchor: Anchor.center));
 
     _buffTimerText = TextComponent(
-      position: Vector2(size.x / 2, -15), 
+      position: Vector2(size.x / 2, -15),
       anchor: Anchor.center,
       textRenderer: TextPaint(
         style: const TextStyle(
@@ -139,6 +141,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     );
     add(_buffTimerText);
 
+    await game.images.load('mask_placeholder.png');
+
     try {
       final sheet = game.images.fromCache('Base_BaseChip_pipo.png');
       _bushSprite = SpriteComponent(
@@ -146,64 +150,74 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         size: Vector2.all(32), anchor: Anchor.center,
       );
     } catch (e) {}
+
+    try {
+      voxelComponent = VoxelCharacterComponent(
+        images: game.loadedAssetImages, 
+        rigData: game.loadedRigData,
+        hitboxSize: size, 
+      );
+      add(voxelComponent!);
+    } catch (e) {
+      debugPrint('Failed to load Voxel Character: $e');
+      _fallbackSprite = RectangleComponent(size: size, paint: Paint()..color = _baseColor);
+      add(_fallbackSprite!);
+    }
   }
 
   Future<void> _fetchEquippedCosmetics() async {
     final user = Supabase.instance.client.auth.currentUser;
-    
-    // Default loadout
-    String mask1Id = 'standard';
-    String mask2Id = 'vermin'; 
+    String? mask1Id; String? mask2Id; String? mask3Id; String? mask4Id;
     
     if (user != null) {
       try {
-        final res = await Supabase.instance.client
-            .from('user_loadouts')
-            .select('slot_type, item_value')
-            .eq('user_id', user.id);
-
+        final res = await Supabase.instance.client.from('user_loadouts').select('slot_type, item_value').eq('user_id', user.id);
         final loadouts = List<Map<String, dynamic>>.from(res);
         for (var row in loadouts) {
           final slot = row['slot_type'] as String;
           final val = row['item_value'] as String;
-
           if (slot == 'flashlight_color') {
             equippedColorString = val; 
             switch (val) {
               case 'green': _baseColor = Colors.greenAccent; break;
               case 'purple': _baseColor = Colors.purpleAccent; break;
-              case 'blue': _baseColor = Colors.cyanAccent; break;
               case 'red': default: _baseColor = Colors.redAccent; break;
             }
-          } else if (slot == 'mask_1') {
-            mask1Id = val;
-          } else if (slot == 'mask_2') {
-            mask2Id = val;
-          }
+          } else if (slot == 'mask_1') mask1Id = val;
+          else if (slot == 'mask_2') mask2Id = val;
+          else if (slot == 'mask_3') mask3Id = val;
+          else if (slot == 'mask_4') mask4Id = val;
         }
-      } catch (e) {
-        debugPrint('Error loading loadouts: $e');
-      }
+      } catch (e) {}
     }
 
-    equippedMasks = [MaskRegistry.getMask(mask1Id), MaskRegistry.getMask(mask2Id)];
-    _sprite = RectangleComponent(size: size, paint: Paint()..color = _baseColor);
-    add(_sprite);
+    equippedMasks = [];
+    if (mask1Id != null && mask1Id.isNotEmpty) equippedMasks.add(MaskRegistry.getMask(mask1Id));
+    if (mask2Id != null && mask2Id.isNotEmpty) equippedMasks.add(MaskRegistry.getMask(mask2Id));
+    if (mask3Id != null && mask3Id.isNotEmpty) equippedMasks.add(MaskRegistry.getMask(mask3Id));
+    if (mask4Id != null && mask4Id.isNotEmpty) equippedMasks.add(MaskRegistry.getMask(mask4Id));
   }
 
   void triggerAttack({int? forceMaskIndex}) {
-    if (attackCooldown > 0 || equippedMasks.isEmpty) return;
+    if (attackCooldown > 0) return;
+    
+    if (equippedMasks.isEmpty) {
+      game.camera.viewport.add(FloatingText(text: 'NO MASKS! BUY IN MARKET', worldPosition: Vector2(position.x - 100, position.y - 60)));
+      return;
+    }
     
     if (forceMaskIndex != null) selectedMaskIndex = forceMaskIndex;
-    final currentMask = equippedMasks[selectedMaskIndex];
+    if (selectedMaskIndex >= equippedMasks.length) selectedMaskIndex = 0; 
 
+    final currentMask = equippedMasks[selectedMaskIndex];
     if (energy < currentMask.energyCost) return;
     
     energy -= currentMask.energyCost;
-    attackCooldown = 0.5; 
+    attackCooldown = currentMask.cooldown; 
 
-    if (game.isAudioReady && game.scareSource != null) {
-      SoLoud.instance.play(game.scareSource!);
+    if (game.isAudioReady) {
+      if (currentMask.id == 'standard' && game.scareSource != null) SoLoud.instance.play(game.scareSource!);
+      else if (currentMask.id == 'flying' && game.batScreechSource != null) SoLoud.instance.play(game.batScreechSource!);
     }
 
     final masterSeed = DateTime.now().millisecondsSinceEpoch;
@@ -213,10 +227,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     } else if (currentMask.swarmBehavior != SwarmBehavior.none) {
       for (int i = 0; i < currentMask.swarmCount; i++) {
         game.world.add(Critter(
-          position: position.clone(),
-          behavior: currentMask.swarmBehavior,
-          seed: masterSeed, index: i, initialAngle: angle,
-          ownerId: game.mySessionId, // Tell the swarm you own it!
+          position: position.clone(), behavior: currentMask.swarmBehavior,
+          seed: masterSeed, index: i, initialAngle: angle, ownerId: game.mySessionId,
         ));
       }
     } else {
@@ -226,14 +238,13 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         while (distanceToMove > 0) {
           double step = min(5.0, distanceToMove);
           final testPos = position + (forward * step);
-          if (!game.gameMap.checkCollision(testPos, size)) {
-            position = testPos; distanceToMove -= step;
+          if (!game.gameMap.checkCollision(testPos, size)) { position = testPos; distanceToMove -= step;
           } else { break; }
         }
       }
       game.world.add(ScareBlast(position: position, angle: angle - (pi / 2)));
       
-      int victimsHit = game.triggerLocalScare(position, angle, isPoweredUp, hasExtendedRange: hasExtendedRange);
+      int victimsHit = game.triggerLocalScare(position, angle, isPoweredUp, hasExtendedRange: hasExtendedRange, range: currentMask.range);
       if (victimsHit > 0) {
         int baseScore = victimsHit * 100;
         int comboBonus = (victimsHit - 1) * 50 * (victimsHit - 1); 
@@ -243,17 +254,11 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       }
     }
     
-    channel.sendBroadcastMessage(
-      event: 'scare',
-      payload: {
-        'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': angle,
-        'mask_id': currentMask.id, 'seed': masterSeed 
-      },
-    );
+    channel.sendBroadcastMessage(event: 'scare', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': angle, 'mask_id': currentMask.id, 'seed': masterSeed});
   }
 
   void applyStun(double duration) {
-    isStunned = true; stunTimer = duration; _sprite.paint.color = Colors.cyanAccent; 
+    isStunned = true; stunTimer = duration; 
   }
 
   @override
@@ -272,6 +277,18 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   void update(double dt) {
     if (!game.gameStarted) return; 
     super.update(dt);
+
+    if (voxelComponent != null) {
+      voxelComponent!.targetAngle = angle;
+      // THE ROTATION FIX: Counteract Flame's rigid body spin so the art stays upright!
+      voxelComponent!.angle = -angle; 
+      voxelComponent!.isMoving = isMoving;
+
+      // Pass the loaded mask to the rig!
+      try {
+        voxelComponent!.activeMaskImage = game.images.fromCache('mask_placeholder.png');
+      } catch (e) {}
+    }
 
     if (attackCooldown > 0) attackCooldown -= dt;
     if (energy < maxEnergy) energy = (energy + (energyRegenRate * dt)).clamp(0.0, maxEnergy);
@@ -313,14 +330,19 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       }
     } else { _tickAccumulator = 0.0; }
 
-    if (highlightTimer > 0) {
-      highlightTimer -= dt; _sprite.paint.color = Colors.white; 
-    } else if (powerUpTimer > 0) {
-      _sprite.paint.color = Colors.yellowAccent;
-    } else if (!isStunned) {
-      if (isDisguised) { _sprite.paint.color = Colors.transparent; 
-      } else if (isInvisible) { _sprite.paint.color = _baseColor.withAlpha(80); 
-      } else { _sprite.paint.color = _baseColor; }
+    if (voxelComponent != null) {
+      if (highlightTimer > 0) {
+        highlightTimer -= dt; 
+        voxelComponent!.isHighlighted = true;
+      } else {
+        voxelComponent!.isHighlighted = false;
+      }
+      
+      if (isDisguised || isInvisible) {
+        voxelComponent!.isVisible = false;
+      } else {
+        voxelComponent!.isVisible = true;
+      }
     }
 
     if (isDisguised) {
@@ -335,23 +357,14 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       if (comp is PowerUp) {
         if (position.distanceTo(comp.position) < 30) {
           powerUpTimer = 10.0; 
-          try {
-            if (game.isAudioReady && game.powerupSource != null) SoLoud.instance.play(game.powerupSource!);
-          } catch (e) {}
+          try { if (game.isAudioReady && game.powerupSource != null) SoLoud.instance.play(game.powerupSource!); } catch (e) {}
           powerUpsToRemove.add(comp);
           channel.sendBroadcastMessage(event: 'consume_powerup', payload: {'id': comp.id});
           
           networkTick += dt;
           if (networkTick >= networkRate) {
             networkTick = 0;
-            channel.sendBroadcastMessage(
-              event: 'move',
-              payload: {
-                'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': angle,
-                'c': equippedColorString, 's': score,
-                'd': isDisguised, 'm': isMoving, 'i': isInvisible,
-              },
-            );
+            channel.sendBroadcastMessage(event: 'move', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': angle, 'c': equippedColorString, 's': score, 'd': isDisguised, 'm': isMoving, 'i': isInvisible});
           }
         }
       }
@@ -360,11 +373,22 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     if (isStunned) {
       stunTimer -= dt;
-      int alpha = (150 + sin(stunTimer * 30) * 105).toInt().clamp(0, 255);
-      _sprite.paint.color = Colors.cyanAccent.withAlpha(alpha);
-      _sprite.position = Vector2(sin(stunTimer * 50) * 4, 0);
+      if (voxelComponent != null) {
+        voxelComponent!.isStunned = true;
+        voxelComponent!.stunTimer = stunTimer;
+      }
+      if (_fallbackSprite != null) {
+         int alpha = (150 + sin(stunTimer * 30) * 105).toInt().clamp(0, 255);
+         _fallbackSprite!.paint.color = Colors.cyanAccent.withAlpha(alpha);
+         _fallbackSprite!.position = Vector2(sin(stunTimer * 50) * 4, 0);
+      }
       if (stunTimer <= 0) {
-        isStunned = false; _sprite.paint.color = _baseColor; _sprite.position = Vector2.zero();
+        isStunned = false; 
+        if (voxelComponent != null) voxelComponent!.isStunned = false;
+        if (_fallbackSprite != null) {
+           _fallbackSprite!.paint.color = _baseColor;
+           _fallbackSprite!.position = Vector2.zero();
+        }
       }
       return; 
     }
@@ -400,14 +424,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     networkTick += dt;
     if (networkTick >= networkRate) {
       networkTick = 0;
-      channel.sendBroadcastMessage(
-        event: 'move',
-        payload: {
-          'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': angle,
-          'c': equippedColorString, 's': score,
-          'd': isDisguised, 'm': isMoving, 'i': isInvisible,
-        },
-      );
+      channel.sendBroadcastMessage(event: 'move', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': angle, 'c': equippedColorString, 's': score, 'd': isDisguised, 'm': isMoving, 'i': isInvisible});
     }
   }
 }

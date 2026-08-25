@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'game.dart';
 import 'scare_blast.dart';
+import 'voxel_character_component.dart';
 
 enum BotState { wander, hunt }
 
@@ -20,45 +21,32 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   bool isStunned = false;
   double stunTimer = 0;
   double attackCooldown = 0;
-
   double localImmunityToMe = 0;
-  
   double directionTimer = 0;
   double evasionTimer = 0; 
   Vector2 movementDelta = Vector2.zero();
   
-  late RectangleComponent _sprite;
+  VoxelCharacterComponent? voxelComponent;
+  RectangleComponent? _fallbackSprite;
+  
   final Random _random = Random();
-
   double highlightTimer = 0;
 
   void triggerPrivateHighlight() {
     highlightTimer = 1.0; 
-    _sprite.paint.color = Colors.white; 
+    if (_fallbackSprite != null) _fallbackSprite!.paint.color = Colors.white; 
   }
 
   void _playSpatialFootstep() {
     if (!game.isAudioReady || game.footstepSource == null) return;
-
     final distance = (position - game.player.position).length;
     if (distance > 1000.0) return;
 
     final posX = position.x / _audioScale;
-    //final posZ = position.y / _audioScale; 
-
     final randomPitch = 0.85 + (_random.nextDouble() * 0.30);
-
-    //final posX = position.x / _audioScale;
     final posY = position.y / _audioScale;
 
-    final handle = SoLoud.instance.play3d(
-      game.footstepSource!,
-      posX,
-      posY, // Native Flame Y
-      0.0,   // Z elevation
-      volume: 0.85,
-    );
-
+    final handle = SoLoud.instance.play3d(game.footstepSource!, posX, posY, 0.0, volume: 0.85);
     SoLoud.instance.setRelativePlaySpeed(handle, randomPitch);
     SoLoud.instance.set3dSourceMinMaxDistance(handle, 2.0, 20.0);
     SoLoud.instance.set3dSourceAttenuation(handle, 1, 1.2);
@@ -71,12 +59,8 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     final angleToTarget = atan2(vectorToTarget.y, vectorToTarget.x);
     
     double diffAngle = (angleToTarget - angle) % (2 * pi);
-    
-    if (diffAngle > pi) {
-      diffAngle -= 2 * pi;
-    } else if (diffAngle < -pi) {
-      diffAngle += 2 * pi;
-    }
+    if (diffAngle > pi) diffAngle -= 2 * pi;
+    else if (diffAngle < -pi) diffAngle += 2 * pi;
     
     const double fov = pi / 1.5; 
     return diffAngle.abs() <= (fov / 2);
@@ -84,12 +68,17 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
   @override
   Future<void> onLoad() async {
-    _sprite = RectangleComponent(
-      size: size,
-      paint: Paint()..color = Colors.deepOrangeAccent, 
-    );
-    add(_sprite);
-    
+    try {
+      voxelComponent = VoxelCharacterComponent(
+        images: game.loadedAssetImages,
+        rigData: game.loadedRigData,
+        hitboxSize: size,
+      );
+      add(voxelComponent!);
+    } catch (e) {
+      _fallbackSprite = RectangleComponent(size: size, paint: Paint()..color = Colors.deepOrangeAccent);
+      add(_fallbackSprite!);
+    }
     _chooseNewDirection();
   }
 
@@ -102,7 +91,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   void applyStun(double duration) {
     isStunned = true;
     stunTimer = duration;
-    _sprite.paint.color = Colors.cyanAccent;
     currentState = BotState.wander; 
     _chooseNewDirection(); 
   }
@@ -111,11 +99,8 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     PositionComponent? closest;
     double minDistance = 350.0; 
 
-    // 1. Check the Local Player
     if (!game.player.isStunned) {
-      // STEALTH CHECK: Invisible OR (Disguised + Holding Still)
       bool isStealthing = game.player.isInvisible || (game.player.isDisguised && !game.player.isMoving);
-      
       if (!isStealthing) {
         double dist = position.distanceTo(game.player.position);
         if (dist < minDistance && _isInVisionCone(game.player.position) && game.gameMap.hasLineOfSight(position, game.player.position)) {
@@ -125,11 +110,8 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       }
     }
 
-    // 2. Check all Remote Players
     for (var remote in game.networkPlayers.values) {
-      // STEALTH CHECK: Invisible OR (Disguised + Holding Still)
       bool isStealthing = remote.isInvisible || (remote.isDisguised && !remote.isMoving);
-      
       if (!isStealthing) {
         double dist = position.distanceTo(remote.position);
         if (dist < minDistance && _isInVisionCone(remote.position) && game.gameMap.hasLineOfSight(position, remote.position)) {
@@ -138,7 +120,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         }
       }
     }
-
     return closest;
   }
 
@@ -147,44 +128,47 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     if (!game.gameStarted) return;
     super.update(dt);
 
+    if (voxelComponent != null) {
+      voxelComponent!.targetAngle = angle;
+      voxelComponent!.angle = -angle; // Fix the spinning!
+      voxelComponent!.isMoving = !isStunned && (currentState == BotState.hunt || directionTimer > 0);
+      voxelComponent!.isStunned = isStunned;
+      voxelComponent!.stunTimer = stunTimer;
+      voxelComponent!.isHighlighted = (highlightTimer > 0);
+    }
+
     if (localImmunityToMe > 0) localImmunityToMe -= dt;
     if (evasionTimer > 0) evasionTimer -= dt;
-
+    
     if (highlightTimer > 0) {
       highlightTimer -= dt;
-      if (highlightTimer <= 0 && !isStunned) {
-        _sprite.paint.color = Colors.deepOrangeAccent; 
+      if (highlightTimer <= 0 && !isStunned && _fallbackSprite != null) {
+        _fallbackSprite!.paint.color = Colors.deepOrangeAccent; 
       }
     }
 
     if (isStunned) {
       stunTimer -= dt;
-      
-      int alpha = (150 + sin(stunTimer * 30) * 105).toInt().clamp(0, 255);
-      _sprite.paint.color = Colors.cyanAccent.withAlpha(alpha);
-      _sprite.position = Vector2(sin(stunTimer * 50) * 4, 0);
-
+      if (_fallbackSprite != null) {
+         int alpha = (150 + sin(stunTimer * 30) * 105).toInt().clamp(0, 255);
+         _fallbackSprite!.paint.color = Colors.cyanAccent.withAlpha(alpha);
+         _fallbackSprite!.position = Vector2(sin(stunTimer * 50) * 4, 0);
+      }
       if (stunTimer <= 0) {
         isStunned = false;
-        _sprite.paint.color = Colors.deepOrangeAccent; 
-        _sprite.position = Vector2.zero(); 
+        if (_fallbackSprite != null) {
+          _fallbackSprite!.paint.color = Colors.deepOrangeAccent; 
+          _fallbackSprite!.position = Vector2.zero(); 
+        }
       }
     }
 
     if (!game.isHost) return;
 
     if (!isStunned) {
-      if (attackCooldown > 0) {
-        currentTarget = null;
-      } else {
-        currentTarget = _findClosestVisiblePlayer();
-      }
+      if (attackCooldown > 0) { currentTarget = null; } else { currentTarget = _findClosestVisiblePlayer(); }
       
-      if (currentTarget != null) {
-        currentState = BotState.hunt;
-      } else {
-        currentState = BotState.wander;
-      }
+      if (currentTarget != null) { currentState = BotState.hunt; } else { currentState = BotState.wander; }
 
       double currentSpeed = wanderSpeed;
       bool hitWall = false;
@@ -198,53 +182,33 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       } else {
         directionTimer -= dt;
         if (directionTimer <= 0) _chooseNewDirection();
-        if (evasionTimer <= 0) {
-          angle = movementDelta.screenAngle();
-        }
+        if (evasionTimer <= 0) angle = movementDelta.screenAngle();
       }
 
       final potentialPosition = position + (movementDelta * currentSpeed * dt);
       final oldPosition = position.clone();
 
       final testX = Vector2(potentialPosition.x, position.y);
-      if (!game.gameMap.checkCollision(testX, size)) {
-        position.x = potentialPosition.x;
-      } else {
-        hitWall = true;
-      }
+      if (!game.gameMap.checkCollision(testX, size)) { position.x = potentialPosition.x; } else { hitWall = true; }
 
       final testY = Vector2(position.x, potentialPosition.y);
-      if (!game.gameMap.checkCollision(testY, size)) {
-        position.y = potentialPosition.y;
-      } else {
-        hitWall = true;
-      }
+      if (!game.gameMap.checkCollision(testY, size)) { position.y = potentialPosition.y; } else { hitWall = true; }
 
       if (hitWall && evasionTimer <= 0) {
         double turnAngle = (pi / 4) + (_random.nextDouble() * (pi / 4)); 
-        if (_random.nextBool()) {
-          angle += turnAngle;
-        } else {
-          angle -= turnAngle;
-        }
-        
+        if (_random.nextBool()) angle += turnAngle; else angle -= turnAngle;
         movementDelta = Vector2(sin(angle), -cos(angle));
         evasionTimer = 0.5; 
-        
-        if (currentState == BotState.wander) {
-          directionTimer = 0.5;
-        }
+        if (currentState == BotState.wander) directionTimer = 0.5;
       }
 
       if (attackCooldown > 0) attackCooldown -= dt;
 
       if (currentTarget != null) {
         final distance = position.distanceTo(currentTarget!.position);
-        
         if (distance < 110 && attackCooldown <= 0) {
           if (game.gameMap.hasLineOfSight(position, currentTarget!.position)) {
             game.world.add(ScareBlast(position: position, angle: angle - (pi / 2)));
-            
             if (currentTarget == game.player) {
               game.jumpScareEffect.trigger(); 
               game.player.applyStun(2.0);   
@@ -252,17 +216,11 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
               game.player.triggerPrivateHighlight();
             } else {
               String? targetId;
-              game.networkPlayers.forEach((key, val) {
-                if (val == currentTarget) targetId = key;
-              });
+              game.networkPlayers.forEach((key, val) { if (val == currentTarget) targetId = key; });
               if (targetId != null) {
-                game.myChannel.sendBroadcastMessage(
-                  event: 'stun',
-                  payload: {'id': targetId, 'duration': 2.0},
-                );
+                game.myChannel.sendBroadcastMessage(event: 'stun', payload: {'id': targetId, 'duration': 2.0});
               }
             }
-            
             attackCooldown = 8.0; 
             movementDelta = (position - currentTarget!.position).normalized();
             angle = movementDelta.screenAngle();
@@ -277,18 +235,12 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         if (actualVelocity > 5.0) {
           double dynamicInterval = 0.45 * (wanderSpeed / actualVelocity);
           dynamicInterval += (_random.nextDouble() * 0.1) - 0.05;
-
           _footstepTimer += dt;
           if (_footstepTimer >= dynamicInterval) {
-            _footstepTimer = 0.0;
-            _playSpatialFootstep();
+            _footstepTimer = 0.0; _playSpatialFootstep();
           }
-        } else {
-          _footstepTimer = 0.0;
-        }
-      } else {
-        _footstepTimer = 0.0;
-      }
+        } else { _footstepTimer = 0.0; }
+      } else { _footstepTimer = 0.0; }
     }
   }
 }

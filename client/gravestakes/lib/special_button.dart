@@ -11,8 +11,7 @@ class SpecialButton extends PositionComponent with HasGameReference<GraveStakesG
   @override
   Future<void> onLoad() async {
     size = Vector2(110, 44);
-    // Position directly above or adjacent to the Attack Button in the bottom right
-    position = Vector2(game.camera.viewport.size.x - 140, game.camera.viewport.size.y - 170);
+    position = Vector2(game.camera.viewport.size.x - 165, game.camera.viewport.size.y - 240);
 
     label = TextComponent(
       text: '',
@@ -27,6 +26,13 @@ class SpecialButton extends PositionComponent with HasGameReference<GraveStakesG
       position: size / 2,
     );
     add(label);
+  }
+
+  @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
+    // Keeps it cleanly stacked above the 4-way attack button if the window resizes
+    position = Vector2(size.x - 165, size.y - 240);
   }
 
   @override

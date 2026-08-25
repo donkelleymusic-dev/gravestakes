@@ -12,9 +12,11 @@ class _LoadoutScreenState extends State<LoadoutScreen> {
   final supabase = Supabase.instance.client;
   
   bool _isLoading = true;
-  String _equippedColor = 'red'; // Default
+  String _equippedColor = 'red'; 
+  String? _equippedMask1;
+  String? _equippedMask2;
+  String _selectedMap = 'L1T1V1.0.0';
 
-  // Hardcoded for now. Later, this could be fetched from an 'inventory' table.
   final List<Map<String, dynamic>> _availableColors = [
     {'name': 'Blood Red (Default)', 'value': 'red', 'color': Colors.redAccent},
     {'name': 'Ecto Green', 'value': 'green', 'color': Colors.greenAccent},
@@ -22,29 +24,56 @@ class _LoadoutScreenState extends State<LoadoutScreen> {
     {'name': 'Phantom Blue', 'value': 'blue', 'color': Colors.cyanAccent},
   ];
 
+  List<String> _ownedMasks = [];
+  final List<String> _availableMaps = ['L1T1V1.0.0', 'L1T2V1.0.0'];
+
   @override
   void initState() {
     super.initState();
-    _fetchEquippedLoadout();
+    _fetchLoadoutData();
   }
 
-  Future<void> _fetchEquippedLoadout() async {
+  Future<void> _fetchLoadoutData() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
     try {
       final res = await supabase
           .from('user_loadouts')
-          .select('item_value')
-          .eq('user_id', user.id)
-          .eq('slot_type', 'flashlight_color')
-          .maybeSingle();
+          .select('slot_type, item_value')
+          .eq('user_id', user.id);
 
       if (mounted) {
-        setState(() {
-          if (res != null) {
-            _equippedColor = res['item_value'] as String;
+        List<String> owned = [];
+        String? m1;
+        String? m2;
+        String color = 'red';
+        String map = 'L1T1V1.0.0';
+
+        final loadouts = List<Map<String, dynamic>>.from(res);
+        for (var row in loadouts) {
+          final slot = row['slot_type'] as String? ?? '';
+          final val = row['item_value'] as String?;
+
+          if (val == null) continue;
+
+          if (slot == 'flashlight_color') color = val;
+          if (slot == 'mask_1') m1 = val;
+          if (slot == 'mask_2') m2 = val;
+          if (slot == 'preferred_map') map = val;
+          
+          if (slot == 'inventory_mask' || slot.startsWith('unlocked_mask_')) {
+            if (!owned.contains(val)) owned.add(val);
           }
+        }
+
+        setState(() {
+          _equippedColor = color;
+          // Ensure equipped masks are actually owned, otherwise set to null
+          _equippedMask1 = (m1 != null && owned.contains(m1)) ? m1 : null;
+          _equippedMask2 = (m2 != null && owned.contains(m2)) ? m2 : null;
+          _selectedMap = map;
+          _ownedMasks = owned;
           _isLoading = false;
         });
       }
@@ -54,38 +83,57 @@ class _LoadoutScreenState extends State<LoadoutScreen> {
     }
   }
 
-  Future<void> _equipItem(String slotType, String itemValue) async {
+  Future<void> _equipItem(String slotType, String? itemValue) async {
     final user = supabase.auth.currentUser;
-    if (user == null) return;
+    if (user == null || itemValue == null) return;
 
-    // Optimistic UI update for snappy feel
+    String? slotToClear;
+    final isClearing = itemValue == 'none';
+
     setState(() {
-      _equippedColor = itemValue;
+      if (slotType == 'mask_1') {
+        if (!isClearing && _equippedMask2 == itemValue) {
+          _equippedMask2 = null;
+          slotToClear = 'mask_2';
+        }
+        _equippedMask1 = isClearing ? null : itemValue;
+      } else if (slotType == 'mask_2') {
+        if (!isClearing && _equippedMask1 == itemValue) {
+          _equippedMask1 = null;
+          slotToClear = 'mask_1';
+        }
+        _equippedMask2 = isClearing ? null : itemValue;
+      } else if (slotType == 'flashlight_color') {
+        _equippedColor = itemValue;
+      } else if (slotType == 'preferred_map') {
+        _selectedMap = itemValue;
+      }
     });
 
     try {
-      await supabase.from('user_loadouts').upsert({
-        'user_id': user.id,
-        'slot_type': slotType,
-        'item_value': itemValue,
-      }, onConflict: 'user_id, slot_type');
+      if (isClearing) {
+        await supabase.from('user_loadouts').delete().eq('user_id', user.id).eq('slot_type', slotType);
+      } else {
+        await supabase.from('user_loadouts').upsert({
+          'user_id': user.id,
+          'slot_type': slotType,
+          'item_value': itemValue,
+        }, onConflict: 'user_id, slot_type');
+      }
+
+      // Safely checked so Dart knows it is not null when passed to .eq()
+      final clearSlot = slotToClear;
+      if (clearSlot != null) {
+        await supabase.from('user_loadouts').delete().eq('user_id', user.id).eq('slot_type', clearSlot);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Equipped $itemValue aura!'), 
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 1),
-          ),
+          const SnackBar(content: Text('Loadout updated!'), backgroundColor: Colors.green, duration: Duration(milliseconds: 800)),
         );
       }
     } catch (e) {
       debugPrint('Error equipping item: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to equip item.'), backgroundColor: Colors.red),
-        );
-      }
     }
   }
 
@@ -95,84 +143,128 @@ class _LoadoutScreenState extends State<LoadoutScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.grey[900],
-        title: const Text('LOADOUT', style: TextStyle(color: Colors.redAccent, letterSpacing: 1.5)),
+        title: const Text('LOADOUT & PREFERENCES', style: TextStyle(color: Colors.redAccent, letterSpacing: 1.5)),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Colors.red))
-          : Padding(
+          : ListView(
               padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'AURA & FLASHLIGHT COLORS',
-                    style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, letterSpacing: 1.5),
-                  ),
-                  const SizedBox(height: 16),
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: _availableColors.length,
-                      itemBuilder: (context, index) {
-                        final item = _availableColors[index];
-                        final isEquipped = _equippedColor == item['value'];
+              children: [
+                const Text('FLASHLIGHT AURA COLOR', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 100,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _availableColors.length,
+                    itemBuilder: (context, index) {
+                      final item = _availableColors[index];
+                      final isEquipped = _equippedColor == item['value'];
 
-                        return GestureDetector(
-                          onTap: () => _equipItem('flashlight_color', item['value']),
-                          child: Container(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.grey[900],
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: isEquipped ? Colors.amber : Colors.transparent,
-                                width: 2,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      return GestureDetector(
+                        onTap: () => _equipItem('flashlight_color', item['value']),
+                        child: Container(
+                          width: 110,
+                          margin: const EdgeInsets.only(right: 12),
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[900],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: isEquipped ? Colors.amber : Colors.transparent, width: 2),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(width: 24, height: 24, decoration: BoxDecoration(color: item['color'], shape: BoxShape.circle)),
+                              const SizedBox(height: 6),
+                              Text(item['value'].toUpperCase(), style: TextStyle(color: isEquipped ? Colors.white : Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                const Text('MASK DECK (SLOT 1 & SLOT 2)', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                const SizedBox(height: 8),
+                _ownedMasks.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8.0),
+                        child: Text('You own no masks! Visit the Black Market to purchase your first Scary Mask.', style: TextStyle(color: Colors.redAccent)),
+                      )
+                    : Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      width: 24,
-                                      height: 24,
-                                      decoration: BoxDecoration(
-                                        color: item['color'],
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: (item['color'] as Color).withValues(alpha: 0.5),
-                                            blurRadius: 8,
-                                            spreadRadius: 2,
-                                          )
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 16),
-                                    Text(
-                                      item['name'],
-                                      style: TextStyle(
-                                        color: isEquipped ? Colors.white : Colors.grey[400],
-                                        fontSize: 16,
-                                        fontWeight: isEquipped ? FontWeight.bold : FontWeight.normal,
-                                      ),
-                                    ),
+                                const Text('Slot 1', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                                const SizedBox(height: 6),
+                                DropdownButtonFormField<String>(
+                                  value: _equippedMask1 ?? 'none',
+                                  dropdownColor: Colors.grey[900],
+                                  style: const TextStyle(color: Colors.white),
+                                  items: [
+                                    const DropdownMenuItem(value: 'none', child: Text('EMPTY SLOT', style: TextStyle(color: Colors.grey))),
+                                    ..._ownedMasks.map((mask) {
+                                      final isOtherSlot = _equippedMask2 == mask;
+                                      final label = isOtherSlot ? 'MOVE ${mask.toUpperCase()} HERE' : mask.toUpperCase();
+                                      return DropdownMenuItem(
+                                        value: mask,
+                                        child: Text(label, style: TextStyle(color: isOtherSlot ? Colors.amber : Colors.white, fontWeight: isOtherSlot ? FontWeight.bold : FontWeight.normal)),
+                                      );
+                                    }),
                                   ],
+                                  onChanged: (val) => _equipItem('mask_1', val),
                                 ),
-                                if (isEquipped)
-                                  const Icon(Icons.check_circle, color: Colors.amber)
-                                else
-                                  const Icon(Icons.circle_outlined, color: Colors.grey),
                               ],
                             ),
                           ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                                const Text('Slot 2', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                                const SizedBox(height: 6),
+                                DropdownButtonFormField<String>(
+                                  value: _equippedMask2 ?? 'none',
+                                  dropdownColor: Colors.grey[900],
+                                  style: const TextStyle(color: Colors.white),
+                                  items: [
+                                    const DropdownMenuItem(value: 'none', child: Text('EMPTY SLOT', style: TextStyle(color: Colors.grey))),
+                                    ..._ownedMasks.map((mask) {
+                                      final isOtherSlot = _equippedMask1 == mask;
+                                      final label = isOtherSlot ? 'MOVE ${mask.toUpperCase()} HERE' : mask.toUpperCase();
+                                      return DropdownMenuItem(
+                                        value: mask,
+                                        child: Text(label, style: TextStyle(color: isOtherSlot ? Colors.amber : Colors.white, fontWeight: isOtherSlot ? FontWeight.bold : FontWeight.normal)),
+                                      );
+                                    }),
+                                  ],
+                                  onChanged: (val) => _equipItem('mask_2', val),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+
+                const SizedBox(height: 24),
+
+                const Text('PREFERRED MATCH MAP', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _selectedMap,
+                  dropdownColor: Colors.grey[900],
+                  style: const TextStyle(color: Colors.white),
+                  items: _availableMaps.map((map) => DropdownMenuItem(value: map, child: Text('Map Asset: $map'))).toList(),
+                  onChanged: (val) => _equipItem('preferred_map', val),
+                ),
+              ],
             ),
     );
   }
