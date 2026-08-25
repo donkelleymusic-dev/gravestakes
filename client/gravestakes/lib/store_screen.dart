@@ -11,14 +11,14 @@ class StoreScreen extends StatefulWidget {
 class _StoreScreenState extends State<StoreScreen> {
   final supabase = Supabase.instance.client;
   
-  // 1. Tactical Masks Catalog
+  // Tactical Masks Catalog
   final List<Map<String, dynamic>> _marketMasks = [
     {
       'id': 'standard',
       'name': 'Scary Mask (Standard)',
       'description': 'Reliable close-range ground scare.',
       'price': 20,
-      'currency': 'shadows',
+      'currency': 'shadows', 
     },
     {
       'id': 'flying',
@@ -36,10 +36,8 @@ class _StoreScreenState extends State<StoreScreen> {
     },
   ];
 
-  // 2. Abilities & Perks Catalog
   List<Map<String, dynamic>> _abilities = [];
 
-  // User Inventory & Wallets
   List<String> _ownedMaskIds = [];
   List<String> _ownedAbilityIds = [];
   int _playerShadows = 0;
@@ -60,28 +58,19 @@ class _StoreScreenState extends State<StoreScreen> {
       final responses = await Future.wait<dynamic>([
         supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(),
         
-        // FIX: Fetch ALL loadout rows for the user, stop filtering out the new masks!
-        supabase.from('user_loadouts').select('slot_type, item_value').eq('user_id', user.id),
+        // Fetch ownership from the new, clean inventory table!
+        supabase.from('user_inventory').select('item_id').eq('user_id', user.id).eq('item_type', 'mask'),
         
         supabase.from('abilities').select('*'),
         supabase.from('player_loadouts').select('ability_id').eq('player_id', user.id),
       ]);
 
       final walletData = responses[0] as Map<String, dynamic>;
-      final allLoadouts = List<Map<String, dynamic>>.from(responses[1]);
+      final inventoryData = List<Map<String, dynamic>>.from(responses[1]);
       final abilitiesData = List<Map<String, dynamic>>.from(responses[2]);
       final abilityLoadouts = List<Map<String, dynamic>>.from(responses[3]);
 
-      // FIX: Check for both old and new save formats safely
-      final ownedMasks = <String>[];
-      for (var row in allLoadouts) {
-        final slot = row['slot_type'] as String? ?? '';
-        final val = row['item_value'] as String?;
-        if (val != null && (slot == 'inventory_mask' || slot.startsWith('unlocked_mask_'))) {
-          if (!ownedMasks.contains(val)) ownedMasks.add(val);
-        }
-      }
-
+      final ownedMasks = inventoryData.map((row) => row['item_id'] as String).toList();
       final ownedAbilities = abilityLoadouts
           .where((row) => row['ability_id'] != null)
           .map((row) => row['ability_id'].toString())
@@ -113,17 +102,11 @@ class _StoreScreenState extends State<StoreScreen> {
     }
 
     try {
-      // 1. Force a 200 OK response by appending .select() to bypass the Flutter Web 204 crash
-      await supabase.from('wallets').update({
-        'shadows': _playerShadows - price
-      }).eq('id', user.id).select();
-
-      // 2. Use Upsert with .select() to prevent duplicate key crashes
-      await supabase.from('user_loadouts').upsert({
-        'user_id': user.id,
-        'slot_type': 'unlocked_mask_$maskId',
-        'item_value': maskId,
-      }, onConflict: 'user_id, slot_type').select();
+      // Use the new atomic RPC transaction!
+      await supabase.rpc('buy_mask', params: {
+        'p_mask_id': maskId,
+        'p_price': price,
+      });
 
       setState(() {
         _playerShadows -= price;
@@ -143,22 +126,18 @@ class _StoreScreenState extends State<StoreScreen> {
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
-    // GUARD: If legacy DB rows still say 'stakes', map it to 'coins' safely
-    final safeCurrencyType = currencyType == 'stakes' ? 'coins' : currencyType;
-    
-    int currentCurrency = safeCurrencyType == 'coins' ? _playerCoins : _playerShadows;
+    // Database is clean, no safeCurrencyType mapping needed!
+    int currentCurrency = currencyType == 'coins' ? _playerCoins : _playerShadows;
     if (currentCurrency < price) {
-      _showError('Not enough $safeCurrencyType!');
+      _showError('Not enough ${currencyType.toUpperCase()}!');
       return;
     }
 
     try {
-      // 1. Force a 200 OK response with .select() 
       await supabase.from('wallets').update({
-        safeCurrencyType: currentCurrency - price
+        currencyType: currentCurrency - price
       }).eq('id', user.id).select();
 
-      // 2. Use UPSERT instead of INSERT so rebuying/equipping doesn't crash on constraints
       await supabase.from('player_loadouts').upsert({
         'player_id': user.id,
         'ability_id': abilityId,
@@ -166,7 +145,7 @@ class _StoreScreenState extends State<StoreScreen> {
       }).select();
 
       setState(() {
-        if (safeCurrencyType == 'coins') {
+        if (currencyType == 'coins') {
           _playerCoins -= price;
         } else {
           _playerShadows -= price;
@@ -227,7 +206,10 @@ class _StoreScreenState extends State<StoreScreen> {
                   final id = item['id'];
                   final isOwned = _ownedMaskIds.contains(id);
                   final price = item['price'];
-                  final canAfford = _playerShadows >= price;
+                  final currency = item['currency']; 
+                  
+                  final userCurrency = currency == 'coins' ? _playerCoins : _playerShadows;
+                  final canAfford = userCurrency >= price;
 
                   return Container(
                     margin: const EdgeInsets.only(bottom: 12),

@@ -38,34 +38,34 @@ class _LoadoutScreenState extends State<LoadoutScreen> {
     if (user == null) return;
 
     try {
-      final res = await supabase
-          .from('user_loadouts')
-          .select('slot_type, item_value')
-          .eq('user_id', user.id);
+      // Fetch equipped items AND owned inventory at the same time
+      final responses = await Future.wait([
+        supabase.from('user_loadouts').select('slot_type, item_value').eq('user_id', user.id),
+        supabase.from('user_inventory').select('item_id').eq('user_id', user.id).eq('item_type', 'mask'),
+      ]);
 
       if (mounted) {
-        List<String> owned = [];
         String? m1;
         String? m2;
         String color = 'red';
         String map = 'L1T1V1.0.0';
 
-        final loadouts = List<Map<String, dynamic>>.from(res);
+        // 1. Process what the player is actively wearing
+        final loadouts = List<Map<String, dynamic>>.from(responses[0]);
         for (var row in loadouts) {
           final slot = row['slot_type'] as String? ?? '';
           final val = row['item_value'] as String?;
 
           if (val == null) continue;
-
           if (slot == 'flashlight_color') color = val;
           if (slot == 'mask_1') m1 = val;
           if (slot == 'mask_2') m2 = val;
           if (slot == 'preferred_map') map = val;
-          
-          if (slot == 'inventory_mask' || slot.startsWith('unlocked_mask_')) {
-            if (!owned.contains(val)) owned.add(val);
-          }
         }
+
+        // 2. Process what the player actually owns
+        final inventory = List<Map<String, dynamic>>.from(responses[1]);
+        List<String> owned = inventory.map((row) => row['item_id'] as String).toList();
 
         setState(() {
           _equippedColor = color;
@@ -121,7 +121,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> {
         }, onConflict: 'user_id, slot_type');
       }
 
-      // Safely checked so Dart knows it is not null when passed to .eq()
       final clearSlot = slotToClear;
       if (clearSlot != null) {
         await supabase.from('user_loadouts').delete().eq('user_id', user.id).eq('slot_type', clearSlot);
