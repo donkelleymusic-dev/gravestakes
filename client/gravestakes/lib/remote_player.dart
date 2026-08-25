@@ -59,7 +59,7 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
         images: game.loadedAssetImages,
         rigData: game.loadedRigData,
         hitboxSize: size,
-      );
+      )..position = size / 2;
       add(voxelComponent!);
     } catch (e) {
       _fallbackSprite = RectangleComponent(size: size, paint: Paint()..color = _baseColor);
@@ -110,9 +110,9 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     super.update(dt);
 
     if (voxelComponent != null) {
-      voxelComponent!.targetAngle = angle;
-      voxelComponent!.angle = -angle; // Fix the spinning!
-      voxelComponent!.isMoving = isMoving; 
+      voxelComponent!.targetAngle = angle - (pi / 2); 
+      voxelComponent!.angle = -angle; 
+      voxelComponent!.isMoving = isMoving;
       voxelComponent!.isStunned = isStunned;
       voxelComponent!.stunTimer = stunTimer;
       voxelComponent!.isHighlighted = (highlightTimer > 0);

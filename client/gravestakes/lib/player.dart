@@ -156,7 +156,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         images: game.loadedAssetImages, 
         rigData: game.loadedRigData,
         hitboxSize: size, 
-      );
+      )..position = size / 2;
       add(voxelComponent!);
     } catch (e) {
       debugPrint('Failed to load Voxel Character: $e');
@@ -279,8 +279,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     super.update(dt);
 
     if (voxelComponent != null) {
-      voxelComponent!.targetAngle = angle;
-      // THE ROTATION FIX: Counteract Flame's rigid body spin so the art stays upright!
+      voxelComponent!.targetAngle = angle - (pi / 2); 
       voxelComponent!.angle = -angle; 
       voxelComponent!.isMoving = isMoving;
 

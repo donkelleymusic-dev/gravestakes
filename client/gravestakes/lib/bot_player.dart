@@ -73,7 +73,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         images: game.loadedAssetImages,
         rigData: game.loadedRigData,
         hitboxSize: size,
-      );
+      )..position = size / 2;
       add(voxelComponent!);
     } catch (e) {
       _fallbackSprite = RectangleComponent(size: size, paint: Paint()..color = Colors.deepOrangeAccent);
@@ -85,7 +85,9 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   void _chooseNewDirection() {
     directionTimer = (_random.nextDouble() * 2) + 1; 
     double randomAngle = _random.nextDouble() * 2 * pi;
-    movementDelta = Vector2(cos(randomAngle), sin(randomAngle));
+    
+    // FIXED: Use Flame's standard orientation (0 = UP) instead of the standard unit circle
+    movementDelta = Vector2(sin(randomAngle), -cos(randomAngle)); 
   }
 
   void applyStun(double duration) {
@@ -129,8 +131,10 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     super.update(dt);
 
     if (voxelComponent != null) {
-      voxelComponent!.targetAngle = angle;
+      // Shift the visual angle by -90 degrees (-pi/2) to align with Flame's 0=UP standard
+      voxelComponent!.targetAngle = angle - (pi / 2); 
       voxelComponent!.angle = -angle; // Fix the spinning!
+      
       voxelComponent!.isMoving = !isStunned && (currentState == BotState.hunt || directionTimer > 0);
       voxelComponent!.isStunned = isStunned;
       voxelComponent!.stunTimer = stunTimer;
