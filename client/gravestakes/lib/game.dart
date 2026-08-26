@@ -37,6 +37,7 @@ import 'chest_reward.dart';
 import 'mask_data.dart';
 import 'flying_scare_blast.dart';
 import 'critter.dart';
+import 'vessel_opener_overlay.dart';
 
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
   String roomId;
@@ -404,9 +405,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       myChannel.sendBroadcastMessage(event: 'match_control', payload: {'action': 'end'});
     }
 
-    try {
-      overlays.add('summary');
-    } catch (e) {}
+    //try {
+    //  overlays.add('summary');
+    //} catch (e) {}
+
+    // Pop the massive dark vessel overlay!
+    // Delete the old findBuildContext() call and use this instead:
+    if (buildContext != null) {
+      VesselOpenerOverlay.show(buildContext!, 'shadow_reliquary');
+    } else {
+      debugPrint('Error: Could not find Flutter BuildContext to show overlay.');
+    }
   }
 
   void claimSpookyBox(String boxId) {

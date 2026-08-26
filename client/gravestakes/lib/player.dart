@@ -169,7 +169,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         images: game.characterImagesCache[equippedCharacterId] ?? game.loadedAssetImages, 
         rigData: rig,
         hitboxSize: size, 
-      )..position = size / 2;
+      ) ..anchor = Anchor.bottomCenter // Anchor the graphic at the feet!
+        ..position = Vector2(size.x / 2, size.y); // Place the feet at the bottom of the logical player box
+        //..position = size / 2;
       add(voxelComponent!);
     } catch (e) {
       debugPrint('Failed to load Voxel Character, rendering fallback box: $e');
@@ -316,6 +318,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   void update(double dt) {
     if (!game.gameStarted) return; 
     super.update(dt);
+
+    // Now you can hide behind things
+    // Dynamically update drawing order based on the Y-position of their feet
+    priority = position.y.toInt();
 
     if (voxelComponent != null) {
       voxelComponent!.targetAngle = angle - (pi / 2); 

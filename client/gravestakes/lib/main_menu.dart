@@ -10,6 +10,7 @@ import 'leaderboard_screen.dart';
 import 'party_screen.dart';
 import 'spectator_mode.dart';
 import 'match_summary_overlay.dart';
+import 'vessel_opener_overlay.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -208,6 +209,16 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
+      
+      // --- ADD THIS ENTIRE BLOCK ---
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: Colors.purpleAccent,
+        onPressed: () {
+          // Try changing this string to 'soul_casket' or 'shadow_reliquary'
+          VesselOpenerOverlay.show(context, 'void_chrysalis');
+        },
+        child: const Icon(Icons.science, color: Colors.white),
+      ),
       body: _isLoading 
         ? const Center(child: CircularProgressIndicator(color: Colors.red))
         : _errorMessage != null

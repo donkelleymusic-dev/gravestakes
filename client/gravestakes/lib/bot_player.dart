@@ -8,7 +8,7 @@ import 'scare_blast.dart';
 import 'voxel_character_component.dart';
 
 // --- CHANGED: Added the charmed state for the Siren mask ---
-enum BotState { wander, hunt, charmed }
+enum BotState { wander, hunt, investigate, charmed }
 
 class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
   // These will now be dynamically overwritten based on the database!
@@ -23,6 +23,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   BotState currentState = BotState.wander;
   PositionComponent? currentTarget;
   PositionComponent? charmerTarget; // The player who lured the bot
+  Vector2? lastKnownPosition; // <-- NEW: Bot Memory!
 
   bool isStunned = false;
   double stunTimer = 0;
@@ -110,7 +111,9 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         images: game.characterImagesCache[assignedCharacterId] ?? game.loadedAssetImages,
         rigData: rig,
         hitboxSize: size,
-      )..position = size / 2;
+      ) ..anchor = Anchor.bottomCenter // Anchor the graphic at the feet!
+        ..position = Vector2(size.x / 2, size.y); // Place the feet at the bottom of the logical player box
+        //..position = size / 2;
       add(voxelComponent!);
     } catch (e) {
       debugPrint('Bot failed to load Voxel Character: $e');
@@ -174,6 +177,11 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     if (!game.gameStarted) return;
     super.update(dt);
 
+    
+    // Now you can hide behind things
+    // Dynamically update drawing order based on the Y-position of their feet
+    priority = position.y.toInt();
+
     if (voxelComponent != null) {
       voxelComponent!.targetAngle = angle - (pi / 2); 
       voxelComponent!.angle = -angle; 
@@ -235,17 +243,45 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         currentTarget = null; // Can't hunt while charmed
 
       } else {
-        // Normal Bot AI
-        if (attackCooldown > 0) { currentTarget = null; } else { currentTarget = _findClosestVisiblePlayer(); }
-        if (currentTarget != null) { currentState = BotState.hunt; } else { currentState = BotState.wander; }
+        // Look for a visible target (this automatically uses your hasLineOfSight check!)
+        PositionComponent? visibleTarget;
+        if (attackCooldown <= 0) visibleTarget = _findClosestVisiblePlayer();
 
+        if (visibleTarget != null) {
+          // TARGET ACQUIRED: I see you!
+          currentTarget = visibleTarget;
+          lastKnownPosition = currentTarget!.position.clone();
+          currentState = BotState.hunt;
+        } else if (currentState == BotState.hunt && lastKnownPosition != null) {
+          // TARGET LOST: You broke Line of Sight. Time to investigate!
+          currentState = BotState.investigate;
+          currentTarget = null;
+        }
+
+        // Execute movement based on current state
         if (currentState == BotState.hunt) {
           currentSpeed = huntSpeed;
           if (evasionTimer <= 0) {
             movementDelta = (currentTarget!.position - position).normalized();
             angle = movementDelta.screenAngle();
           }
+        } else if (currentState == BotState.investigate && lastKnownPosition != null) {
+          // Move slightly slower while investigating
+          currentSpeed = huntSpeed * 0.85; 
+          if (evasionTimer <= 0) {
+            movementDelta = (lastKnownPosition! - position).normalized();
+            angle = movementDelta.screenAngle();
+          }
+          
+          // If the bot reaches the exact spot and finds nothing, give up and wander.
+          if (position.distanceTo(lastKnownPosition!) < 20.0) {
+            currentState = BotState.wander;
+            lastKnownPosition = null;
+            _chooseNewDirection();
+          }
         } else {
+          // Normal Wandering
+          currentState = BotState.wander;
           directionTimer -= dt;
           if (directionTimer <= 0) _chooseNewDirection();
           if (evasionTimer <= 0) angle = movementDelta.screenAngle();
