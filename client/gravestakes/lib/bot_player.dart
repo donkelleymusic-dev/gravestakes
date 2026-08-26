@@ -2,24 +2,31 @@ import 'dart:math';
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'game.dart';
 import 'scare_blast.dart';
 import 'voxel_character_component.dart';
 
-enum BotState { wander, hunt }
+// --- CHANGED: Added the charmed state for the Siren mask ---
+enum BotState { wander, hunt, charmed }
 
 class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
+  // These will now be dynamically overwritten based on the database!
   double wanderSpeed = 80.0;
   double huntSpeed = 130.0; 
+  double visualScale = 1.0;
+  String assignedCharacterId = 'default';
   
   double _footstepTimer = 0.0;
   final double _audioScale = 50.0;   
 
   BotState currentState = BotState.wander;
   PositionComponent? currentTarget;
+  PositionComponent? charmerTarget; // The player who lured the bot
 
   bool isStunned = false;
   double stunTimer = 0;
+  double charmTimer = 0; // Duration of the Siren effect
   double attackCooldown = 0;
   double localImmunityToMe = 0;
   double directionTimer = 0;
@@ -68,6 +75,30 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
   @override
   Future<void> onLoad() async {
+    // --- NEW: Fetch a random character for this specific bot! ---
+    try {
+      final supabase = Supabase.instance.client;
+      final charsRes = await supabase.from('characters').select('*');
+      
+      if (charsRes != null && charsRes.isNotEmpty) {
+        final List<Map<String, dynamic>> chars = List<Map<String, dynamic>>.from(charsRes);
+        final randomChar = chars[_random.nextInt(chars.length)];
+        
+        assignedCharacterId = randomChar['id'] ?? 'default';
+        final baseSpeed = (randomChar['base_speed'] as num?)?.toDouble() ?? 200.0;
+        
+        // Bots are intentionally a bit slower than players. 
+        // We apply a multiplier to the database base_speed so Goliath bots are slower than Default bots.
+        wanderSpeed = baseSpeed * 0.40;  
+        huntSpeed = baseSpeed * 0.65;    
+        
+        visualScale = (randomChar['visual_scale'] as num?)?.toDouble() ?? 1.0;
+        scale = Vector2.all(visualScale); // Make Goliath bots physically larger!
+      }
+    } catch (e) {
+      debugPrint('Bot failed to load dynamic stats: $e');
+    }
+
     try {
       voxelComponent = VoxelCharacterComponent(
         images: game.loadedAssetImages,
@@ -85,8 +116,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   void _chooseNewDirection() {
     directionTimer = (_random.nextDouble() * 2) + 1; 
     double randomAngle = _random.nextDouble() * 2 * pi;
-    
-    // FIXED: Use Flame's standard orientation (0 = UP) instead of the standard unit circle
     movementDelta = Vector2(sin(randomAngle), -cos(randomAngle)); 
   }
 
@@ -95,6 +124,14 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     stunTimer = duration;
     currentState = BotState.wander; 
     _chooseNewDirection(); 
+  }
+
+  // --- NEW: Apply the Siren Charm Effect ---
+  void applyCharm(double duration, PositionComponent charmer) {
+    isStunned = false; // Being charmed snaps you out of a stun
+    charmTimer = duration;
+    charmerTarget = charmer;
+    currentState = BotState.charmed;
   }
 
   PositionComponent? _findClosestVisiblePlayer() {
@@ -131,11 +168,11 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     super.update(dt);
 
     if (voxelComponent != null) {
-      // Shift the visual angle by -90 degrees (-pi/2) to align with Flame's 0=UP standard
       voxelComponent!.targetAngle = angle - (pi / 2); 
-      voxelComponent!.angle = -angle; // Fix the spinning!
+      voxelComponent!.angle = -angle; 
       
-      voxelComponent!.isMoving = !isStunned && (currentState == BotState.hunt || directionTimer > 0);
+      // Moving if hunting, charmed, or actively wandering
+      voxelComponent!.isMoving = !isStunned && (currentState == BotState.hunt || currentState == BotState.charmed || directionTimer > 0);
       voxelComponent!.isStunned = isStunned;
       voxelComponent!.stunTimer = stunTimer;
       voxelComponent!.isHighlighted = (highlightTimer > 0);
@@ -167,28 +204,48 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       }
     }
 
+    // --- NEW: Charm Timer Countdown ---
+    if (currentState == BotState.charmed) {
+      charmTimer -= dt;
+      if (charmTimer <= 0) {
+        currentState = BotState.wander;
+        charmerTarget = null;
+      }
+    }
+
     if (!game.isHost) return;
 
     if (!isStunned) {
-      if (attackCooldown > 0) { currentTarget = null; } else { currentTarget = _findClosestVisiblePlayer(); }
-      
-      if (currentTarget != null) { currentState = BotState.hunt; } else { currentState = BotState.wander; }
-
       double currentSpeed = wanderSpeed;
       bool hitWall = false;
 
-      if (currentState == BotState.hunt) {
-        currentSpeed = huntSpeed;
-        if (evasionTimer <= 0) {
-          movementDelta = (currentTarget!.position - position).normalized();
-          angle = movementDelta.screenAngle();
-        }
+      // 1. STATE LOGIC
+      if (currentState == BotState.charmed && charmerTarget != null) {
+        // Trance Walk! Move slowly toward the charmer but do not attack.
+        currentSpeed = wanderSpeed; 
+        movementDelta = (charmerTarget!.position - position).normalized();
+        angle = movementDelta.screenAngle();
+        currentTarget = null; // Can't hunt while charmed
+
       } else {
-        directionTimer -= dt;
-        if (directionTimer <= 0) _chooseNewDirection();
-        if (evasionTimer <= 0) angle = movementDelta.screenAngle();
+        // Normal Bot AI
+        if (attackCooldown > 0) { currentTarget = null; } else { currentTarget = _findClosestVisiblePlayer(); }
+        if (currentTarget != null) { currentState = BotState.hunt; } else { currentState = BotState.wander; }
+
+        if (currentState == BotState.hunt) {
+          currentSpeed = huntSpeed;
+          if (evasionTimer <= 0) {
+            movementDelta = (currentTarget!.position - position).normalized();
+            angle = movementDelta.screenAngle();
+          }
+        } else {
+          directionTimer -= dt;
+          if (directionTimer <= 0) _chooseNewDirection();
+          if (evasionTimer <= 0) angle = movementDelta.screenAngle();
+        }
       }
 
+      // 2. MOVEMENT LOGIC
       final potentialPosition = position + (movementDelta * currentSpeed * dt);
       final oldPosition = position.clone();
 
@@ -208,7 +265,8 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
       if (attackCooldown > 0) attackCooldown -= dt;
 
-      if (currentTarget != null) {
+      // 3. ATTACK LOGIC (Only fires if hunting, explicitly ignores charmed state)
+      if (currentTarget != null && currentState == BotState.hunt) {
         final distance = position.distanceTo(currentTarget!.position);
         if (distance < 110 && attackCooldown <= 0) {
           if (game.gameMap.hasLineOfSight(position, currentTarget!.position)) {
@@ -234,7 +292,8 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         }
       }
 
-      if (currentState == BotState.hunt || currentState == BotState.wander) {
+      // 4. FOOTSTEPS
+      if (currentState == BotState.hunt || currentState == BotState.wander || currentState == BotState.charmed) {
         double actualVelocity = position.distanceTo(oldPosition) / dt;
         if (actualVelocity > 5.0) {
           double dynamicInterval = 0.45 * (wanderSpeed / actualVelocity);

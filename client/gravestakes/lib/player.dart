@@ -23,12 +23,18 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   final RealtimeChannel channel; 
   final bool isGunner; 
 
-  final double maxSpeed = 200.0;
+  // --- CHANGED: Removed 'final' so the database can modify these ---
+  double maxSpeed = 200.0;
   int score = 0;
 
   double energy = 10.0;
-  final double maxEnergy = 10.0;
-  final double energyRegenRate = 0.5;
+  double maxEnergy = 10.0;
+  double energyRegenRate = 0.5;
+
+  // --- NEW: Dynamic Character Variables ---
+  String equippedCharacterId = 'default';
+  double swapSpeedModifier = 1.0;
+  double visualScale = 1.0;
 
   int selectedMaskIndex = 0; 
   List<MaskData> equippedMasks = [];
@@ -187,8 +193,33 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           else if (slot == 'mask_2') mask2Id = val;
           else if (slot == 'mask_3') mask3Id = val;
           else if (slot == 'mask_4') mask4Id = val;
+          // --- NEW: Find the equipped character ---
+          else if (slot == 'character') equippedCharacterId = val;
         }
-      } catch (e) {}
+
+        // --- NEW: Fetch Character Stats from the Database ---
+        final charRes = await Supabase.instance.client
+            .from('characters')
+            .select('*')
+            .eq('id', equippedCharacterId)
+            .maybeSingle();
+
+        if (charRes != null) {
+          // Overwrite the engine's physics with the database stats
+          maxSpeed = (charRes['base_speed'] as num?)?.toDouble() ?? 200.0;
+          maxEnergy = (charRes['max_energy'] as num?)?.toDouble() ?? 10.0;
+          energyRegenRate = (charRes['energy_regen'] as num?)?.toDouble() ?? 0.5;
+          swapSpeedModifier = (charRes['swap_speed_modifier'] as num?)?.toDouble() ?? 1.0;
+          visualScale = (charRes['visual_scale'] as num?)?.toDouble() ?? 1.0;
+          
+          energy = maxEnergy; // Start with a full tank
+          scale = Vector2.all(visualScale); // Apply visual size
+        }
+        // --- END NEW ---
+
+      } catch (e) {
+        debugPrint('Error fetching loadouts or stats: $e');
+      }
     }
 
     equippedMasks = [];
@@ -213,7 +244,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     if (energy < currentMask.energyCost) return;
     
     energy -= currentMask.energyCost;
-    attackCooldown = currentMask.cooldown; 
+    // --- CHANGED: Factored in the character's mask swap speed modifier ---
+    attackCooldown = currentMask.cooldown * swapSpeedModifier; 
 
     if (game.isAudioReady) {
       if (currentMask.id == 'standard' && game.scareSource != null) SoLoud.instance.play(game.scareSource!);
