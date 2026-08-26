@@ -100,13 +100,20 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     }
 
     try {
+      // Safely grab the rig, falling back to default
+      final rig = game.characterRigCache[assignedCharacterId] ?? game.loadedRigData;
+      
+      // If BOTH are missing, throw the error to force the fallback box
+      if (rig == null) throw Exception('Bot rig data is entirely missing!');
+
       voxelComponent = VoxelCharacterComponent(
-        images: game.loadedAssetImages,
-        rigData: game.loadedRigData,
+        images: game.characterImagesCache[assignedCharacterId] ?? game.loadedAssetImages,
+        rigData: rig,
         hitboxSize: size,
       )..position = size / 2;
       add(voxelComponent!);
     } catch (e) {
+      debugPrint('Bot failed to load Voxel Character: $e');
       _fallbackSprite = RectangleComponent(size: size, paint: Paint()..color = Colors.deepOrangeAccent);
       add(_fallbackSprite!);
     }

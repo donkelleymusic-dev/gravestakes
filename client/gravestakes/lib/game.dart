@@ -53,8 +53,13 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   bool isAudioReady = false;
 
   // ==========================================
-  // GLOBAL VOXEL ASSETS
+  // DYNAMIC VOXEL ASSETS CACHE
   // ==========================================
+  // We now cache assets by character ID!
+  Map<String, Map<String, ui.Image>> characterImagesCache = {};
+  Map<String, Map<String, dynamic>> characterRigCache = {};
+  
+  // Legacy variables kept for fallback safety
   Map<String, ui.Image> loadedAssetImages = {};
   Map<String, dynamic>? loadedRigData;
   bool isFpsMode = false;
@@ -116,7 +121,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
   }
 
+  // --- UPGRADED: Dynamic Asset Loader ---
   Future<void> _loadVoxelAssets() async {
+    // 1. GUARANTEED FALLBACK: Always load the local zip first!
     try {
       final ByteData data = await rootBundle.load('assets/character_assets.zip');
       final List<int> bytes = data.buffer.asUint8List();
@@ -134,15 +141,61 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           }
         }
       }
-      debugPrint('Voxel Assets Loaded Successfully!');
+      debugPrint('Base Voxel Assets Loaded Safely!');
     } catch (e) {
-      debugPrint('🚨 Failed to load Voxel assets: $e');
+      debugPrint('CRITICAL: Default zip failed to load: $e');
+    }
+
+    // 2. DYNAMIC LOADING: Fetch custom characters from Supabase
+    try {
+      final supabase = Supabase.instance.client;
+      final charsRes = await supabase.from('characters').select('id, zip_asset_path');
+      final chars = List<Map<String, dynamic>>.from(charsRes);
+
+      for (var char in chars) {
+        final charId = char['id'] as String;
+        final zipPath = char['zip_asset_path'] as String;
+        
+        // Skip default since we just loaded it securely above
+        if (charId == 'default') continue; 
+
+        try {
+          final ByteData data = await rootBundle.load(zipPath);
+          final List<int> bytes = data.buffer.asUint8List();
+          final archive = ZipDecoder().decodeBytes(bytes);
+          
+          Map<String, ui.Image> images = {};
+          Map<String, dynamic>? rig;
+
+          for (final file in archive) {
+            if (file.isFile) {
+              if (file.name == 'rig.json') {
+                final jsonStr = utf8.decode(file.content as List<int>);
+                rig = jsonDecode(jsonStr);
+              } else if (file.name.endsWith('.png')) {
+                final ui.Codec codec = await ui.instantiateImageCodec(file.content as Uint8List);
+                final ui.FrameInfo frameInfo = await codec.getNextFrame();
+                images[file.name] = frameInfo.image;
+              }
+            }
+          }
+          if (rig != null) {
+            characterImagesCache[charId] = images;
+            characterRigCache[charId] = rig;
+            debugPrint('Dynamically loaded $charId from $zipPath');
+          }
+        } catch (e) {
+          debugPrint('Failed to load dynamic zip for $charId at $zipPath: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to fetch dynamic character paths from DB: $e');
     }
   }
 
   @override
   Future<void> onLoad() async {
-    await _loadVoxelAssets(); // NEW: Load assets before spawning players!
+    await _loadVoxelAssets(); 
 
     mySessionId = DateTime.now().millisecondsSinceEpoch.toString();
     final user = Supabase.instance.client.auth.currentUser;

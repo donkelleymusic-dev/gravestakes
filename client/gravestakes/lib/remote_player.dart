@@ -9,6 +9,10 @@ import 'voxel_character_component.dart';
 class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
   String currentColorStr = 'red';
   
+  // Track dynamic character ID and scale
+  String equippedCharacterId = 'default';
+  double visualScale = 1.0;
+  
   VoxelCharacterComponent? voxelComponent;
   RectangleComponent? _fallbackSprite;
   Color _baseColor = Colors.redAccent;
@@ -54,17 +58,7 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
 
   @override
   Future<void> onLoad() async {
-    try {
-      voxelComponent = VoxelCharacterComponent(
-        images: game.loadedAssetImages,
-        rigData: game.loadedRigData,
-        hitboxSize: size,
-      )..position = size / 2;
-      add(voxelComponent!);
-    } catch (e) {
-      _fallbackSprite = RectangleComponent(size: size, paint: Paint()..color = _baseColor);
-      add(_fallbackSprite!);
-    }
+    _buildVoxelComponent(); 
 
     try {
       final sheet = game.images.fromCache('Base_BaseChip_pipo.png');
@@ -76,7 +70,36 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     } catch (e) {}
   }
 
-  void updatePosition(double newX, double newY, double newAngle, {String? colorStr, int? newScore, bool isDisguised = false, bool isMoving = false, bool isInvisible = false}) {
+  // Extracted so we can rebuild it dynamically with the safety throw included!
+  void _buildVoxelComponent() {
+    if (voxelComponent != null) voxelComponent!.removeFromParent();
+    
+    try {
+      final rig = game.characterRigCache[equippedCharacterId] ?? game.loadedRigData;
+      if (rig == null) throw Exception('Remote rig data is entirely missing!');
+
+      voxelComponent = VoxelCharacterComponent(
+        images: game.characterImagesCache[equippedCharacterId] ?? game.loadedAssetImages,
+        rigData: rig,
+        hitboxSize: size,
+      )..position = size / 2;
+      add(voxelComponent!);
+    } catch (e) {
+      debugPrint('RemotePlayer failed to load Voxel Character: $e');
+      _fallbackSprite = RectangleComponent(size: size, paint: Paint()..color = _baseColor);
+      add(_fallbackSprite!);
+    }
+  }
+
+  void updatePosition(double newX, double newY, double newAngle, {
+    String? colorStr, 
+    int? newScore, 
+    bool isDisguised = false, 
+    bool isMoving = false, 
+    bool isInvisible = false,
+    String? characterId,
+    double? scaleValue,
+  }) {
     final newPos = Vector2(newX, newY);
     
     if (_targetPosition.isZero() || position.distanceTo(newPos) > 200.0) { position = newPos.clone(); }
@@ -99,6 +122,17 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     this.isDisguised = isDisguised;
     this.isMoving = isMoving;
     this.isInvisible = isInvisible;
+
+    // Hot-swap the art rig if the network tells us they changed characters
+    if (characterId != null && characterId != equippedCharacterId) {
+      equippedCharacterId = characterId;
+      _buildVoxelComponent();
+    }
+    
+    if (scaleValue != null && scaleValue != visualScale) {
+      visualScale = scaleValue;
+      scale = Vector2.all(visualScale);
+    }
   }
 
   void applyStun(double duration) {

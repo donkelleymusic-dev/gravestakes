@@ -147,7 +147,11 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     );
     add(_buffTimerText);
 
-    await game.images.load('mask_placeholder.png');
+    try {
+      await game.images.load('mask_placeholder.png');
+    } catch (e) {
+      debugPrint('Missing mask placeholder, but keeping the player alive: $e');
+    }
 
     try {
       final sheet = game.images.fromCache('Base_BaseChip_pipo.png');
@@ -158,14 +162,17 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     } catch (e) {}
 
     try {
+      final rig = game.characterRigCache[equippedCharacterId] ?? game.loadedRigData;
+      if (rig == null) throw Exception('Rig data is entirely missing!');
+
       voxelComponent = VoxelCharacterComponent(
-        images: game.loadedAssetImages, 
-        rigData: game.loadedRigData,
+        images: game.characterImagesCache[equippedCharacterId] ?? game.loadedAssetImages, 
+        rigData: rig,
         hitboxSize: size, 
       )..position = size / 2;
       add(voxelComponent!);
     } catch (e) {
-      debugPrint('Failed to load Voxel Character: $e');
+      debugPrint('Failed to load Voxel Character, rendering fallback box: $e');
       _fallbackSprite = RectangleComponent(size: size, paint: Paint()..color = _baseColor);
       add(_fallbackSprite!);
     }

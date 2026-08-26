@@ -67,6 +67,7 @@ flutter:
     - assets/images/
     - assets/tiles/
     - assets/character_assets.zip # NEW: Replaced the old .riv file
+    - assets/goliath_assets.zip   # Add this line!
 
 flutter_native_splash:
   # The background color of your loading screen
