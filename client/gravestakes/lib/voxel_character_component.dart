@@ -73,7 +73,9 @@ class VoxelCharacterComponent extends PositionComponent {
     // DYNAMIC SCALING: Shrink the huge art down to fit the 32px hitbox exactly!
     double globalScale = size.x / (torsoW * 1.5); 
     canvas.scale(globalScale * scaleX, globalScale);
-    canvas.translate(0, -torsoH * 0.75); // Anchor feet relative to the hitbox center
+    //canvas.translate(0, -torsoH * 0.75); // Anchor feet relative to the hitbox center
+    // FIX: Shift the entire rig UP so the visual feet align perfectly with the bottom of the 32px physical hitbox!
+    canvas.translate(0, -torsoH * 0.5);
 
     // Animation Math
     double rad = normAngle;

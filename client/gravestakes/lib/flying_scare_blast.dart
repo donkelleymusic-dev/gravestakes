@@ -4,28 +4,33 @@ import 'package:flutter/material.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'game.dart';
 
-class FlyingScareBlast extends PositionComponent with HasGameReference<GraveStakesGame> {
-  final double speed = 180.0; // Slower, tactical speed
+class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakesGame> {
+  final double speed = 180.0; 
   late Vector2 direction;
   double lifeTimer = 2.0; 
+  double spawnTimer = 0.15; 
+  
+  bool isDead = false; // <--- NEW: The flag the ScareManager is looking for!
   
   SoundHandle? _audioHandle;
   static const double _audioScale = 50.0;
 
   FlyingScareBlast({required Vector2 position, required double angle})
-      : super(position: position, size: Vector2(64, 64), anchor: Anchor.center, angle: angle) {
+      : super(
+          position: position,
+          radius: 20.0, 
+          paint: Paint()..color = Colors.purpleAccent,
+          anchor: Anchor.center,
+          angle: angle,
+        ) {
     direction = Vector2(sin(angle), -cos(angle));
   }
 
   @override
   Future<void> onLoad() async {
-    add(CircleComponent(
-      radius: 16,
-      paint: Paint()..color = Colors.purpleAccent.withOpacity(0.8),
-      anchor: Anchor.center,
-      position: size / 2,
-    ));
-
+    super.onLoad();
+    debugPrint('FLYING BAT LOADED at world position: $position with direction: $direction');
+    
     if (game.isAudioReady && game.batScreechSource != null) {
       final posX = position.x / _audioScale;
       final posY = position.y / _audioScale;
@@ -49,8 +54,13 @@ class FlyingScareBlast extends PositionComponent with HasGameReference<GraveStak
     lifeTimer -= dt;
     if (lifeTimer <= 0) {
       _stopAudio();
-      removeFromParent();
+      isDead = true; // <--- Changed from removeFromParent()
       return;
+    }
+
+    if (spawnTimer > 0) {
+      spawnTimer -= dt;
+      return; 
     }
 
     // ==========================================
@@ -65,8 +75,8 @@ class FlyingScareBlast extends PositionComponent with HasGameReference<GraveStak
           bot.localImmunityToMe = 5.0;
           bot.triggerPrivateHighlight();
           _stopAudio();
-          removeFromParent();
-          return; // Stops and destroys instantly!
+          isDead = true; // <--- Changed from removeFromParent()
+          return; 
         }
       }
 
@@ -85,7 +95,7 @@ class FlyingScareBlast extends PositionComponent with HasGameReference<GraveStak
           );
           
           _stopAudio();
-          removeFromParent();
+          isDead = true; // <--- Changed from removeFromParent()
           return;
         }
       }

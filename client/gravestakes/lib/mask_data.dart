@@ -15,7 +15,7 @@ class MaskData {
     required this.name,
     required this.energyCost,
     this.cooldown = 0.6, // Default 0.6s lockout to prevent spamming
-    this.range = 140.0,  // Balanced operational range
+    this.range = 250.0,//140.0,  // Balanced operational range
     required this.isFlying,
     this.swarmBehavior = SwarmBehavior.none,
     this.swarmCount = 0,

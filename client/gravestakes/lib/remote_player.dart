@@ -143,9 +143,15 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
   void update(double dt) {
     super.update(dt);
 
+    // --- NEW: Add this so remote players sort properly with walls! ---
+    priority = ((position.y + 16) * 10).toInt();
+
     if (voxelComponent != null) {
       voxelComponent!.targetAngle = angle - (pi / 2); 
-      voxelComponent!.angle = -angle; 
+      
+      // --- FIX: Delete this line so they stop spinning like a clock! ---
+      // voxelComponent!.angle = -angle; 
+      
       voxelComponent!.isMoving = isMoving;
       voxelComponent!.isStunned = isStunned;
       voxelComponent!.stunTimer = stunTimer;

@@ -5,7 +5,8 @@ import 'package:flutter_soloud/flutter_soloud.dart';
 import 'game.dart';
 import 'mask_data.dart';
 
-class Critter extends PositionComponent with HasGameReference<GraveStakesGame> {
+class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
+  bool isDead = false; // <--- NEW: Flag for the manager
   final SwarmBehavior behavior;
   final int seed;
   final int index;
@@ -15,6 +16,7 @@ class Critter extends PositionComponent with HasGameReference<GraveStakesGame> {
   late Random _localRandom;
   late Vector2 velocity;
   double lifeTimer = 3.0; 
+  double spawnTimer = 0.15; // NEW: Grace period for visual scattering
   
   SoundHandle? _scurryHandle;
   static const double _audioScale = 50.0;
@@ -26,10 +28,14 @@ class Critter extends PositionComponent with HasGameReference<GraveStakesGame> {
     required this.index,
     required this.initialAngle,
     required this.ownerId,
-  }) : super(position: position, size: Vector2(10, 10), anchor: Anchor.center) {
+  }) : super(
+         position: position,
+         radius: 12.0, // The component IS the circle now!
+         paint: Paint()..color = Colors.greenAccent,
+         anchor: Anchor.center,
+       ) {
     
     _localRandom = Random(seed + index);
-    
     double spread = (_localRandom.nextDouble() * 2) - 1; 
     double startAngle = initialAngle + (spread * (pi / 4)); 
     
@@ -39,39 +45,48 @@ class Critter extends PositionComponent with HasGameReference<GraveStakesGame> {
 
   @override
   Future<void> onLoad() async {
-    add(CircleComponent(
-      radius: 5,
-      paint: Paint()..color = Colors.lightGreenAccent,
-      anchor: Anchor.center,
-      position: size / 2,
-    ));
+    try {
+      debugPrint('CRITTER [$index] LOADED at world position: $position');
 
-    // ==========================================
-    // 3D AUDIO HOOK: Only index 0 plays the scurry 
-    // so 15 rats don't deafen the player.
-    // ==========================================
-    if (index == 0 && game.isAudioReady && game.ratScurrySource != null) {
-      final posX = position.x / _audioScale;
-      final posY = position.y / _audioScale;
+      // 3D AUDIO HOOK wrapped to catch any crash
+      if (index == 0 && game.isAudioReady && game.ratScurrySource != null) {
+        final posX = position.x / _audioScale;
+        final posY = position.y / _audioScale;
 
-      _scurryHandle = SoLoud.instance.play3d(
-        game.ratScurrySource!,
-        posX,
-        posY,
-        0.0,
-        volume: 0.6,
-      );
-      SoLoud.instance.set3dSourceMinMaxDistance(_scurryHandle!, 1.0, 15.0);
+        _scurryHandle = SoLoud.instance.play3d(
+          game.ratScurrySource!,
+          posX,
+          posY,
+          0.0,
+          volume: 0.6,
+        );
+        SoLoud.instance.set3dSourceMinMaxDistance(_scurryHandle!, 1.0, 15.0);
+      }
+      
+      debugPrint('CRITTER [$index] SURVIVED ONLOAD!');
+    } catch (e) {
+      debugPrint('CRITTER [$index] CRASHED INSIDE ONLOAD: $e');
     }
   }
 
   @override
+  void onMount() {
+    super.onMount();
+    debugPrint('CRITTER [$index] SUCCESSFULLY MOUNTED!');
+  }
+
+  @override
   void update(double dt) {
+    debugPrint('CRITTER [$index] TICKING UPDATE. dt: $dt');
     super.update(dt);
+    // Match the * 10 system used by players and walls
+    priority = ((position.y + 16) * 10).toInt();
+    
     lifeTimer -= dt;
     if (lifeTimer <= 0) {
       _stopAudio();
-      removeFromParent();
+      //removeFromParent();
+      isDead = true; // <--- CHANGE removeFromParent() to this
       return;
     }
 
@@ -82,6 +97,7 @@ class Critter extends PositionComponent with HasGameReference<GraveStakesGame> {
       }
     }
 
+    // Always move the critter, even during spawn timer
     final potentialPosition = position + (velocity * dt);
     
     if (!game.gameMap.checkCollision(Vector2(potentialPosition.x, position.y), size)) {
@@ -103,6 +119,12 @@ class Critter extends PositionComponent with HasGameReference<GraveStakesGame> {
       SoLoud.instance.set3dSourcePosition(_scurryHandle!, posX, posY, 0.0);
     }
 
+    // NEW: Skip collision checks for the first 0.15 seconds
+    if (spawnTimer > 0) {
+      spawnTimer -= dt;
+      return;
+    }
+
     // Host Authority damage logic...
     if (game.isHost) {
       for (var bot in game.bots) {
@@ -112,6 +134,7 @@ class Critter extends PositionComponent with HasGameReference<GraveStakesGame> {
           bot.localImmunityToMe = 3.0; 
           bot.triggerPrivateHighlight();
           _stopAudio();
+          isDead = true; // <--- HERE
           removeFromParent();
           return;
         }

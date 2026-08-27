@@ -27,6 +27,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   double maxSpeed = 200.0;
   int score = 0;
 
+  double facingAngle = 0;
+
   double energy = 10.0;
   double maxEnergy = 10.0;
   double energyRegenRate = 0.5;
@@ -131,6 +133,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
   @override
   Future<void> onLoad() async {
+    //priority = (position.y + 16).toInt();
+    priority = ((position.y + 16) * 10).toInt();
+    //debugMode = true; // <-- TURN ON X-RAY VISION!
     await _fetchEquippedCosmetics();
     add(RectangleHitbox(size: Vector2(32, 32), anchor: Anchor.center));
 
@@ -170,8 +175,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         rigData: rig,
         hitboxSize: size, 
       ) ..anchor = Anchor.bottomCenter // Anchor the graphic at the feet!
-        ..position = Vector2(size.x / 2, size.y); // Place the feet at the bottom of the logical player box
-        //..position = size / 2;
+        //..position = Vector2(size.x / 2, size.y); // Place the feet at the bottom of the logical player box
+        ..position = size / 2;
       add(voxelComponent!);
     } catch (e) {
       debugPrint('Failed to load Voxel Character, rendering fallback box: $e');
@@ -251,6 +256,23 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     final currentMask = equippedMasks[selectedMaskIndex];
     if (energy < currentMask.energyCost) return;
+
+    // Drop this right inside triggerAttack() in player_2.dart to test world rendering:
+    game.world.add(
+      RectangleComponent(
+        position: position.clone(),
+        size: Vector2.all(64.0), // Massive 64x64 block
+        paint: Paint()..color = Colors.red, // Blazing red so it's impossible to miss
+        anchor: Anchor.center,
+      )..priority = 99999 // Above everything else in the universe
+    );
+    // --- ADD THESE DEBUG LOGS ---
+    debugPrint('=== ATTACK TRIGGERED ===');
+    debugPrint('Mask ID: ${currentMask.id}');
+    debugPrint('Player World Position: $position');
+    debugPrint('Facing Angle: $facingAngle');
+    debugPrint('Is Flying: ${currentMask.isFlying}, Swarm Behavior: ${currentMask.swarmBehavior}');
+    // ----------------------------
     
     energy -= currentMask.energyCost;
     // --- CHANGED: Factored in the character's mask swap speed modifier ---
@@ -264,17 +286,23 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     final masterSeed = DateTime.now().millisecondsSinceEpoch;
 
     if (currentMask.isFlying) {
-      game.world.add(FlyingScareBlast(position: position.clone(), angle: angle));
+      // FORCE IT THROUGH THE MANAGER
+      game.scareManager.spawnBat(FlyingScareBlast(
+        position: position.clone(), 
+        angle: facingAngle,
+      )); 
     } else if (currentMask.swarmBehavior != SwarmBehavior.none) {
       for (int i = 0; i < currentMask.swarmCount; i++) {
-        game.world.add(Critter(
+        // FORCE IT THROUGH THE MANAGER
+        game.scareManager.spawnCritter(Critter(
           position: position.clone(), behavior: currentMask.swarmBehavior,
-          seed: masterSeed, index: i, initialAngle: angle, ownerId: game.mySessionId,
-        ));
+          seed: masterSeed, index: i, initialAngle: facingAngle, ownerId: game.mySessionId,
+        )); 
       }
     } else {
       if (!isGunner) {
-        final forward = Vector2(sin(angle), -cos(angle));
+        // Use facingAngle for the lunge!
+        final forward = Vector2(sin(facingAngle), -cos(facingAngle));
         double distanceToMove = 45.0; 
         while (distanceToMove > 0) {
           double step = min(5.0, distanceToMove);
@@ -283,9 +311,11 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           } else { break; }
         }
       }
-      game.world.add(ScareBlast(position: position, angle: angle - (pi / 2)));
+      // priority + 5 ensures it clips behind walls in front of you, but renders over your hands
+      game.world.add(ScareBlast(position: position.clone(), angle: facingAngle - (pi / 2))..priority = 1000);//priority + 5
+      // Use facingAngle for the mathematical hit detection!
+      int victimsHit = game.triggerLocalScare(position, facingAngle, isPoweredUp, hasExtendedRange: hasExtendedRange, range: currentMask.range);
       
-      int victimsHit = game.triggerLocalScare(position, angle, isPoweredUp, hasExtendedRange: hasExtendedRange, range: currentMask.range);
       if (victimsHit > 0) {
         int baseScore = victimsHit * 100;
         int comboBonus = (victimsHit - 1) * 50 * (victimsHit - 1); 
@@ -294,8 +324,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         game.camera.viewport.add(FloatingText(text: popupText, worldPosition: Vector2(position.x - 20, position.y - 50)));
       }
     }
-    
-    channel.sendBroadcastMessage(event: 'scare', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': angle, 'mask_id': currentMask.id, 'seed': masterSeed});
+    // Broadcast the facingAngle to the network!
+    channel.sendBroadcastMessage(event: 'scare', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': facingAngle, 'mask_id': currentMask.id, 'seed': masterSeed});
+
+    //channel.sendBroadcastMessage(event: 'scare', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': angle, 'mask_id': currentMask.id, 'seed': masterSeed});
   }
 
   void applyStun(double duration) {
@@ -315,23 +347,38 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   }
 
   @override
-  void update(double dt) {
+  void render(Canvas canvas) {
+    super.render(canvas);
+
+    // TEST: Draw a massive red square directly on the player's canvas origin
+    //final testPaint = Paint()..color = Colors.red;
+    //canvas.drawRect(const Rect.fromLTWH(-32, -32, 64, 64), testPaint);
+  }
+
+  @override
+  void update(double dt) {    
+    // Now you can hide behind things
+    // Dynamically update drawing order based on the Y-position of their feet
+    // Calculate priority based on the absolute bottom of the player's feet
+    //priority = (position.y + 16).toInt();
+    priority = ((position.y + 16) * 10).toInt();
+    // Drop this near the top of update() in player_2.dart
+    //debugPrint('PLAYER COORDS -> X: ${position.x.toStringAsFixed(1)}, Y: ${position.y.toStringAsFixed(1)} | Priority: $priority');
     if (!game.gameStarted) return; 
     super.update(dt);
 
-    // Now you can hide behind things
-    // Dynamically update drawing order based on the Y-position of their feet
-    priority = position.y.toInt();
 
     if (voxelComponent != null) {
-      voxelComponent!.targetAngle = angle - (pi / 2); 
-      voxelComponent!.angle = -angle; 
+      voxelComponent!.targetAngle = facingAngle - (pi / 2); 
+      // voxelComponent!.angle = -angle; <-- DELETE THIS ENTIRE LINE!
       voxelComponent!.isMoving = isMoving;
 
       // Pass the loaded mask to the rig!
       try {
         voxelComponent!.activeMaskImage = game.images.fromCache('mask_placeholder.png');
-      } catch (e) {}
+      } catch (e) {
+        debugPrint('MASK IMAGE CACHE FAIL: $e');
+      }
     }
 
     if (attackCooldown > 0) attackCooldown -= dt;
@@ -437,7 +484,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       return; 
     }
 
-    if (!rightJoystick.delta.isZero()) angle = rightJoystick.delta.screenAngle();
+    if (!rightJoystick.delta.isZero()) facingAngle = rightJoystick.delta.screenAngle();
 
     if (!isGunner) {
       Vector2 movementDelta = Vector2.zero();
@@ -445,7 +492,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       } else if (!leftJoystick.delta.isZero()) { movementDelta = leftJoystick.relativeDelta; }
 
       if (!movementDelta.isZero()) {
-        if (rightJoystick.delta.isZero()) angle = movementDelta.screenAngle();
+        if (rightJoystick.delta.isZero()) facingAngle = movementDelta.screenAngle();
         double currentSpeed = isPoweredUp ? 280.0 : maxSpeed;
         final potentialPosition = position + (movementDelta * currentSpeed * dt);
         final oldPosition = position.clone();

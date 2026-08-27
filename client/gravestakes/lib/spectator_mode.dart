@@ -152,8 +152,8 @@ class SpectatorGame extends FlameGame with PanDetector {
     
     // ... the rest of the onLoad method stays exactly the same!
 
-    final mapWidth = gameMap.tiledMap.tileMap.map.width * 32.0;
-    final mapHeight = gameMap.tiledMap.tileMap.map.height * 32.0;
+    final mapWidth = gameMap.gridWidth * gameMap.tileSize;
+    final mapHeight = gameMap.gridHeight * gameMap.tileSize;
     camera.viewfinder.position = Vector2(mapWidth / 2, mapHeight / 2);
     camera.viewfinder.anchor = Anchor.center;
     

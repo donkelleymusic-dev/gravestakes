@@ -38,6 +38,7 @@ import 'mask_data.dart';
 import 'flying_scare_blast.dart';
 import 'critter.dart';
 import 'vessel_opener_overlay.dart';
+import 'scare_manager.dart';
 
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
   String roomId;
@@ -74,6 +75,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   late final JoystickComponent leftJoystick;
   late final JoystickComponent rightJoystick;
   late final Player player;
+  late final ScareManager scareManager;
 
   late final String mySessionId; 
   bool isHost = false; 
@@ -240,6 +242,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     gameMap = GameMap(roomId: roomId, mapName: mapName); 
     await world.add(gameMap);
 
+    // 2. ADD THE SCARE MANAGER TO THE WORLD ONCE
+    scareManager = ScareManager();
+    await world.add(scareManager);
+
     List<Vector2> availableSpawns = gameMap.playerSpawns.isNotEmpty 
         ? List<Vector2>.from(gameMap.playerSpawns)
         : [Vector2(150, 150), Vector2(400, 400)]; 
@@ -255,7 +261,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     world.add(PowerUpHud(player: player));
     camera.follow(player);
 
-    camera.viewport.add(DarknessOverlay(player)); 
+    //camera.viewport.add(DarknessOverlay(player)); 
     camera.viewport.add(jumpScareEffect);
 
     if (isGunner) {

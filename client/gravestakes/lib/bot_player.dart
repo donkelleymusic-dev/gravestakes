@@ -77,6 +77,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   @override
   Future<void> onLoad() async {
     // --- NEW: Fetch a random character for this specific bot! ---
+    priority = (position.y + 16).toInt(); // Set initial priority!
     try {
       final supabase = Supabase.instance.client;
       final charsRes = await supabase.from('characters').select('*');
@@ -173,18 +174,17 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   }
 
   @override
-  void update(double dt) {
-    if (!game.gameStarted) return;
-    super.update(dt);
-
-    
+  void update(double dt) {    
     // Now you can hide behind things
     // Dynamically update drawing order based on the Y-position of their feet
     priority = position.y.toInt();
 
+    if (!game.gameStarted) return;
+    super.update(dt);    
+
     if (voxelComponent != null) {
       voxelComponent!.targetAngle = angle - (pi / 2); 
-      voxelComponent!.angle = -angle; 
+      //voxelComponent!.angle = -angle; 
       
       // Moving if hunting, charmed, or actively wandering
       voxelComponent!.isMoving = !isStunned && (currentState == BotState.hunt || currentState == BotState.charmed || directionTimer > 0);

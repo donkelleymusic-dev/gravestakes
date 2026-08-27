@@ -21,6 +21,7 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
 
   @override
   void onTapDown(TapDownEvent event) {
+    debugPrint('Am I the Host right now? ${game.isHost}');
     if (!game.gameStarted || game.player.isStunned) return;
 
     final localPos = event.localPosition;
