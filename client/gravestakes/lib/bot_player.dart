@@ -7,11 +7,9 @@ import 'game.dart';
 import 'scare_blast.dart';
 import 'voxel_character_component.dart';
 
-// --- CHANGED: Added the charmed state for the Siren mask ---
 enum BotState { wander, hunt, investigate, charmed }
 
 class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
-  // These will now be dynamically overwritten based on the database!
   double wanderSpeed = 80.0;
   double huntSpeed = 130.0; 
   double visualScale = 1.0;
@@ -22,18 +20,21 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
   BotState currentState = BotState.wander;
   PositionComponent? currentTarget;
-  PositionComponent? charmerTarget; // The player who lured the bot
-  Vector2? lastKnownPosition; // <-- NEW: Bot Memory!
+  PositionComponent? charmerTarget; 
+  Vector2? lastKnownPosition; 
 
   bool isStunned = false;
   double stunTimer = 0;
-  double charmTimer = 0; // Duration of the Siren effect
+  double charmTimer = 0; 
   double attackCooldown = 0;
   double localImmunityToMe = 0;
   double directionTimer = 0;
   double evasionTimer = 0; 
   Vector2 movementDelta = Vector2.zero();
   
+  // --- FIX: Separate facingAngle so the root container never rotates on screen ---
+  double facingAngle = 0.0;
+
   VoxelCharacterComponent? voxelComponent;
   RectangleComponent? _fallbackSprite;
   
@@ -66,7 +67,8 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     final vectorToTarget = targetPos - position;
     final angleToTarget = atan2(vectorToTarget.y, vectorToTarget.x);
     
-    double diffAngle = (angleToTarget - angle) % (2 * pi);
+    // Use facingAngle instead of root component angle
+    double diffAngle = (angleToTarget - facingAngle) % (2 * pi);
     if (diffAngle > pi) diffAngle -= 2 * pi;
     else if (diffAngle < -pi) diffAngle += 2 * pi;
     
@@ -76,8 +78,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
   @override
   Future<void> onLoad() async {
-    // --- NEW: Fetch a random character for this specific bot! ---
-    priority = (position.y + 16).toInt(); // Set initial priority!
+    priority = ((position.y + 16) * 10).toInt(); 
     try {
       final supabase = Supabase.instance.client;
       final charsRes = await supabase.from('characters').select('*');
@@ -89,32 +90,26 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         assignedCharacterId = randomChar['id'] ?? 'default';
         final baseSpeed = (randomChar['base_speed'] as num?)?.toDouble() ?? 200.0;
         
-        // Bots are intentionally a bit slower than players. 
-        // We apply a multiplier to the database base_speed so Goliath bots are slower than Default bots.
         wanderSpeed = baseSpeed * 0.40;  
         huntSpeed = baseSpeed * 0.65;    
         
         visualScale = (randomChar['visual_scale'] as num?)?.toDouble() ?? 1.0;
-        scale = Vector2.all(visualScale); // Make Goliath bots physically larger!
+        scale = Vector2.all(visualScale); 
       }
     } catch (e) {
       debugPrint('Bot failed to load dynamic stats: $e');
     }
 
     try {
-      // Safely grab the rig, falling back to default
       final rig = game.characterRigCache[assignedCharacterId] ?? game.loadedRigData;
-      
-      // If BOTH are missing, throw the error to force the fallback box
       if (rig == null) throw Exception('Bot rig data is entirely missing!');
 
       voxelComponent = VoxelCharacterComponent(
         images: game.characterImagesCache[assignedCharacterId] ?? game.loadedAssetImages,
         rigData: rig,
         hitboxSize: size,
-      ) ..anchor = Anchor.bottomCenter // Anchor the graphic at the feet!
-        ..position = Vector2(size.x / 2, size.y); // Place the feet at the bottom of the logical player box
-        //..position = size / 2;
+      ) ..anchor = Anchor.bottomCenter 
+        ..position = Vector2(size.x / 2, size.y); 
       add(voxelComponent!);
     } catch (e) {
       debugPrint('Bot failed to load Voxel Character: $e');
@@ -128,6 +123,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     directionTimer = (_random.nextDouble() * 2) + 1; 
     double randomAngle = _random.nextDouble() * 2 * pi;
     movementDelta = Vector2(sin(randomAngle), -cos(randomAngle)); 
+    facingAngle = randomAngle;
   }
 
   void applyStun(double duration) {
@@ -137,9 +133,8 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     _chooseNewDirection(); 
   }
 
-  // --- NEW: Apply the Siren Charm Effect ---
   void applyCharm(double duration, PositionComponent charmer) {
-    isStunned = false; // Being charmed snaps you out of a stun
+    isStunned = false; 
     charmTimer = duration;
     charmerTarget = charmer;
     currentState = BotState.charmed;
@@ -175,18 +170,16 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
   @override
   void update(double dt) {    
-    // Now you can hide behind things
-    // Dynamically update drawing order based on the Y-position of their feet
-    priority = position.y.toInt();
+    // Match the * 10 system used by players and walls for flawless 2.5D sorting
+    priority = ((position.y + 16) * 10).toInt();
 
     if (!game.gameStarted) return;
     super.update(dt);    
 
     if (voxelComponent != null) {
-      voxelComponent!.targetAngle = angle - (pi / 2); 
-      //voxelComponent!.angle = -angle; 
+      // Feed facingAngle to targetAngle so the 2.5D sprite renderer picks the correct frame without spinning the container
+      voxelComponent!.targetAngle = facingAngle - (pi / 2); 
       
-      // Moving if hunting, charmed, or actively wandering
       voxelComponent!.isMoving = !isStunned && (currentState == BotState.hunt || currentState == BotState.charmed || directionTimer > 0);
       voxelComponent!.isStunned = isStunned;
       voxelComponent!.stunTimer = stunTimer;
@@ -219,7 +212,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       }
     }
 
-    // --- NEW: Charm Timer Countdown ---
     if (currentState == BotState.charmed) {
       charmTimer -= dt;
       if (charmTimer <= 0) {
@@ -234,61 +226,51 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       double currentSpeed = wanderSpeed;
       bool hitWall = false;
 
-      // 1. STATE LOGIC
       if (currentState == BotState.charmed && charmerTarget != null) {
-        // Trance Walk! Move slowly toward the charmer but do not attack.
         currentSpeed = wanderSpeed; 
         movementDelta = (charmerTarget!.position - position).normalized();
-        angle = movementDelta.screenAngle();
-        currentTarget = null; // Can't hunt while charmed
+        facingAngle = movementDelta.screenAngle();
+        currentTarget = null; 
 
       } else {
-        // Look for a visible target (this automatically uses your hasLineOfSight check!)
         PositionComponent? visibleTarget;
         if (attackCooldown <= 0) visibleTarget = _findClosestVisiblePlayer();
 
         if (visibleTarget != null) {
-          // TARGET ACQUIRED: I see you!
           currentTarget = visibleTarget;
           lastKnownPosition = currentTarget!.position.clone();
           currentState = BotState.hunt;
         } else if (currentState == BotState.hunt && lastKnownPosition != null) {
-          // TARGET LOST: You broke Line of Sight. Time to investigate!
           currentState = BotState.investigate;
           currentTarget = null;
         }
 
-        // Execute movement based on current state
         if (currentState == BotState.hunt) {
           currentSpeed = huntSpeed;
           if (evasionTimer <= 0) {
             movementDelta = (currentTarget!.position - position).normalized();
-            angle = movementDelta.screenAngle();
+            facingAngle = movementDelta.screenAngle();
           }
         } else if (currentState == BotState.investigate && lastKnownPosition != null) {
-          // Move slightly slower while investigating
           currentSpeed = huntSpeed * 0.85; 
           if (evasionTimer <= 0) {
             movementDelta = (lastKnownPosition! - position).normalized();
-            angle = movementDelta.screenAngle();
+            facingAngle = movementDelta.screenAngle();
           }
           
-          // If the bot reaches the exact spot and finds nothing, give up and wander.
           if (position.distanceTo(lastKnownPosition!) < 20.0) {
             currentState = BotState.wander;
             lastKnownPosition = null;
             _chooseNewDirection();
           }
         } else {
-          // Normal Wandering
           currentState = BotState.wander;
           directionTimer -= dt;
           if (directionTimer <= 0) _chooseNewDirection();
-          if (evasionTimer <= 0) angle = movementDelta.screenAngle();
+          if (evasionTimer <= 0) facingAngle = movementDelta.screenAngle();
         }
       }
 
-      // 2. MOVEMENT LOGIC
       final potentialPosition = position + (movementDelta * currentSpeed * dt);
       final oldPosition = position.clone();
 
@@ -300,20 +282,20 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
       if (hitWall && evasionTimer <= 0) {
         double turnAngle = (pi / 4) + (_random.nextDouble() * (pi / 4)); 
-        if (_random.nextBool()) angle += turnAngle; else angle -= turnAngle;
-        movementDelta = Vector2(sin(angle), -cos(angle));
+        if (_random.nextBool()) facingAngle += turnAngle; else facingAngle -= turnAngle;
+        movementDelta = Vector2(sin(facingAngle), -cos(facingAngle));
         evasionTimer = 0.5; 
         if (currentState == BotState.wander) directionTimer = 0.5;
       }
 
       if (attackCooldown > 0) attackCooldown -= dt;
 
-      // 3. ATTACK LOGIC (Only fires if hunting, explicitly ignores charmed state)
       if (currentTarget != null && currentState == BotState.hunt) {
         final distance = position.distanceTo(currentTarget!.position);
         if (distance < 110 && attackCooldown <= 0) {
           if (game.gameMap.hasLineOfSight(position, currentTarget!.position)) {
-            game.world.add(ScareBlast(position: position, angle: angle - (pi / 2)));
+            // Pass facingAngle - (pi/2) to the attack blast so it fires forward
+            game.world.add(ScareBlast(position: position, angle: facingAngle - (pi / 2)));
             if (currentTarget == game.player) {
               game.jumpScareEffect.trigger(); 
               game.player.applyStun(2.0);   
@@ -328,14 +310,13 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
             }
             attackCooldown = 8.0; 
             movementDelta = (position - currentTarget!.position).normalized();
-            angle = movementDelta.screenAngle();
+            facingAngle = movementDelta.screenAngle();
             directionTimer = 3.0; 
             evasionTimer = 0; 
           }
         }
       }
 
-      // 4. FOOTSTEPS
       if (currentState == BotState.hunt || currentState == BotState.wander || currentState == BotState.charmed) {
         double actualVelocity = position.distanceTo(oldPosition) / dt;
         if (actualVelocity > 5.0) {
