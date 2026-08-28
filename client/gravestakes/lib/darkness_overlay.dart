@@ -21,9 +21,10 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
 
     final center = (viewSize / 2).toOffset();
     
-    // CHANGED: Base range is now much shorter (350.0). 
-    // If you grab the extended range buff, it blooms out to the full 600.0!
-    final double coneLength = player.hasExtendedRange ? 600.0 : 350.0; 
+    // --- 1. SCALE BEAM BY BATTERY LIFE ---
+    final double baseCone = player.hasExtendedRange ? 600.0 : 350.0; 
+    // Ensure radius doesn't hit absolute zero to avoid rendering exceptions
+    final double coneLength = math.max(0.1, baseCone * player.flashlightScale); 
     const sweepAngle = math.pi / 2; // 90 degrees
 
     final canvasAngle = player.angle - (math.pi / 2);
@@ -45,14 +46,14 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
       ..lineTo(rightEdge.dx, rightEdge.dy)
       ..close();
 
-    // --- Gloomy Midnight Flashlight Paint ---
+    // --- 2. FADE BEAM OPACITY WHEN DYING ---
     final flashlightPaint = Paint()
       ..shader = ui.Gradient.radial(
         center,
         coneLength,
         [
-          Colors.white.withOpacity(0.45), 
-          Colors.white.withOpacity(0.15), 
+          Colors.white.withOpacity(0.45 * player.flashlightScale), 
+          Colors.white.withOpacity(0.15 * player.flashlightScale), 
           Colors.white.withOpacity(0.0),  
         ],
         [
@@ -63,19 +64,26 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
       )
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 35.0);
 
-    // --- Dimmer Player Glow ---
+    // --- 3. SHRINK AMBIENT GLOW AROUND FEET ---
+    // Drops from 60px down to a terrifying 15px when dead
+    final double glowRadius = math.max(15.0, 60.0 * player.flashlightScale);
     final playerGlowPaint = Paint()
       ..shader = ui.Gradient.radial(
         center,
-        60.0,
+        glowRadius,
         [
           Colors.white.withOpacity(0.35), 
           Colors.white.withOpacity(0.0),
         ],
       );
 
-    canvas.drawPath(conePath, flashlightPaint);
-    canvas.drawCircle(center, 60.0, playerGlowPaint); 
+    // Only draw the cone if we actually have battery
+    if (player.flashlightScale > 0) {
+      canvas.drawPath(conePath, flashlightPaint);
+    }
+    
+    // Always draw the tiny foot glow so you don't lose your character entirely
+    canvas.drawCircle(center, glowRadius, playerGlowPaint); 
 
     final darkPaint = Paint()
       ..color = Colors.black.withOpacity(0.96)
