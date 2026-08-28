@@ -7,9 +7,10 @@ import 'game.dart';
 import 'scare_blast.dart';
 import 'voxel_character_component.dart';
 
-enum BotState { wander, hunt, investigate, charmed }
+enum BotState { wander, hunt, investigate, charmed, flee }
 
 class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
+  final bool isHunter; 
   double wanderSpeed = 80.0;
   double huntSpeed = 130.0; 
   double visualScale = 1.0;
@@ -32,7 +33,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   double evasionTimer = 0; 
   Vector2 movementDelta = Vector2.zero();
   
-  // --- FIX: Separate facingAngle so the root container never rotates on screen ---
   double facingAngle = 0.0;
 
   VoxelCharacterComponent? voxelComponent;
@@ -40,6 +40,21 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   
   final Random _random = Random();
   double highlightTimer = 0;
+
+  // --- HUNTER SPECIFIC VARIABLES ---
+  double coreCycleTimer = 0.0;
+  bool isCoreExposed = false;
+  Vector2? acousticAggroTarget;
+  double acousticAggroTimer = 0.0;
+  List<Vector2> _hunterPath = [];
+  double _pathRecalcTimer = 0.0;
+
+  void hearLoudNoise(Vector2 noisePos) {
+    if (isHunter) {
+      acousticAggroTarget = noisePos.clone();
+      acousticAggroTimer = 8.0; 
+    }
+  }
 
   void triggerPrivateHighlight() {
     highlightTimer = 1.0; 
@@ -61,13 +76,12 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     SoLoud.instance.set3dSourceAttenuation(handle, 1, 1.2);
   }
   
-  BotPlayer() : super(size: Vector2.all(32.0), anchor: Anchor.center);
+  BotPlayer({this.isHunter = false}) : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
   bool _isInVisionCone(Vector2 targetPos) {
     final vectorToTarget = targetPos - position;
     final angleToTarget = atan2(vectorToTarget.y, vectorToTarget.x);
     
-    // Use facingAngle instead of root component angle
     double diffAngle = (angleToTarget - facingAngle) % (2 * pi);
     if (diffAngle > pi) diffAngle -= 2 * pi;
     else if (diffAngle < -pi) diffAngle += 2 * pi;
@@ -94,6 +108,13 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         huntSpeed = baseSpeed * 0.65;    
         
         visualScale = (randomChar['visual_scale'] as num?)?.toDouble() ?? 1.0;
+
+        if (isHunter) {
+          visualScale *= 1.4; 
+          huntSpeed = baseSpeed * 0.95; 
+          if (_fallbackSprite != null) _fallbackSprite!.paint.color = Colors.redAccent;
+        }
+
         scale = Vector2.all(visualScale); 
       }
     } catch (e) {
@@ -168,19 +189,31 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     return closest;
   }
 
+  PositionComponent? _getAbsoluteClosestPlayer() {
+    PositionComponent? closest;
+    double minDistance = 99999.0; 
+
+    if (!game.player.isStunned) {
+      double dist = position.distanceTo(game.player.position);
+      if (dist < minDistance) { minDistance = dist; closest = game.player; }
+    }
+    for (var remote in game.networkPlayers.values) {
+      double dist = position.distanceTo(remote.position);
+      if (dist < minDistance) { minDistance = dist; closest = remote; }
+    }
+    return closest;
+  }
+
   @override
   void update(double dt) {    
-    // Match the * 10 system used by players and walls for flawless 2.5D sorting
     priority = ((position.y + 16) * 10).toInt();
 
     if (!game.gameStarted) return;
     super.update(dt);    
 
     if (voxelComponent != null) {
-      // Feed facingAngle to targetAngle so the 2.5D sprite renderer picks the correct frame without spinning the container
       voxelComponent!.targetAngle = facingAngle - (pi / 2); 
-      
-      voxelComponent!.isMoving = !isStunned && (currentState == BotState.hunt || currentState == BotState.charmed || directionTimer > 0);
+      voxelComponent!.isMoving = !isStunned && (currentState == BotState.hunt || currentState == BotState.charmed || currentState == BotState.flee || directionTimer > 0);
       voxelComponent!.isStunned = isStunned;
       voxelComponent!.stunTimer = stunTimer;
       voxelComponent!.isHighlighted = (highlightTimer > 0);
@@ -192,7 +225,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     if (highlightTimer > 0) {
       highlightTimer -= dt;
       if (highlightTimer <= 0 && !isStunned && _fallbackSprite != null) {
-        _fallbackSprite!.paint.color = Colors.deepOrangeAccent; 
+        _fallbackSprite!.paint.color = isHunter ? Colors.redAccent : Colors.deepOrangeAccent; 
       }
     }
 
@@ -206,7 +239,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       if (stunTimer <= 0) {
         isStunned = false;
         if (_fallbackSprite != null) {
-          _fallbackSprite!.paint.color = Colors.deepOrangeAccent; 
+          _fallbackSprite!.paint.color = isHunter ? Colors.redAccent : Colors.deepOrangeAccent; 
           _fallbackSprite!.position = Vector2.zero(); 
         }
       }
@@ -226,11 +259,73 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       double currentSpeed = wanderSpeed;
       bool hitWall = false;
 
+      BotPlayer? activeHunter;
+      for (var b in game.bots) {
+        if (b.isHunter && b != this) activeHunter = b;
+      }
+
       if (currentState == BotState.charmed && charmerTarget != null) {
         currentSpeed = wanderSpeed; 
         movementDelta = (charmerTarget!.position - position).normalized();
         facingAngle = movementDelta.screenAngle();
         currentTarget = null; 
+
+      } else if (isHunter) {
+        if (!isStunned) {
+          coreCycleTimer += dt;
+          if (coreCycleTimer >= 2.6 && coreCycleTimer < 3.0) {
+            isCoreExposed = true;
+            if (_fallbackSprite != null) _fallbackSprite!.paint.color = Colors.white;
+            if (voxelComponent != null) voxelComponent!.isHighlighted = true;
+          } else {
+            isCoreExposed = false;
+            if (_fallbackSprite != null) _fallbackSprite!.paint.color = Colors.redAccent;
+            if (voxelComponent != null) voxelComponent!.isHighlighted = false;
+          }
+          if (coreCycleTimer >= 3.0) coreCycleTimer = 0.0; 
+        }
+
+        currentState = BotState.hunt;
+        currentSpeed = huntSpeed;
+
+        if (acousticAggroTimer > 0 && acousticAggroTarget != null) {
+          acousticAggroTimer -= dt;
+          _pathRecalcTimer -= dt;
+          if (_pathRecalcTimer <= 0) {
+            _hunterPath = game.gameMap.findPath(position, acousticAggroTarget!);
+            _pathRecalcTimer = 0.5;
+          }
+        } else {
+          currentTarget = _getAbsoluteClosestPlayer();
+          if (currentTarget != null) {
+            _pathRecalcTimer -= dt;
+            if (_pathRecalcTimer <= 0) {
+              _hunterPath = game.gameMap.findPath(position, currentTarget!.position);
+              _pathRecalcTimer = 0.5; 
+            }
+          }
+        }
+        
+        if (_hunterPath.isNotEmpty) {
+          if (position.distanceTo(_hunterPath.first) < 15.0) _hunterPath.removeAt(0);
+          if (_hunterPath.isNotEmpty) {
+            movementDelta = (_hunterPath.first - position).normalized();
+          } else if (currentTarget != null) {
+            movementDelta = (currentTarget!.position - position).normalized();
+          }
+        } else if (currentTarget != null) {
+          movementDelta = (currentTarget!.position - position).normalized();
+        }
+        facingAngle = movementDelta.screenAngle();
+
+      } else if (activeHunter != null && position.distanceTo(activeHunter.position) < 800.0) {
+        currentState = BotState.flee;
+        currentSpeed = huntSpeed * 1.2; 
+        
+        if (evasionTimer <= 0) {
+          movementDelta = (position - activeHunter.position).normalized();
+          facingAngle = movementDelta.screenAngle();
+        }
 
       } else {
         PositionComponent? visibleTarget;
@@ -294,7 +389,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         final distance = position.distanceTo(currentTarget!.position);
         if (distance < 110 && attackCooldown <= 0) {
           if (game.gameMap.hasLineOfSight(position, currentTarget!.position)) {
-            // Pass facingAngle - (pi/2) to the attack blast so it fires forward
             game.world.add(ScareBlast(position: position, angle: facingAngle - (pi / 2)));
             if (currentTarget == game.player) {
               game.jumpScareEffect.trigger(); 
@@ -317,7 +411,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         }
       }
 
-      if (currentState == BotState.hunt || currentState == BotState.wander || currentState == BotState.charmed) {
+      if (currentState == BotState.hunt || currentState == BotState.wander || currentState == BotState.charmed || currentState == BotState.flee) {
         double actualVelocity = position.distanceTo(oldPosition) / dt;
         if (actualVelocity > 5.0) {
           double dynamicInterval = 0.45 * (wanderSpeed / actualVelocity);

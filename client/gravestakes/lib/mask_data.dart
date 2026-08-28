@@ -27,6 +27,7 @@ class MaskRegistry {
     'standard': MaskData(id: 'standard', name: 'Grave Stinger', energyCost: 3.0, isFlying: false),
     'flying': MaskData(id: 'flying', name: 'Spectral Bat', energyCost: 8.0, isFlying: true),
     'vermin': MaskData(id: 'vermin', name: 'Rat Swarm', energyCost: 4.0, isFlying: false, swarmBehavior: SwarmBehavior.scatter, swarmCount: 15),
+    'siren': MaskData(id: 'siren', name: 'Siren', energyCost: 6.0, cooldown: 4.0, range: 300.0, isFlying: false),
   };
 
   // Safe fetcher

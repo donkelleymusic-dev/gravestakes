@@ -45,7 +45,9 @@ class GameMap extends Component with HasGameReference<FlameGame> {
     
     int targetEmptySpaces = (gridWidth * gridHeight * 0.45).toInt(); 
     int currentEmpty = 1;
-    final rand = Random();
+    
+    // FIX: Deterministic seed based on the room ID so all players share the exact same map layout!
+    final rand = Random(roomId.hashCode);
     
     // The "Drunkard" carves out the dungeon
     while (currentEmpty < targetEmptySpaces) {
@@ -122,6 +124,56 @@ class GameMap extends Component with HasGameReference<FlameGame> {
       searchRadius += 16.0; 
     }
     return intendedPos; 
+  }
+
+  List<Vector2> findPath(Vector2 startWorld, Vector2 endWorld) {
+    int startX = (startWorld.x / tileSize).floor().clamp(0, gridWidth - 1);
+    int startY = (startWorld.y / tileSize).floor().clamp(0, gridHeight - 1);
+    int endX = (endWorld.x / tileSize).floor().clamp(0, gridWidth - 1);
+    int endY = (endWorld.y / tileSize).floor().clamp(0, gridHeight - 1);
+
+    // If already in the exact same tile, just walk directly to the coordinate
+    if (startX == endX && startY == endY) return [endWorld];
+
+    List<Point<int>> queue = [Point(startX, startY)];
+    Map<Point<int>, Point<int>?> cameFrom = {Point(startX, startY): null};
+    bool found = false;
+
+    while (queue.isNotEmpty) {
+      var current = queue.removeAt(0);
+      if (current.x == endX && current.y == endY) {
+        found = true;
+        break;
+      }
+
+      // Check standard 4-way movement (Up, Down, Left, Right)
+      List<Point<int>> neighbors = [
+        Point(current.x + 1, current.y), Point(current.x - 1, current.y),
+        Point(current.x, current.y + 1), Point(current.x, current.y - 1),
+      ];
+
+      for (var next in neighbors) {
+        if (next.x >= 0 && next.x < gridWidth && next.y >= 0 && next.y < gridHeight) {
+          // If it's a floor (0) and we haven't visited it yet
+          if (mapGrid[next.y][next.x] == 0 && !cameFrom.containsKey(next)) {
+            queue.add(next);
+            cameFrom[next] = current;
+          }
+        }
+      }
+    }
+
+    if (!found) return []; // No valid path found
+
+    // Reconstruct the path backwards from the destination
+    List<Vector2> path = [];
+    Point<int>? current = Point(endX, endY);
+    while (current != null && current != Point(startX, startY)) {
+      // Convert grid coordinates back to exact center-pixel world coordinates
+      path.add(Vector2((current.x * tileSize) + (tileSize / 2), (current.y * tileSize) + (tileSize / 2)));
+      current = cameFrom[current];
+    }
+    return path.reversed.toList();
   }
 
   @override

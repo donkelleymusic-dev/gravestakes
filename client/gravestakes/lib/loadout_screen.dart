@@ -1,274 +1,466 @@
+import 'dart:convert';
+import 'dart:ui' as ui;
+import 'package:flutter/services.dart';
+import 'package:archive/archive.dart';
+
 import 'package:flutter/material.dart';
+import 'package:flame/game.dart';
+import 'package:flame/components.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'voxel_character_component.dart';
+
+// --- DATA MODELS ---
+class WearableDef {
+  final String id;
+  final String name;
+  final String slotType;
+  final String counterTarget;
+  final String buffStat;
+  final double buffValue;
+
+  WearableDef.fromJson(Map<String, dynamic> json)
+      : id = json['id'] as String,
+        name = json['name'] as String,
+        slotType = json['slot_type'] as String,
+        counterTarget = json['counter_target'] as String,
+        buffStat = json['buff_stat'] as String,
+        buffValue = (json['buff_value'] as num).toDouble();
+}
+
 class LoadoutScreen extends StatefulWidget {
+  // REMOVED the GraveStakesGame dependency!
   const LoadoutScreen({super.key});
 
   @override
   State<LoadoutScreen> createState() => _LoadoutScreenState();
 }
 
-class _LoadoutScreenState extends State<LoadoutScreen> {
-  final supabase = Supabase.instance.client;
-  
+class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  late MannequinGame _mannequinGame;
+
+  // State Variables
+  String _equippedCharacterId = 'default';
+  String? _equippedNeck;
+  String? _equippedArms;
+  String? _equippedBelt;
+  List<String> _equippedMasks = [];
+
+  // Data Caches
+  Map<String, dynamic> _characterBaseStats = {};
+  List<Map<String, dynamic>> _inventory = [];
+  Map<String, WearableDef> _wearablesCatalog = {};
+
   bool _isLoading = true;
-  String _equippedColor = 'red'; 
-  String? _equippedCharacter;
-  String? _equippedMask1;
-  String? _equippedMask2;
-  String? _equippedPerk;
-  String _selectedMap = 'L1T1V1.0.0';
-
-  final List<Map<String, dynamic>> _availableColors = [
-    {'name': 'Blood Red (Default)', 'value': 'red', 'color': Colors.redAccent},
-    {'name': 'Ecto Green', 'value': 'green', 'color': Colors.greenAccent},
-    {'name': 'Void Purple', 'value': 'purple', 'color': Colors.purpleAccent},
-    {'name': 'Phantom Blue', 'value': 'blue', 'color': Colors.cyanAccent},
-  ];
-
-  // Dynamic inventory tracking
-  List<String> _ownedCharacters = ['default']; 
-  List<String> _ownedMasks = [];
-  List<String> _ownedMaps = ['L1T1V1.0.0']; 
-  List<String> _ownedPerks = [];
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 4, vsync: this);
+    _mannequinGame = MannequinGame(); // No longer requires game reference
     _fetchLoadoutData();
   }
 
   Future<void> _fetchLoadoutData() async {
-    final user = supabase.auth.currentUser;
-    if (user == null) return;
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
 
     try {
-      final responses = await Future.wait<dynamic>([
-        supabase.from('user_loadouts').select('slot_type, item_value').eq('user_id', user.id),
-        supabase.from('user_inventory').select('item_type, item_id').eq('user_id', user.id),
-        // Included legacy abilities table if you haven't migrated them to inventory yet
-        supabase.from('player_loadouts').select('ability_id').eq('player_id', user.id), 
-      ]);
+      final wearablesRes = await Supabase.instance.client.from('wearables').select();
+      for (var row in wearablesRes) {
+        final w = WearableDef.fromJson(row);
+        _wearablesCatalog[w.id] = w;
+      }
+
+      final loadoutRes = await Supabase.instance.client
+          .from('user_loadouts')
+          .select('slot_type, item_value')
+          .eq('user_id', userId);
+          
+      for (var row in loadoutRes) {
+        final slot = row['slot_type'] as String;
+        final val = row['item_value'] as String;
+        if (slot == 'character') _equippedCharacterId = val;
+        else if (slot == 'wearable_neck') _equippedNeck = val;
+        else if (slot == 'wearable_arms') _equippedArms = val;
+        else if (slot == 'wearable_belt') _equippedBelt = val;
+        else if (slot.startsWith('mask_')) _equippedMasks.add(val);
+      }
+
+      _characterBaseStats = await Supabase.instance.client
+          .from('characters')
+          .select('*')
+          .eq('id', _equippedCharacterId)
+          .single();
+
+      _inventory = await Supabase.instance.client
+          .from('user_inventory')
+          .select('item_id, item_type')
+          .eq('user_id', userId);
+
+      // Async tell the mannequin to load its own graphics!
+      await _mannequinGame.updateCharacter(_equippedCharacterId);
 
       if (mounted) {
-        String? char = 'default';
-        String? m1;
-        String? m2;
-        String? perk;
-        String color = 'red';
-        String map = 'L1T1V1.0.0';
-
-        // 1. Process Active Loadout
-        final loadouts = List<Map<String, dynamic>>.from(responses[0]);
-        for (var row in loadouts) {
-          final slot = row['slot_type'] as String? ?? '';
-          final val = row['item_value'] as String?;
-
-          if (val == null) continue;
-          if (slot == 'flashlight_color') color = val;
-          if (slot == 'character') char = val;
-          if (slot == 'mask_1') m1 = val;
-          if (slot == 'mask_2') m2 = val;
-          if (slot == 'perk') perk = val;
-          if (slot == 'preferred_map') map = val;
-        }
-
-        // 2. Process Owned Inventory
-        List<String> ownedChars = ['default'];
-        List<String> ownedMasks = [];
-        List<String> ownedMaps = ['L1T1V1.0.0'];
-        
-        final inventory = List<Map<String, dynamic>>.from(responses[1]);
-        for (var row in inventory) {
-          final type = row['item_type'] as String;
-          final id = row['item_id'] as String;
-          
-          if (type == 'character' && !ownedChars.contains(id)) ownedChars.add(id);
-          if (type == 'mask' && !ownedMasks.contains(id)) ownedMasks.add(id);
-          if (type == 'map' && !ownedMaps.contains(id)) ownedMaps.add(id);
-        }
-
-        // 3. Process Legacy Perks (Abilities)
-        List<String> ownedPerks = [];
-        final abilityLoadouts = List<Map<String, dynamic>>.from(responses[2]);
-        for (var row in abilityLoadouts) {
-          final id = row['ability_id']?.toString();
-          if (id != null && !ownedPerks.contains(id)) ownedPerks.add(id);
-        }
-
         setState(() {
-          _equippedColor = color;
-          _equippedCharacter = ownedChars.contains(char) ? char : 'default';
-          _equippedMask1 = (m1 != null && ownedMasks.contains(m1)) ? m1 : null;
-          _equippedMask2 = (m2 != null && ownedMasks.contains(m2)) ? m2 : null;
-          _equippedPerk = (perk != null && ownedPerks.contains(perk)) ? perk : null;
-          _selectedMap = ownedMaps.contains(map) ? map : 'L1T1V1.0.0';
-          
-          _ownedCharacters = ownedChars;
-          _ownedMasks = ownedMasks;
-          _ownedMaps = ownedMaps;
-          _ownedPerks = ownedPerks;
           _isLoading = false;
         });
       }
     } catch (e) {
-      debugPrint('Error loading loadout: $e');
+      debugPrint('Loadout Fetch Error: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _equipItem(String slotType, String? itemValue) async {
-    final user = supabase.auth.currentUser;
-    if (user == null || itemValue == null) return;
-
-    String? slotToClear;
-    final isClearing = itemValue == 'none';
+  Future<void> _equipItem(String slotType, String itemId) async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
 
     setState(() {
-      if (slotType == 'character') _equippedCharacter = itemValue;
-      else if (slotType == 'perk') _equippedPerk = isClearing ? null : itemValue;
-      else if (slotType == 'preferred_map') _selectedMap = itemValue;
-      else if (slotType == 'flashlight_color') _equippedColor = itemValue;
-      else if (slotType == 'mask_1') {
-        if (!isClearing && _equippedMask2 == itemValue) {
-          _equippedMask2 = null;
-          slotToClear = 'mask_2';
+      if (slotType == 'character') _equippedCharacterId = itemId;
+      else if (slotType == 'wearable_neck') _equippedNeck = itemId;
+      else if (slotType == 'wearable_arms') _equippedArms = itemId;
+      else if (slotType == 'wearable_belt') _equippedBelt = itemId;
+      else if (slotType == 'mask') {
+        // Full 4-slot Toggle Logic
+        if (_equippedMasks.contains(itemId)) {
+          _equippedMasks.remove(itemId); // Tap again to unequip
+        } else {
+          if (_equippedMasks.length < 4) {
+            _equippedMasks.add(itemId);
+          } else {
+            _equippedMasks[0] = itemId; // Replace the first slot if full
+          }
         }
-        _equippedMask1 = isClearing ? null : itemValue;
-      } else if (slotType == 'mask_2') {
-        if (!isClearing && _equippedMask1 == itemValue) {
-          _equippedMask1 = null;
-          slotToClear = 'mask_1';
-        }
-        _equippedMask2 = isClearing ? null : itemValue;
       }
     });
 
-    try {
-      if (isClearing) {
-        await supabase.from('user_loadouts').delete().eq('user_id', user.id).eq('slot_type', slotType);
-      } else {
-        await supabase.from('user_loadouts').upsert({
-          'user_id': user.id,
-          'slot_type': slotType,
-          'item_value': itemValue,
-        }, onConflict: 'user_id, slot_type');
-      }
+    // Handle full model swaps vs simple gear flashes
+    if (slotType == 'character') {
+      _mannequinGame.updateCharacter(itemId);
+    } else {
+      _mannequinGame.triggerEquipAnimation();
+    }
 
-      if (slotToClear != null) {
-        await supabase.from('user_loadouts').delete().eq('user_id', user.id).eq('slot_type', slotToClear!); 
+    // Database Sync
+    if (slotType == 'mask') {
+      // 1. Sync all actively equipped masks
+      for (int i = 0; i < _equippedMasks.length; i++) {
+        await Supabase.instance.client.from('user_loadouts').upsert({
+          'user_id': userId,
+          'slot_type': 'mask_${i + 1}',
+          'item_value': _equippedMasks[i],
+        });
       }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Loadout updated!'), backgroundColor: Colors.green, duration: Duration(milliseconds: 800)),
-        );
+      // 2. Wipe any empty trailing slots from the database
+      for (int i = _equippedMasks.length; i < 4; i++) {
+        await Supabase.instance.client.from('user_loadouts')
+            .delete()
+            .eq('user_id', userId)
+            .eq('slot_type', 'mask_${i + 1}');
       }
-    } catch (e) {
-      debugPrint('Error equipping item: $e');
+    } else {
+      // Standard single-slot gear sync
+      await Supabase.instance.client.from('user_loadouts').upsert({
+        'user_id': userId,
+        'slot_type': slotType,
+        'item_value': itemId,
+      });
     }
   }
 
-  Widget _buildDropdown(String label, String? value, List<String> items, String slotType, {bool allowClear = false}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-        const SizedBox(height: 6),
-        DropdownButtonFormField<String>(
-          value: value ?? (allowClear ? 'none' : items.first),
-          dropdownColor: Colors.grey[900],
-          style: const TextStyle(color: Colors.white),
-          items: [
-            if (allowClear) const DropdownMenuItem(value: 'none', child: Text('EMPTY SLOT', style: TextStyle(color: Colors.grey))),
-            ...items.map((item) => DropdownMenuItem(value: item, child: Text(item.toUpperCase()))),
-          ],
-          onChanged: (val) => _equipItem(slotType, val),
-        ),
-      ],
+  double _calculateModifier(String buffStat) {
+    double modifier = 1.0;
+    final equippedIds = [_equippedNeck, _equippedArms, _equippedBelt];
+    
+    for (var id in equippedIds) {
+      if (id != null && _wearablesCatalog.containsKey(id)) {
+        if (_wearablesCatalog[id]!.buffStat == buffStat) {
+          modifier *= _wearablesCatalog[id]!.buffValue;
+        }
+      }
+    }
+    return modifier;
+  }
+
+  Widget _buildStatRow(String label, double baseValue, double modifier, bool isLowerBetter) {
+    double finalValue = baseValue * modifier;
+    bool isBuffed = isLowerBetter ? (finalValue < baseValue) : (finalValue > baseValue);
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 14, color: Colors.white70)),
+          Row(
+            children: [
+              Text(baseValue.toStringAsFixed(1), style: const TextStyle(fontSize: 14, color: Colors.grey)),
+              if (modifier != 1.0) ...[
+                const SizedBox(width: 8),
+                const Icon(Icons.arrow_forward, size: 12, color: Colors.white30),
+                const SizedBox(width: 8),
+                Text(
+                  finalValue.toStringAsFixed(1), 
+                  style: TextStyle(
+                    fontSize: 16, 
+                    fontWeight: FontWeight.bold,
+                    color: isBuffed ? Colors.greenAccent : Colors.redAccent,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(backgroundColor: Color(0xFF111111), body: Center(child: CircularProgressIndicator(color: Colors.purpleAccent)));
+    }
+
+    double baseSpeed = (_characterBaseStats['base_speed'] as num?)?.toDouble() ?? 200.0;
+    double baseEnergy = (_characterBaseStats['max_energy'] as num?)?.toDouble() ?? 10.0;
+    double baseRegen = (_characterBaseStats['energy_regen'] as num?)?.toDouble() ?? 0.5;
+
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF111111),
       appBar: AppBar(
-        backgroundColor: Colors.grey[900],
-        title: const Text('LOADOUT & PREFERENCES', style: TextStyle(color: Colors.redAccent, letterSpacing: 1.5)),
+        title: const Text('RELIQUARY LOADOUT', style: TextStyle(letterSpacing: 2.0, color: Colors.purpleAccent)),
+        backgroundColor: Colors.black,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.red))
-          : ListView(
-              padding: const EdgeInsets.all(16.0),
-              children: [
-                const Text('PHYSICAL VESSEL', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                const SizedBox(height: 12),
-                _buildDropdown('Equipped Character', _equippedCharacter, _ownedCharacters, 'character'),
-                
-                const SizedBox(height: 24),
-                const Text('FLASHLIGHT AURA', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 100,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _availableColors.length,
-                    itemBuilder: (context, index) {
-                      final item = _availableColors[index];
-                      final isEquipped = _equippedColor == item['value'];
-
-                      return GestureDetector(
-                        onTap: () => _equipItem('flashlight_color', item['value']),
-                        child: Container(
-                          width: 110,
-                          margin: const EdgeInsets.only(right: 12),
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[900],
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: isEquipped ? Colors.amber : Colors.transparent, width: 2),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Container(width: 24, height: 24, decoration: BoxDecoration(color: item['color'], shape: BoxShape.circle)),
-                              const SizedBox(height: 6),
-                              Text(item['value'].toUpperCase(), style: TextStyle(color: isEquipped ? Colors.white : Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-                const Text('TACTICAL DECK', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                const SizedBox(height: 12),
-                _ownedMasks.isEmpty
-                    ? const Text('You own no masks! Visit the Black Market.', style: TextStyle(color: Colors.grey))
-                    : Row(
-                        children: [
-                          Expanded(child: _buildDropdown('Slot 1', _equippedMask1, _ownedMasks, 'mask_1', allowClear: true)),
-                          const SizedBox(width: 16),
-                          Expanded(child: _buildDropdown('Slot 2', _equippedMask2, _ownedMasks, 'mask_2', allowClear: true)),
-                        ],
-                      ),
-
-                const SizedBox(height: 24),
-                const Text('PASSIVE PERKS', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                const SizedBox(height: 12),
-                _ownedPerks.isEmpty
-                    ? const Text('No perks unlocked yet.', style: TextStyle(color: Colors.grey))
-                    : _buildDropdown('Equipped Perk', _equippedPerk, _ownedPerks, 'perk', allowClear: true),
-
-                const SizedBox(height: 24),
-                const Text('PREFERRED MATCH MAP', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                const SizedBox(height: 12),
-                _buildDropdown('Map Asset', _selectedMap, _ownedMaps, 'preferred_map'),
-              ],
+      body: Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: Container(
+              padding: const EdgeInsets.all(24.0),
+              color: Colors.black45,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text((_characterBaseStats['name'] as String?)?.toUpperCase() ?? 'OPERATIVE', 
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const Divider(color: Colors.purpleAccent),
+                  const SizedBox(height: 16),
+                  _buildStatRow('Movement Speed', baseSpeed, _calculateModifier('speed'), false),
+                  _buildStatRow('Energy Capacity', baseEnergy, _calculateModifier('energy_max'), false),
+                  _buildStatRow('Recharge Rate', baseRegen, _calculateModifier('regen'), false),
+                  _buildStatRow('Audio Footprint', 100.0, _calculateModifier('footprint_reduction'), true),
+                  
+                  const Spacer(),
+                  const Text('ACTIVE COUNTERS', style: TextStyle(fontSize: 14, color: Colors.orangeAccent, letterSpacing: 1.2)),
+                  const SizedBox(height: 12),
+                  if (_equippedNeck != null && _wearablesCatalog.containsKey(_equippedNeck)) 
+                    Text('• ${_wearablesCatalog[_equippedNeck]!.name}: ${_wearablesCatalog[_equippedNeck]!.counterTarget.toUpperCase()} DEFENSE', style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                  if (_equippedArms != null && _wearablesCatalog.containsKey(_equippedArms)) 
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Text('• ${_wearablesCatalog[_equippedArms]!.name}: ${_wearablesCatalog[_equippedArms]!.counterTarget.toUpperCase()} DEFENSE', style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                    ),
+                  if (_equippedBelt != null && _wearablesCatalog.containsKey(_equippedBelt)) 
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Text('• ${_wearablesCatalog[_equippedBelt]!.name}: ${_wearablesCatalog[_equippedBelt]!.counterTarget.toUpperCase()} DEFENSE', style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                    ),
+                ],
+              ),
             ),
+          ),
+          Expanded(
+            flex: 4,
+            child: GameWidget(game: _mannequinGame),
+          ),
+          Expanded(
+            flex: 3,
+            child: Container(
+              color: Colors.black87,
+              child: Column(
+                children: [
+                  TabBar(
+                    controller: _tabController,
+                    indicatorColor: Colors.purpleAccent,
+                    labelColor: Colors.purpleAccent,
+                    unselectedLabelColor: Colors.white54,
+                    tabs: const [
+                      Tab(icon: Icon(Icons.masks), text: 'Masks'),
+                      Tab(icon: Icon(Icons.diamond), text: 'Neck'),
+                      Tab(icon: Icon(Icons.back_hand), text: 'Arms'),
+                      Tab(icon: Icon(Icons.accessibility), text: 'Belt'),
+                    ],
+                  ),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildInventoryGrid('mask'),
+                        _buildInventoryGrid('wearable_neck'),
+                        _buildInventoryGrid('wearable_arms'),
+                        _buildInventoryGrid('wearable_belt'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
+  }
+
+  Widget _buildInventoryGrid(String targetItemType) {
+    final items = _inventory.where((i) => i['item_type'] == targetItemType).toList();
+
+    if (items.isEmpty) {
+      return const Center(child: Text('No items in this category.', style: TextStyle(color: Colors.white54)));
+    }
+
+    return GridView.builder(
+      padding: const EdgeInsets.all(16.0),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+      ),
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final itemId = items[index]['item_id'] as String;
+        bool isEquipped = _equippedNeck == itemId || _equippedArms == itemId || _equippedBelt == itemId || _equippedMasks.contains(itemId);
+
+        String displayTitle = itemId.replaceAll('_', ' ').toUpperCase();
+        if (targetItemType != 'mask' && _wearablesCatalog.containsKey(itemId)) {
+          displayTitle = _wearablesCatalog[itemId]!.name;
+        }
+
+        return GestureDetector(
+          onTap: () => _equipItem(targetItemType, itemId),
+          child: Container(
+            decoration: BoxDecoration(
+              color: isEquipped ? Colors.purpleAccent.withOpacity(0.15) : Colors.grey[900],
+              border: Border.all(color: isEquipped ? Colors.purpleAccent : Colors.white12, width: 2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(isEquipped ? Icons.check_circle : Icons.inventory, size: 32, color: isEquipped ? Colors.purpleAccent : Colors.white54),
+                    const SizedBox(height: 12),
+                    Text(displayTitle, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: isEquipped ? Colors.white : Colors.white70, fontWeight: isEquipped ? FontWeight.bold : FontWeight.normal)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ==========================================
+// ISOLATED MANNEQUIN ENGINE (Self-Sufficient)
+// ==========================================
+class MannequinGame extends FlameGame {
+  VoxelCharacterComponent? mannequin;
+  double _rotationTimer = 0.0;
+
+  @override
+  Color backgroundColor() => Colors.transparent; 
+
+  Future<void> updateCharacter(String characterId) async {
+    if (mannequin != null) mannequin!.removeFromParent();
+
+    Map<String, ui.Image> images = {};
+    Map<String, dynamic>? rig;
+
+    try {
+      String zipPath = 'assets/character_assets.zip'; 
+      
+      if (characterId != 'default') {
+        final charRes = await Supabase.instance.client
+            .from('characters')
+            .select('zip_asset_path')
+            .eq('id', characterId)
+            .maybeSingle();
+        if (charRes != null && charRes['zip_asset_path'] != null) {
+          zipPath = charRes['zip_asset_path'];
+        }
+      }
+
+      final ByteData data = await rootBundle.load(zipPath);
+      final List<int> bytes = data.buffer.asUint8List();
+      final archive = ZipDecoder().decodeBytes(bytes);
+
+      for (final file in archive) {
+        if (file.isFile) {
+          if (file.name == 'rig.json') {
+            final jsonStr = utf8.decode(file.content as List<int>);
+            rig = jsonDecode(jsonStr);
+          } else if (file.name.endsWith('.png')) {
+            final ui.Codec codec = await ui.instantiateImageCodec(file.content as Uint8List);
+            final ui.FrameInfo frameInfo = await codec.getNextFrame();
+            images[file.name] = frameInfo.image;
+          }
+        }
+      }
+
+      if (rig != null) {
+        mannequin = VoxelCharacterComponent(
+          images: images,
+          rigData: rig,
+          hitboxSize: Vector2(160, 160), 
+        );
+        
+        // --- THE FIX: Only ask for size if Flame has actually built the layout! ---
+        // If not, onGameResize will automatically snap it to the center a frame later.
+        if (hasLayout) {
+          mannequin!.position = size / 2;
+        }
+        
+        add(mannequin!);
+      }
+    } catch (e) {
+      debugPrint('Mannequin isolated loading error: $e');
+    }
+  }
+
+  void triggerEquipAnimation() {
+    if (mannequin != null) {
+      mannequin!.isHighlighted = true;
+      Future.delayed(const Duration(milliseconds: 250), () {
+        if (mannequin != null) mannequin!.isHighlighted = false;
+      });
+    }
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    if (mannequin != null) {
+      _rotationTimer += dt * 0.4;
+      mannequin!.targetAngle = _rotationTimer;
+      mannequin!.isMoving = true; 
+    }
+  }
+
+  @override
+  void onGameResize(Vector2 gameSize) {
+    super.onGameResize(gameSize);
+    if (mannequin != null) {
+      mannequin!.position = gameSize / 2;
+    }
   }
 }

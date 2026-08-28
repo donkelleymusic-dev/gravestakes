@@ -54,14 +54,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
   bool isAudioReady = false;
 
-  // ==========================================
-  // DYNAMIC VOXEL ASSETS CACHE
-  // ==========================================
-  // We now cache assets by character ID!
   Map<String, Map<String, ui.Image>> characterImagesCache = {};
   Map<String, Map<String, dynamic>> characterRigCache = {};
   
-  // Legacy variables kept for fallback safety
   Map<String, ui.Image> loadedAssetImages = {};
   Map<String, dynamic>? loadedRigData;
   bool isFpsMode = false;
@@ -124,9 +119,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
   }
 
-  // --- UPGRADED: Dynamic Asset Loader ---
   Future<void> _loadVoxelAssets() async {
-    // 1. GUARANTEED FALLBACK: Always load the local zip first!
     try {
       final ByteData data = await rootBundle.load('assets/character_assets.zip');
       final List<int> bytes = data.buffer.asUint8List();
@@ -149,7 +142,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       debugPrint('CRITICAL: Default zip failed to load: $e');
     }
 
-    // 2. DYNAMIC LOADING: Fetch custom characters from Supabase
     try {
       final supabase = Supabase.instance.client;
       final charsRes = await supabase.from('characters').select('id, zip_asset_path');
@@ -159,7 +151,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         final charId = char['id'] as String;
         final zipPath = char['zip_asset_path'] as String;
         
-        // Skip default since we just loaded it securely above
         if (charId == 'default') continue; 
 
         try {
@@ -242,7 +233,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     gameMap = GameMap(roomId: roomId, mapName: mapName); 
     await world.add(gameMap);
 
-    // 2. ADD THE SCARE MANAGER TO THE WORLD ONCE
     scareManager = ScareManager();
     await world.add(scareManager);
 
@@ -261,7 +251,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     world.add(PowerUpHud(player: player));
     camera.follow(player);
 
-    //camera.viewport.add(DarknessOverlay(player)); 
     camera.viewport.add(jumpScareEffect);
 
     if (isGunner) {
@@ -351,17 +340,32 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     availableSpawns.shuffle();
     availableSpawns.removeWhere((spawn) => spawn.distanceTo(player.position) < 300.0);
       
-    for (int i = 0; i < config.botCount; i++) {
+    bool spawnHunter = Random().nextDouble() < 0.40;
+    int regularBotCount = spawnHunter ? config.botCount - 1 : config.botCount;
+      
+    for (int i = 0; i < regularBotCount; i++) {
       Vector2 rawBotSpawn = availableSpawns.isNotEmpty ? availableSpawns.removeAt(0) : Vector2(500.0 + (i * 100), 500.0); 
       Vector2 safeBotSpawn = gameMap.getSafeSpawnLocation(rawBotSpawn, Vector2.all(32.0));
 
-      final bot = BotPlayer()
+      final bot = BotPlayer(isHunter: false)
         ..position = safeBotSpawn
         ..wanderSpeed = config.wanderSpeed
         ..huntSpeed = config.huntSpeed;
         
       bots.add(bot);
       world.add(bot);
+    }
+
+    if (spawnHunter && availableSpawns.isNotEmpty) {
+      Vector2 safeBotSpawn = gameMap.getSafeSpawnLocation(availableSpawns.removeAt(0), Vector2.all(32.0));
+      
+      final hunterBot = BotPlayer(isHunter: true)
+        ..position = safeBotSpawn
+        ..wanderSpeed = config.wanderSpeed
+        ..huntSpeed = config.huntSpeed; 
+        
+      bots.add(hunterBot);
+      world.add(hunterBot);
     }
 
     final random = Random();
@@ -411,12 +415,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       myChannel.sendBroadcastMessage(event: 'match_control', payload: {'action': 'end'});
     }
 
-    //try {
-    //  overlays.add('summary');
-    //} catch (e) {}
-
-    // Pop the massive dark vessel overlay!
-    // Delete the old findBuildContext() call and use this instead:
     if (buildContext != null) {
       VesselOpenerOverlay.show(buildContext!, 'shadow_reliquary');
     } else {
@@ -475,48 +473,103 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
   }
   
-  int triggerLocalScare(Vector2 attackerPos, double attackerAngle, bool isPoweredUp, {bool hasExtendedRange = false, double range = 250.0}) {
+  int triggerLocalScare(Vector2 attackerPos, double attackerAngle, bool isPoweredUp, {bool hasExtendedRange = false, double range = 250.0, required String maskId}) {
     int hitCount = 0;
     final forward = Vector2(sin(attackerAngle), -cos(attackerAngle));
-    final double scareRadius = hasExtendedRange ? 600.0 : range;
-    final double coneThreshold = isPoweredUp ? -0.2 : 0.1;
+    
+    // --- TEST MOD: Massive 2000px range for the Siren! ---
+    final double scareRadius = maskId == 'siren' ? 2000.0 : (hasExtendedRange ? 600.0 : range);
 
+    for (var bot in bots) {
+      if (bot.isHunter) {
+        bot.hearLoudNoise(attackerPos);
+      }
+    }
+
+    // 1. Bot Logic
     for (var bot in bots) {
       if (bot.localImmunityToMe > 0) continue; 
       final toBot = bot.position - attackerPos;
+      
       if (toBot.length < scareRadius) {
         toBot.normalize();
-        if (forward.dot(toBot) > coneThreshold) { 
-          if (gameMap.hasLineOfSight(bot.position, attackerPos)) {
-            bot.applyStun(4.0); 
-            bot.localImmunityToMe = 7.0; 
-            bot.triggerPrivateHighlight(); 
+        final dot = forward.dot(toBot);
+
+        if (maskId == 'siren') {
+          // --- TEST MOD: Ignore Line of Sight, sound travels through walls! ---
+          if (dot > 0.0) { 
+            double duration = 15.0; // 15 SECOND CHARM!
+            bot.applyCharm(duration, player);
+            bot.localImmunityToMe = 16.0;
             hitCount++;
+          }
+        } 
+        else {
+          final coneThreshold = isPoweredUp ? -0.2 : 0.1;
+          // Standard attacks still require Line of Sight
+          if (dot > coneThreshold && gameMap.hasLineOfSight(bot.position, attackerPos)) {
+            
+            if (bot.isHunter) {
+              if (bot.isCoreExposed) {
+                bot.applyStun(8.0); 
+                bot.localImmunityToMe = 10.0; 
+                hitCount++;
+                
+                player.score += 2500; 
+                camera.viewport.add(FloatingText(
+                  text: 'CRITICAL OVERLOAD! +2500', 
+                  worldPosition: Vector2(bot.position.x - 40, bot.position.y - 60),
+                ));
+              } else {
+                bot.applyStun(0.1); 
+                camera.viewport.add(FloatingText(
+                  text: 'ARMOR DEFLECTED!', 
+                  worldPosition: Vector2(bot.position.x - 20, bot.position.y - 40),
+                ));
+              }
+            } else {
+              bot.applyStun(4.0); 
+              bot.localImmunityToMe = 7.0; 
+              bot.triggerPrivateHighlight(); 
+              hitCount++;
+            }
           }
         }
       }
     }
 
+    // 2. Remote Player Logic
     for (var remoteId in networkPlayers.keys) {
       var remotePlayer = networkPlayers[remoteId]!;
       if (remotePlayer.localImmunityToMe > 0) continue; 
       final toPlayer = remotePlayer.position - attackerPos;
+      
       if (toPlayer.length < scareRadius) {
         toPlayer.normalize();
-        if (forward.dot(toPlayer) > coneThreshold) { 
-          if (gameMap.hasLineOfSight(remotePlayer.position, attackerPos)) {
+        final dot = forward.dot(toPlayer);
+
+        if (maskId == 'siren') {
+          // --- TEST MOD: Same wall-penetrating 15s logic for Multiplayer ---
+          if (dot > 0.0) {
+            double duration = 15.0;
+            remotePlayer.localImmunityToMe = 16.0;
+            hitCount++;
+            myChannel.sendBroadcastMessage(event: 'charm', payload: {
+              'id': remoteId, 'duration': duration, 
+              'charmer_x': attackerPos.x, 'charmer_y': attackerPos.y
+            });
+          }
+        } else {
+          final coneThreshold = isPoweredUp ? -0.2 : 0.1;
+          if (dot > coneThreshold && gameMap.hasLineOfSight(remotePlayer.position, attackerPos)) {
             hitCount++;
             remotePlayer.localImmunityToMe = 5.0; 
             remotePlayer.triggerPrivateHighlight(); 
-            myChannel.sendBroadcastMessage(
-              event: 'stun',
-              payload: {'id': remoteId, 'duration': 2.0, 'attacker_id': mySessionId},
-            );
+            myChannel.sendBroadcastMessage(event: 'stun', payload: {'id': remoteId, 'duration': 2.0, 'attacker_id': mySessionId});
           }
         }
       }
     }
-
     if (hitCount > 0) player.triggerPrivateHighlight();
     return hitCount;
   }
@@ -593,19 +646,23 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             final isMoving = payload['m'] as bool? ?? false;
             final isInvisible = payload['i'] as bool? ?? false;
 
+            if (!networkPlayers.containsKey(id)) {
+              final newPlayer = RemotePlayer()..position = Vector2(x, y);
+              networkPlayers[id] = newPlayer;
+              world.add(newPlayer);
+            }
+
             if (isGunner) {
               final driverBackward = Vector2(sin(angle + pi), -cos(angle + pi));
               player.position.x = x + (driverBackward.x * 20); 
               player.position.y = y + (driverBackward.y * 20);
             }
 
-            if (networkPlayers.containsKey(id)) {
-              networkPlayers[id]!.updatePosition(
-                x, y, angle, 
-                colorStr: colorStr, newScore: newScore,
-                isDisguised: isDisguised, isMoving: isMoving, isInvisible: isInvisible,
-              );
-            }
+            networkPlayers[id]!.updatePosition(
+              x, y, angle, 
+              colorStr: colorStr, newScore: newScore,
+              isDisguised: isDisguised, isMoving: isMoving, isInvisible: isInvisible,
+            );
           }
         },
       )
@@ -625,16 +682,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             if (isAudioReady && scareSource != null) SoLoud.instance.play(scareSource!);
 
             if (maskId == 'flying') {
-              world.add(FlyingScareBlast(position: remote.position.clone(), angle: remote.angle));
+              scareManager.spawnBat(FlyingScareBlast(position: remote.position.clone(), angle: remote.angle));
             } else if (maskId == 'vermin') {
               for (int i = 0; i < 15; i++) { 
-                world.add(Critter(
+                scareManager.spawnCritter(Critter(
                   position: remote.position.clone(), behavior: SwarmBehavior.scatter,
                   seed: seed, index: i, initialAngle: remote.angle, ownerId: id,
                 ));
               }
             } else {
-              world.add(ScareBlast(position: remote.position, angle: remote.angle - (pi / 2)));
+              world.add(ScareBlast(position: remote.position.clone(), angle: remote.angle - (pi / 2))..priority = remote.priority + 5);
             }
 
             if (isHost && maskId != 'flying' && maskId != 'vermin') {
@@ -653,6 +710,19 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               }
             }
           }
+        },
+      )
+      .onBroadcast(
+        event: 'charm',
+        callback: (payload) {
+          final targetId = payload['id'] as String?;
+          if (targetId == null) return;
+          final duration = (payload['duration'] as num).toDouble();
+          final charmerPos = Vector2((payload['charmer_x'] as num).toDouble(), (payload['charmer_y'] as num).toDouble());
+
+          if (targetId == mySessionId) {
+            player.applyCharm(duration, charmerPos);
+          } 
         },
       )
       .onBroadcast(

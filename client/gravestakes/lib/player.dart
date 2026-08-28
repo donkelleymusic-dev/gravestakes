@@ -14,6 +14,7 @@ import 'power_up.dart';
 import 'chest_reward.dart';
 import 'mask_data.dart';
 import 'flying_scare_blast.dart';
+import 'siren_blast.dart';
 import 'critter.dart';
 import 'voxel_character_component.dart';
 
@@ -23,7 +24,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   final RealtimeChannel channel; 
   final bool isGunner; 
 
-  // --- CHANGED: Removed 'final' so the database can modify these ---
   double maxSpeed = 200.0;
   int score = 0;
 
@@ -33,13 +33,12 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   double maxEnergy = 10.0;
   double energyRegenRate = 0.5;
 
-  // --- NEW: Dynamic Character Variables ---
   String equippedCharacterId = 'default';
   double swapSpeedModifier = 1.0;
   double visualScale = 1.0;
 
   int selectedMaskIndex = 0; 
-  List<MaskData> equippedMasks = [];
+  List<MaskData?> equippedMasks = List.filled(4, null);
 
   double powerUpTimer = 0;
   bool get isPoweredUp => powerUpTimer > 0;
@@ -55,7 +54,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   String equippedColorString = 'red'; 
   Color _baseColor = Colors.redAccent; 
 
-  // Safely nullable components to prevent LateInitializationErrors
   VoxelCharacterComponent? voxelComponent;
   RectangleComponent? _fallbackSprite;
 
@@ -77,6 +75,25 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   bool hasExtendedRange = false;
   int coinsEarned = 0;
   SpriteComponent? _bushSprite;
+
+  bool isCharmed = false;
+  double charmTimer = 0;
+  Vector2 charmerTarget = Vector2.zero();
+
+  List<Vector2> _charmPath = [];
+  double _pathRecalcTimer = 0.0;
+
+  void applyCharm(double duration, Vector2 charmer) {
+    isCharmed = true;
+    charmTimer = duration;
+    charmerTarget = charmer.clone();
+    isStunned = false; 
+  }
+
+  void applyStun(double duration) {
+    isStunned = true; 
+    stunTimer = duration; 
+  }
 
   void applyChestReward(ChestReward reward) {
     switch (reward.type) {
@@ -133,9 +150,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
   @override
   Future<void> onLoad() async {
-    //priority = (position.y + 16).toInt();
     priority = ((position.y + 16) * 10).toInt();
-    //debugMode = true; // <-- TURN ON X-RAY VISION!
     await _fetchEquippedCosmetics();
     add(RectangleHitbox(size: Vector2(32, 32), anchor: Anchor.center));
 
@@ -174,8 +189,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         images: game.characterImagesCache[equippedCharacterId] ?? game.loadedAssetImages, 
         rigData: rig,
         hitboxSize: size, 
-      ) ..anchor = Anchor.bottomCenter // Anchor the graphic at the feet!
-        //..position = Vector2(size.x / 2, size.y); // Place the feet at the bottom of the logical player box
+      ) ..anchor = Anchor.bottomCenter
         ..position = size / 2;
       add(voxelComponent!);
     } catch (e) {
@@ -207,11 +221,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           else if (slot == 'mask_2') mask2Id = val;
           else if (slot == 'mask_3') mask3Id = val;
           else if (slot == 'mask_4') mask4Id = val;
-          // --- NEW: Find the equipped character ---
           else if (slot == 'character') equippedCharacterId = val;
         }
 
-        // --- NEW: Fetch Character Stats from the Database ---
         final charRes = await Supabase.instance.client
             .from('characters')
             .select('*')
@@ -219,63 +231,52 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
             .maybeSingle();
 
         if (charRes != null) {
-          // Overwrite the engine's physics with the database stats
           maxSpeed = (charRes['base_speed'] as num?)?.toDouble() ?? 200.0;
           maxEnergy = (charRes['max_energy'] as num?)?.toDouble() ?? 10.0;
           energyRegenRate = (charRes['energy_regen'] as num?)?.toDouble() ?? 0.5;
           swapSpeedModifier = (charRes['swap_speed_modifier'] as num?)?.toDouble() ?? 1.0;
           visualScale = (charRes['visual_scale'] as num?)?.toDouble() ?? 1.0;
           
-          energy = maxEnergy; // Start with a full tank
-          scale = Vector2.all(visualScale); // Apply visual size
+          energy = maxEnergy;
+          scale = Vector2.all(visualScale);
         }
-        // --- END NEW ---
 
       } catch (e) {
         debugPrint('Error fetching loadouts or stats: $e');
       }
     }
 
-    equippedMasks = [];
-    if (mask1Id != null && mask1Id.isNotEmpty) equippedMasks.add(MaskRegistry.getMask(mask1Id));
-    if (mask2Id != null && mask2Id.isNotEmpty) equippedMasks.add(MaskRegistry.getMask(mask2Id));
-    if (mask3Id != null && mask3Id.isNotEmpty) equippedMasks.add(MaskRegistry.getMask(mask3Id));
-    if (mask4Id != null && mask4Id.isNotEmpty) equippedMasks.add(MaskRegistry.getMask(mask4Id));
+    equippedMasks = List.filled(4, null);
+    if (mask1Id != null && mask1Id.isNotEmpty) equippedMasks[0] = MaskRegistry.getMask(mask1Id);
+    if (mask2Id != null && mask2Id.isNotEmpty) equippedMasks[1] = MaskRegistry.getMask(mask2Id);
+    if (mask3Id != null && mask3Id.isNotEmpty) equippedMasks[2] = MaskRegistry.getMask(mask3Id);
+    if (mask4Id != null && mask4Id.isNotEmpty) equippedMasks[3] = MaskRegistry.getMask(mask4Id);
   }
 
   void triggerAttack({int? forceMaskIndex}) {
     if (attackCooldown > 0) return;
     
-    if (equippedMasks.isEmpty) {
-      game.camera.viewport.add(FloatingText(text: 'NO MASKS! BUY IN MARKET', worldPosition: Vector2(position.x - 100, position.y - 60)));
+    // Default to Top-Right (Slot 0) if they press the Spacebar
+    int targetIndex = forceMaskIndex ?? 0;
+    if (targetIndex < 0 || targetIndex >= 4) return;
+
+    final currentMask = equippedMasks[targetIndex];
+    if (currentMask == null) {
+      game.camera.viewport.add(FloatingText(text: 'EMPTY SLOT!', worldPosition: Vector2(position.x - 40, position.y - 60)));
       return;
     }
-    
-    if (forceMaskIndex != null) selectedMaskIndex = forceMaskIndex;
-    if (selectedMaskIndex >= equippedMasks.length) selectedMaskIndex = 0; 
 
-    final currentMask = equippedMasks[selectedMaskIndex];
-    if (energy < currentMask.energyCost) return;
-
-    // Drop this right inside triggerAttack() in player_2.dart to test world rendering:
-    game.world.add(
-      RectangleComponent(
-        position: position.clone(),
-        size: Vector2.all(64.0), // Massive 64x64 block
-        paint: Paint()..color = Colors.red, // Blazing red so it's impossible to miss
-        anchor: Anchor.center,
-      )..priority = 99999 // Above everything else in the universe
-    );
-    // --- ADD THESE DEBUG LOGS ---
-    debugPrint('=== ATTACK TRIGGERED ===');
-    debugPrint('Mask ID: ${currentMask.id}');
-    debugPrint('Player World Position: $position');
-    debugPrint('Facing Angle: $facingAngle');
-    debugPrint('Is Flying: ${currentMask.isFlying}, Swarm Behavior: ${currentMask.swarmBehavior}');
-    // ----------------------------
+    if (energy < currentMask.energyCost) {
+      if (currentMask.id == 'standard') {
+        energy = 0; 
+      } else {
+        game.camera.viewport.add(FloatingText(text: 'NOT ENOUGH ENERGY!', worldPosition: Vector2(position.x - 20, position.y - 60)));
+        return; 
+      }
+    } else {
+      energy -= currentMask.energyCost;
+    }
     
-    energy -= currentMask.energyCost;
-    // --- CHANGED: Factored in the character's mask swap speed modifier ---
     attackCooldown = currentMask.cooldown * swapSpeedModifier; 
 
     if (game.isAudioReady) {
@@ -286,22 +287,18 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     final masterSeed = DateTime.now().millisecondsSinceEpoch;
 
     if (currentMask.isFlying) {
-      // FORCE IT THROUGH THE MANAGER
-      game.scareManager.spawnBat(FlyingScareBlast(
-        position: position.clone(), 
-        angle: facingAngle,
-      )); 
+      game.scareManager.spawnBat(FlyingScareBlast(position: position.clone(), angle: facingAngle)); 
     } else if (currentMask.swarmBehavior != SwarmBehavior.none) {
       for (int i = 0; i < currentMask.swarmCount; i++) {
-        // FORCE IT THROUGH THE MANAGER
         game.scareManager.spawnCritter(Critter(
           position: position.clone(), behavior: currentMask.swarmBehavior,
           seed: masterSeed, index: i, initialAngle: facingAngle, ownerId: game.mySessionId,
         )); 
       }
     } else {
-      if (!isGunner) {
-        // Use facingAngle for the lunge!
+      
+      // --- FIX: Bypass the physical lunge if it's the Siren Mask ---
+      if (!isGunner && currentMask.id != 'siren') {
         final forward = Vector2(sin(facingAngle), -cos(facingAngle));
         double distanceToMove = 45.0; 
         while (distanceToMove > 0) {
@@ -311,11 +308,15 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           } else { break; }
         }
       }
-      // priority + 5 ensures it clips behind walls in front of you, but renders over your hands
-      game.world.add(ScareBlast(position: position.clone(), angle: facingAngle - (pi / 2))..priority = 1000);//priority + 5
-      // Use facingAngle for the mathematical hit detection!
-      int victimsHit = game.triggerLocalScare(position, facingAngle, isPoweredUp, hasExtendedRange: hasExtendedRange, range: currentMask.range);
       
+      if (currentMask.id == 'siren') {
+        game.world.add(SirenBlast(position: position.clone(), angle: facingAngle - (pi / 2))..priority = priority + 5);
+      } else {
+        game.world.add(ScareBlast(position: position.clone(), angle: facingAngle - (pi / 2))..priority = priority + 5);
+      }
+
+      int victimsHit = game.triggerLocalScare(position, facingAngle, isPoweredUp, hasExtendedRange: hasExtendedRange, range: currentMask.range, maskId: currentMask.id);
+
       if (victimsHit > 0) {
         int baseScore = victimsHit * 100;
         int comboBonus = (victimsHit - 1) * 50 * (victimsHit - 1); 
@@ -324,14 +325,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         game.camera.viewport.add(FloatingText(text: popupText, worldPosition: Vector2(position.x - 20, position.y - 50)));
       }
     }
-    // Broadcast the facingAngle to the network!
     channel.sendBroadcastMessage(event: 'scare', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': facingAngle, 'mask_id': currentMask.id, 'seed': masterSeed});
-
-    //channel.sendBroadcastMessage(event: 'scare', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': angle, 'mask_id': currentMask.id, 'seed': masterSeed});
-  }
-
-  void applyStun(double duration) {
-    isStunned = true; stunTimer = duration; 
   }
 
   @override
@@ -349,31 +343,18 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   @override
   void render(Canvas canvas) {
     super.render(canvas);
-
-    // TEST: Draw a massive red square directly on the player's canvas origin
-    //final testPaint = Paint()..color = Colors.red;
-    //canvas.drawRect(const Rect.fromLTWH(-32, -32, 64, 64), testPaint);
   }
 
   @override
   void update(double dt) {    
-    // Now you can hide behind things
-    // Dynamically update drawing order based on the Y-position of their feet
-    // Calculate priority based on the absolute bottom of the player's feet
-    //priority = (position.y + 16).toInt();
     priority = ((position.y + 16) * 10).toInt();
-    // Drop this near the top of update() in player_2.dart
-    //debugPrint('PLAYER COORDS -> X: ${position.x.toStringAsFixed(1)}, Y: ${position.y.toStringAsFixed(1)} | Priority: $priority');
     if (!game.gameStarted) return; 
     super.update(dt);
 
-
     if (voxelComponent != null) {
       voxelComponent!.targetAngle = facingAngle - (pi / 2); 
-      // voxelComponent!.angle = -angle; <-- DELETE THIS ENTIRE LINE!
       voxelComponent!.isMoving = isMoving;
 
-      // Pass the loaded mask to the rig!
       try {
         voxelComponent!.activeMaskImage = game.images.fromCache('mask_placeholder.png');
       } catch (e) {
@@ -455,7 +436,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           networkTick += dt;
           if (networkTick >= networkRate) {
             networkTick = 0;
-            channel.sendBroadcastMessage(event: 'move', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': angle, 'c': equippedColorString, 's': score, 'd': isDisguised, 'm': isMoving, 'i': isInvisible});
+            channel.sendBroadcastMessage(event: 'move', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': facingAngle, 'c': equippedColorString, 's': score, 'd': isDisguised, 'm': isMoving, 'i': isInvisible});
           }
         }
       }
@@ -486,7 +467,42 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     if (!rightJoystick.delta.isZero()) facingAngle = rightJoystick.delta.screenAngle();
 
-    if (!isGunner) {
+    if (isCharmed) {
+      charmTimer -= dt;
+      if (charmTimer <= 0) {
+        isCharmed = false;
+        _charmPath.clear();
+      } else {
+        _pathRecalcTimer -= dt;
+        if (_pathRecalcTimer <= 0) {
+          _charmPath = game.gameMap.findPath(position, charmerTarget);
+          _pathRecalcTimer = 0.25; 
+        }
+
+        Vector2 forcedDelta = Vector2.zero();
+
+        if (_charmPath.isNotEmpty) {
+          if (position.distanceTo(_charmPath.first) < 15.0) {
+            _charmPath.removeAt(0);
+          }
+          
+          if (_charmPath.isNotEmpty) {
+            forcedDelta = (_charmPath.first - position).normalized();
+          } else {
+            forcedDelta = (charmerTarget - position).normalized();
+          }
+        } else {
+           forcedDelta = (charmerTarget - position).normalized();
+        }
+
+        facingAngle = forcedDelta.screenAngle();
+        
+        final potentialPosition = position + (forcedDelta * 120.0 * dt);
+        if (!game.gameMap.checkCollision(Vector2(potentialPosition.x, position.y), size)) position.x = potentialPosition.x;
+        if (!game.gameMap.checkCollision(Vector2(position.x, potentialPosition.y), size)) position.y = potentialPosition.y;
+      }
+      
+    } else if (!isGunner) {
       Vector2 movementDelta = Vector2.zero();
       if (!keyboardDelta.isZero()) { movementDelta = keyboardDelta;
       } else if (!leftJoystick.delta.isZero()) { movementDelta = leftJoystick.relativeDelta; }
@@ -515,7 +531,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     networkTick += dt;
     if (networkTick >= networkRate) {
       networkTick = 0;
-      channel.sendBroadcastMessage(event: 'move', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': angle, 'c': equippedColorString, 's': score, 'd': isDisguised, 'm': isMoving, 'i': isInvisible});
+      channel.sendBroadcastMessage(event: 'move', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': facingAngle, 'c': equippedColorString, 's': score, 'd': isDisguised, 'm': isMoving, 'i': isInvisible});
     }
   }
 }
