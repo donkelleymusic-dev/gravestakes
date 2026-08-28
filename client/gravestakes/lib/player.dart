@@ -338,7 +338,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       }
       
       if (currentMask.id == 'siren') {
-        game.world.add(SirenBlast(position: position.clone(), angle: facingAngle - (pi / 2))..priority = priority + 5);
+        // Just pass the player! The blast will track movement and rotation automatically.
+        add(SirenBlast()..position = size / 2);
+        //game.world.add(SirenBlast(position: position.clone(), angle: facingAngle - (pi / 2), ownerId: game.mySessionId));
       } else {
         game.world.add(ScareBlast(position: position.clone(), angle: facingAngle - (pi / 2))..priority = priority + 5);
       }

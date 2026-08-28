@@ -40,6 +40,7 @@ import 'critter.dart';
 import 'vessel_opener_overlay.dart';
 import 'scare_manager.dart';
 import 'flashlight_hud.dart';
+import 'siren_blast.dart';
 
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
   String roomId;
@@ -761,7 +762,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
                   seed: seed, index: i, initialAngle: remote.angle, ownerId: id,
                 ));
               }
-            } else {
+            } else if (maskId == 'siren') {
+              // Pass the remote player reference!
+              remote.add(SirenBlast()..position = remote.size / 2);
+              //world.add(SirenBlast(position: remote.position.clone(), angle: remote.angle - (pi / 2), ownerId: id));
+             } else {
               world.add(ScareBlast(position: remote.position.clone(), angle: remote.angle - (pi / 2))..priority = remote.priority + 5);
             }
 
