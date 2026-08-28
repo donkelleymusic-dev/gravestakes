@@ -10,12 +10,16 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
   double lifeTimer = 2.0; 
   double spawnTimer = 0.15; 
   
-  bool isDead = false; // <--- NEW: The flag the ScareManager is looking for!
+  // --- NEW: Define the ownerId property ---
+  final String ownerId;
+  
+  bool isDead = false; 
   
   SoundHandle? _audioHandle;
   static const double _audioScale = 50.0;
 
-  FlyingScareBlast({required Vector2 position, required double angle})
+  // --- NEW: Require ownerId in the constructor ---
+  FlyingScareBlast({required Vector2 position, required double angle, required this.ownerId})
       : super(
           position: position,
           radius: 20.0, 
@@ -71,7 +75,8 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
       for (var bot in game.bots) {
         if (bot.localImmunityToMe > 0) continue;
         if (position.distanceTo(bot.position) < 30.0) {
-          bot.applyStun(3.0);
+          //bot.applyStun(3.0);
+          bot.applyStun(3.0, isVermin: true, attackerId: ownerId);
           bot.localImmunityToMe = 5.0;
           bot.triggerPrivateHighlight();
           _stopAudio();

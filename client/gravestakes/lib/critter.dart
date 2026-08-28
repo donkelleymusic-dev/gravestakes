@@ -130,7 +130,8 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
       for (var bot in game.bots) {
         if (bot.localImmunityToMe > 0) continue;
         if (position.distanceTo(bot.position) < 20.0) {
-          bot.applyStun(1.5);
+          //bot.applyStun(1.5);
+          bot.applyStun(1.5, isVermin: true, attackerId: ownerId);
           bot.localImmunityToMe = 3.0; 
           bot.triggerPrivateHighlight();
           _stopAudio();

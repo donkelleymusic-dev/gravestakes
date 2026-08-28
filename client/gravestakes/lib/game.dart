@@ -46,8 +46,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   final String matchMode; // 'casual', '1v1', '2v2'
   final String mapName;
   final int targetPlayers;
-  double lobbyTimer = 10.0;
   bool isWaitingInLobby = true;
+
+  String matchPhase = 'searching'; // 'searching', 'countdown', 'playing'
+  double lobbyTimer = 10.0;
+  double countdownTimer = 3.0;
+  int _lastTick = 3;
   
   AudioSource? scareSource;
   AudioSource? footstepSource;
@@ -280,7 +284,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       camera.viewport.add(logoComponent);
     } catch (e) {}
 
-    camera.viewport.add(StartButton());
+    if (matchMode == 'casual') {
+      matchPhase = 'playing'; // Casual drops right in
+      camera.viewport.add(StartButton());
+    } else {
+      overlays.add('searching');
+    }
     camera.viewport.add(AttackButton());
     camera.viewport.add(PlayerHud());
 
@@ -300,22 +309,42 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   void update(double dt) {
     super.update(dt);
     
-    // --- NEW: THE MATCHMAKING LOBBY PHASE ---
-    if (isWaitingInLobby) {
+    // PHASE 1: SEARCHING FOR OPPONENTS
+    if (matchPhase == 'searching') {
       if (isHost) {
         lobbyTimer -= dt;
         int totalHumans = 1 + networkPlayers.length;
         
-        // If the lobby fills up naturally OR the 10 seconds expire
         if (totalHumans >= targetPlayers || lobbyTimer <= 0) {
-          isWaitingInLobby = false;
-          _spawnWorldEntities(); // This now calculates the deficit and spawns fake humans!
-          broadcastStartGame();  // Tells all connected clients to drop the waiting screen
+          _spawnWorldEntities(); 
+          matchPhase = 'countdown';
+          overlays.remove('searching');
+          overlays.add('countdown');
+          myChannel.sendBroadcastMessage(event: 'start_countdown', payload: {});
         }
       }
-      return; // Do not process game physics while in the lobby!
+      return; 
     }
-    // ----------------------------------------
+
+    // PHASE 2: THE COUNTDOWN
+    if (matchPhase == 'countdown') {
+      countdownTimer -= dt;
+      int currentTick = countdownTimer.ceil();
+      
+      // Play a ticking sound on 3, 2, 1
+      if (currentTick < _lastTick && currentTick > 0) {
+        _lastTick = currentTick;
+        if (isAudioReady && footstepSource != null) SoLoud.instance.play(footstepSource!);
+      }
+
+      if (countdownTimer <= 0) {
+        matchPhase = 'playing';
+        gameStarted = true;
+        overlays.remove('countdown');
+        if (isAudioReady && scareSource != null) SoLoud.instance.play(scareSource!);
+      }
+      return; 
+    }
 
     if (!gameStarted) return;
 
@@ -713,7 +742,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             if (isAudioReady && scareSource != null) SoLoud.instance.play(scareSource!);
 
             if (maskId == 'flying') {
-              scareManager.spawnBat(FlyingScareBlast(position: remote.position.clone(), angle: remote.angle));
+              scareManager.spawnBat(FlyingScareBlast(position: remote.position.clone(), angle: remote.angle, ownerId: payload['id']));
             } else if (maskId == 'vermin') {
               for (int i = 0; i < 15; i++) { 
                 scareManager.spawnCritter(Critter(

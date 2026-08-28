@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'game.dart';
 import 'scare_blast.dart';
 import 'voxel_character_component.dart';
+import 'floating_text.dart';
 
 enum BotState { wander, hunt, investigate, charmed, flee }
 
@@ -18,6 +19,8 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   
   double _footstepTimer = 0.0;
   final double _audioScale = 50.0;   
+
+  double recoveryTimer = 0.0;
 
   BotState currentState = BotState.wander;
   PositionComponent? currentTarget;
@@ -90,7 +93,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   BotPlayer({this.isHunter = false}) : super(size: Vector2.all(32.0), anchor: Anchor.center) {
     fakeUsername = _fakeNames[_random.nextInt(_fakeNames.length)];
   }
-  
+
   bool _isInVisionCone(Vector2 targetPos) {
     final vectorToTarget = targetPos - position;
     final angleToTarget = atan2(vectorToTarget.y, vectorToTarget.x);
@@ -160,11 +163,25 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     facingAngle = randomAngle;
   }
 
-  void applyStun(double duration) {
+  void applyStun(double duration, {bool isVermin = false, String? attackerId}) {
+    if (localImmunityToMe > 0) return;
+    
     isStunned = true;
     stunTimer = duration;
-    currentState = BotState.wander; 
-    _chooseNewDirection(); 
+    
+    // Vermin cause a lingering 2-second slowdown after the stun wears off
+    if (isVermin) {
+      recoveryTimer = 2.0;
+    }
+
+    // Award points to the attacker if they used a projectile mask!
+    if (attackerId != null && game.mySessionId == attackerId) {
+      game.player.score += 150;
+      game.camera.viewport.add(FloatingText(
+        text: '+150 SCARE!', 
+        worldPosition: Vector2(position.x - 20, position.y - 50)
+      ));
+    }
   }
 
   void applyCharm(double duration, PositionComponent charmer) {
@@ -378,6 +395,13 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
           if (evasionTimer <= 0) facingAngle = movementDelta.screenAngle();
         }
       }
+
+      // --- NEW: Apply half-speed penalty if recovering from vermin! ---
+      if (recoveryTimer > 0) {
+        recoveryTimer -= dt;
+        currentSpeed *= 0.5; // Stumble at 50% speed while recovering
+      }
+      // ----------------------------------------------------------------
 
       final potentialPosition = position + (movementDelta * currentSpeed * dt);
       final oldPosition = position.clone();

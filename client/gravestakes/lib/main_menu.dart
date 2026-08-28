@@ -169,6 +169,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
               ),
               overlayBuilderMap: {
                 'summary': (BuildContext context, GraveStakesGame game) => MatchSummaryOverlay(game: game),
+                'searching': (BuildContext context, GraveStakesGame game) => SearchingOverlay(game: game),
+                'countdown': (BuildContext context, GraveStakesGame game) => CountdownOverlay(game: game),
               },
             ),
           ),
@@ -481,6 +483,58 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         side: const BorderSide(color: Colors.grey),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+  }
+}
+
+class SearchingOverlay extends StatelessWidget {
+  final GraveStakesGame game;
+  const SearchingOverlay({super.key, required this.game});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black87,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(color: Colors.purpleAccent),
+            const SizedBox(height: 24),
+            Text(
+              'SEARCHING FOR OPPONENTS...\n(${game.matchMode.toUpperCase()})',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 2),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CountdownOverlay extends StatelessWidget {
+  final GraveStakesGame game;
+  const CountdownOverlay({super.key, required this.game});
+
+  @override
+  Widget build(BuildContext context) {
+    // We use a StreamBuilder or ValueListenable in production, but 
+    // for Flame overlays, we can force a quick state refresh if needed,
+    // or just let Flame's natural overlay lifecycle handle it.
+    return Container(
+      color: Colors.black45,
+      child: Center(
+        child: Text(
+          game.countdownTimer.ceil().toString(),
+          style: const TextStyle(
+            color: Colors.redAccent, 
+            fontSize: 120, 
+            fontWeight: FontWeight.bold,
+            shadows: [Shadow(color: Colors.black, blurRadius: 10)]
+          ),
+        ),
       ),
     );
   }

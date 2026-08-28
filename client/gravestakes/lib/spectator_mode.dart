@@ -234,7 +234,7 @@ class SpectatorGame extends FlameGame with PanDetector {
             final seed = payload['seed'] as int? ?? 0;
 
             if (maskId == 'flying') {
-              world.add(FlyingScareBlast(position: remote.position.clone(), angle: angle));
+              world.add(FlyingScareBlast(position: remote.position.clone(), angle: angle, ownerId: payload['id']));
             } else if (maskId == 'vermin') {
               for (int i = 0; i < 15; i++) {
                 world.add(Critter(

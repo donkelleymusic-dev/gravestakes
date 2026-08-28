@@ -287,7 +287,12 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     final masterSeed = DateTime.now().millisecondsSinceEpoch;
 
     if (currentMask.isFlying) {
-      game.scareManager.spawnBat(FlyingScareBlast(position: position.clone(), angle: facingAngle)); 
+      // Pass game.mySessionId to the new ownerId parameter
+      game.scareManager.spawnBat(FlyingScareBlast(
+        position: position.clone(), 
+        angle: facingAngle,
+        ownerId: game.mySessionId,
+      )); 
     } else if (currentMask.swarmBehavior != SwarmBehavior.none) {
       for (int i = 0; i < currentMask.swarmCount; i++) {
         game.scareManager.spawnCritter(Critter(
