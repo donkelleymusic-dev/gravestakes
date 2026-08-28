@@ -39,6 +39,7 @@ import 'flying_scare_blast.dart';
 import 'critter.dart';
 import 'vessel_opener_overlay.dart';
 import 'scare_manager.dart';
+import 'flashlight_hud.dart';
 
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
   String roomId;
@@ -292,6 +293,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
     camera.viewport.add(AttackButton());
     camera.viewport.add(PlayerHud());
+    camera.viewport.add(FlashlightHud());
 
     if (needsTutorial) {
       gameStarted = true;
@@ -331,16 +333,20 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       countdownTimer -= dt;
       int currentTick = countdownTimer.ceil();
       
-      // Play a ticking sound on 3, 2, 1
       if (currentTick < _lastTick && currentTick > 0) {
         _lastTick = currentTick;
         if (isAudioReady && footstepSource != null) SoLoud.instance.play(footstepSource!);
+        
+        // Force the UI to redraw the new countdown number
+        overlays.remove('countdown');
+        overlays.add('countdown');
       }
 
       if (countdownTimer <= 0) {
         matchPhase = 'playing';
         gameStarted = true;
         overlays.remove('countdown');
+        gameTimer.start(); // <--- THIS STARTS THE TIMER AND FIXES ENERGY SCALING!
         if (isAudioReady && scareSource != null) SoLoud.instance.play(scareSource!);
       }
       return; 
@@ -438,18 +444,23 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
 
     if (gameMap.potentialBoxSpawns.isNotEmpty) {
-      List<Vector2> shuffledNodes = List.from(gameMap.potentialBoxSpawns)..shuffle();
-      int boxesToSpawn = min(8, shuffledNodes.length);
-      List<Map<String, dynamic>> boxPayload = [];
+      // Provide a fallback if the algorithmic map generator failed to create box spawns
+    List<Vector2> boxNodes = gameMap.potentialBoxSpawns.isNotEmpty 
+        ? List.from(gameMap.potentialBoxSpawns)
+        : [Vector2(400, 400), Vector2(800, 800), Vector2(1200, 1200), Vector2(1600, 1600)];
 
-      for (int i = 0; i < boxesToSpawn; i++) {
-        String boxId = 'spooky_box_${DateTime.now().millisecondsSinceEpoch}_$i';
-        Vector2 pos = shuffledNodes[i];
-        world.add(SpookyBox(id: boxId, position: pos));
-        boxPayload.add({'id': boxId, 'x': pos.x, 'y': pos.y});
-      }
+    boxNodes.shuffle();
+    int boxesToSpawn = min(8, boxNodes.length);
+    List<Map<String, dynamic>> boxPayload = [];
 
-      myChannel.sendBroadcastMessage(event: 'spawn_boxes', payload: {'boxes': boxPayload});
+    for (int i = 0; i < boxesToSpawn; i++) {
+      String boxId = 'spooky_box_${DateTime.now().millisecondsSinceEpoch}_$i';
+      Vector2 pos = boxNodes[i];
+      world.add(SpookyBox(id: boxId, position: pos));
+      boxPayload.add({'id': boxId, 'x': pos.x, 'y': pos.y});
+    }
+
+    myChannel.sendBroadcastMessage(event: 'spawn_boxes', payload: {'boxes': boxPayload});
     }
   }
 

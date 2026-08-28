@@ -11,9 +11,10 @@ class SpookyBox extends SpriteComponent with HasGameReference<GraveStakesGame>, 
 
   @override
   Future<void> onLoad() async {
+    await super.onLoad();
     // Give the box true 2.5D depth so it renders in front of walls behind it!
     priority = ((position.y + 16) * 10).toInt();
-    
+
     // 1. Grab the specific spritesheet from Flame's memory cache
     final spritesheet = game.images.fromCache('Base_BaseChip_pipo.png'); 
 

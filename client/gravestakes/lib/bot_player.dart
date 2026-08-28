@@ -11,7 +11,7 @@ import 'floating_text.dart';
 enum BotState { wander, hunt, investigate, charmed, flee }
 
 class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
-  final bool isHunter; 
+  bool isHunter; 
   double wanderSpeed = 80.0;
   double huntSpeed = 130.0; 
   double visualScale = 1.0;
@@ -284,6 +284,15 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     }
 
     if (!game.isHost) return;
+
+    // --- LATE GAME PANIC: THE 60-SECOND FLIP ---
+    // At 60 seconds, if the bot is NOT a hunter, they snap and become one!
+    if (game.gameTimer.timeLeft <= 60.0 && game.gameTimer.timeLeft > 0 && !isHunter) {
+      isHunter = true;
+      huntSpeed *= 1.35; // They get an adrenaline boost
+      if (_fallbackSprite != null) _fallbackSprite!.paint.color = Colors.redAccent;
+      if (voxelComponent != null) triggerPrivateHighlight(); // Flash to show they snapped
+    }
 
     if (!isStunned) {
       double currentSpeed = wanderSpeed;
