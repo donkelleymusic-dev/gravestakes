@@ -43,7 +43,11 @@ import 'scare_manager.dart';
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
   String roomId;
   final bool isGunner;
+  final String matchMode; // 'casual', '1v1', '2v2'
   final String mapName;
+  final int targetPlayers;
+  double lobbyTimer = 10.0;
+  bool isWaitingInLobby = true;
   
   AudioSource? scareSource;
   AudioSource? footstepSource;
@@ -65,6 +69,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     this.roomId = 'public_match', 
     this.isGunner = false,
     this.mapName = 'L1T1V1.0.0',
+    this.matchMode = 'casual',
+    this.targetPlayers = 8,
   });
 
   late final JoystickComponent leftJoystick;
@@ -293,7 +299,25 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   @override
   void update(double dt) {
     super.update(dt);
-    if (!gameStarted) return; 
+    
+    // --- NEW: THE MATCHMAKING LOBBY PHASE ---
+    if (isWaitingInLobby) {
+      if (isHost) {
+        lobbyTimer -= dt;
+        int totalHumans = 1 + networkPlayers.length;
+        
+        // If the lobby fills up naturally OR the 10 seconds expire
+        if (totalHumans >= targetPlayers || lobbyTimer <= 0) {
+          isWaitingInLobby = false;
+          _spawnWorldEntities(); // This now calculates the deficit and spawns fake humans!
+          broadcastStartGame();  // Tells all connected clients to drop the waiting screen
+        }
+      }
+      return; // Do not process game physics while in the lobby!
+    }
+    // ----------------------------------------
+
+    if (!gameStarted) return;
 
     if (isAudioReady) {
       const double audioScale = 50.0; 
@@ -332,40 +356,47 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   void _spawnWorldEntities() {
     if (bots.isNotEmpty) return; 
     
-    final config = LevelManager.getConfigForLevel(myPlayerLevel);
     List<Vector2> availableSpawns = gameMap.playerSpawns.isNotEmpty 
         ? List<Vector2>.from(gameMap.playerSpawns)
         : [Vector2(150, 150), Vector2(400, 400)];
         
     availableSpawns.shuffle();
     availableSpawns.removeWhere((spawn) => spawn.distanceTo(player.position) < 300.0);
-      
-    bool spawnHunter = Random().nextDouble() < 0.40;
-    int regularBotCount = spawnHunter ? config.botCount - 1 : config.botCount;
-      
-    for (int i = 0; i < regularBotCount; i++) {
-      Vector2 rawBotSpawn = availableSpawns.isNotEmpty ? availableSpawns.removeAt(0) : Vector2(500.0 + (i * 100), 500.0); 
-      Vector2 safeBotSpawn = gameMap.getSafeSpawnLocation(rawBotSpawn, Vector2.all(32.0));
 
-      final bot = BotPlayer(isHunter: false)
-        ..position = safeBotSpawn
-        ..wanderSpeed = config.wanderSpeed
-        ..huntSpeed = config.huntSpeed;
+    if (matchMode == 'casual') {
+      // --- CASUAL MODE (Endless Bots & Hunters) ---
+      final config = LevelManager.getConfigForLevel(myPlayerLevel);
+      bool spawnHunter = Random().nextDouble() < 0.40;
+      int regularBotCount = spawnHunter ? config.botCount - 1 : config.botCount;
         
-      bots.add(bot);
-      world.add(bot);
-    }
-
-    if (spawnHunter && availableSpawns.isNotEmpty) {
-      Vector2 safeBotSpawn = gameMap.getSafeSpawnLocation(availableSpawns.removeAt(0), Vector2.all(32.0));
+      for (int i = 0; i < regularBotCount; i++) {
+        Vector2 safeBotSpawn = gameMap.getSafeSpawnLocation(availableSpawns.isNotEmpty ? availableSpawns.removeAt(0) : Vector2(500, 500), Vector2.all(32.0));
+        bots.add(BotPlayer(isHunter: false)..position = safeBotSpawn..wanderSpeed = config.wanderSpeed..huntSpeed = config.huntSpeed);
+      }
+      if (spawnHunter && availableSpawns.isNotEmpty) {
+        Vector2 safeBotSpawn = gameMap.getSafeSpawnLocation(availableSpawns.removeAt(0), Vector2.all(32.0));
+        bots.add(BotPlayer(isHunter: true)..position = safeBotSpawn..wanderSpeed = config.wanderSpeed..huntSpeed = config.huntSpeed);
+      }
+      for (var b in bots) world.add(b);
       
-      final hunterBot = BotPlayer(isHunter: true)
-        ..position = safeBotSpawn
-        ..wanderSpeed = config.wanderSpeed
-        ..huntSpeed = config.huntSpeed; 
+    } else {
+      // --- COMPETITIVE 1v1 & 2v2 MODE (Fake Human Fill) ---
+      // Target players minus the host (1) and any connected remote players
+      int missingPlayers = targetPlayers - (1 + networkPlayers.length);
+      
+      for (int i = 0; i < missingPlayers; i++) {
+        if (availableSpawns.isEmpty) break;
+        Vector2 safeSpawn = gameMap.getSafeSpawnLocation(availableSpawns.removeAt(0), Vector2.all(32.0));
         
-      bots.add(hunterBot);
-      world.add(hunterBot);
+        // Fake humans get standard bot stats but act as player substitutes
+        final fakeHuman = BotPlayer(isHunter: false)
+          ..position = safeSpawn
+          ..wanderSpeed = 100.0 
+          ..huntSpeed = 160.0; 
+          
+        bots.add(fakeHuman);
+        world.add(fakeHuman);
+      }
     }
 
     final random = Random();

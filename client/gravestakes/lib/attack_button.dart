@@ -6,22 +6,12 @@ import 'game.dart';
 
 class AttackButton extends PositionComponent with HasGameReference<GraveStakesGame>, TapCallbacks {
   final double buttonRadius = 55.0;
-  late final TextPaint _textPaint;
+  int? _flashedSlot; 
   
   AttackButton() {
     size = Vector2(buttonRadius * 2, buttonRadius * 2);
     anchor = Anchor.center;
     priority = 200;
-    
-    // --- NEW: Font stylings for the button letters ---
-    _textPaint = TextPaint(
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 24,
-        fontWeight: FontWeight.bold,
-        shadows: [Shadow(color: Colors.black, blurRadius: 4, offset: Offset(1, 1))],
-      ),
-    );
   }
 
   @override
@@ -38,19 +28,74 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
     final dx = localPos.x - buttonRadius;
     final dy = localPos.y - buttonRadius;
 
+    // Fixed Mapping: Standard Z-Grid reading order
     int targetSlot = 0;
-    if (dx >= 0 && dy < 0) {
-      targetSlot = 0; // Top-Right
-    } else if (dx >= 0 && dy >= 0) {
-      targetSlot = 1; // Bottom-Right
+    if (dx < 0 && dy < 0) {
+      targetSlot = 0; // Top-Left
+    } else if (dx >= 0 && dy < 0) {
+      targetSlot = 1; // Top-Right
     } else if (dx < 0 && dy >= 0) {
       targetSlot = 2; // Bottom-Left
     } else {
-      targetSlot = 3; // Top-Left
+      targetSlot = 3; // Bottom-Right
     }
 
-    // Attempt to fire! (The Player class now safely catches empty slots)
+    if (targetSlot < game.player.equippedMasks.length && game.player.equippedMasks[targetSlot] != null) {
+      final mask = game.player.equippedMasks[targetSlot]!;
+      // Only flash if the player actually has enough energy to fire it
+      if (game.player.energy >= mask.energyCost || mask.id == 'standard') {
+        _triggerFlash(targetSlot);
+      }
+    }
+
     game.player.triggerAttack(forceMaskIndex: targetSlot);
+  }
+
+  void _triggerFlash(int slot) {
+    _flashedSlot = slot;
+    Future.delayed(const Duration(milliseconds: 150), () {
+      _flashedSlot = null;
+    });
+  }
+
+  void _drawMaskIcon(Canvas canvas, Offset c, String maskId) {
+    final fillPaint = Paint()..color = Colors.white..style = PaintingStyle.fill;
+    final strokePaint = Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 2.0;
+
+    if (maskId == 'standard') {
+      // Flashlight beam: small bottom, wider top
+      final path = Path()
+        ..moveTo(c.dx, c.dy + 8)
+        ..lineTo(c.dx - 10, c.dy - 12)
+        ..arcToPoint(Offset(c.dx + 10, c.dy - 12), radius: const Radius.circular(15), clockwise: true)
+        ..close();
+      canvas.drawPath(path, fillPaint);
+    } 
+    else if (maskId == 'siren') {
+      // Mouth profile with expanding sound waves
+      canvas.drawArc(Rect.fromCircle(center: Offset(c.dx - 4, c.dy), radius: 6), pi / 2, pi, false, strokePaint); // Mouth
+      canvas.drawArc(Rect.fromCircle(center: Offset(c.dx - 4, c.dy), radius: 10), -pi/3, (2*pi)/3, false, strokePaint); // Wave 1
+      canvas.drawArc(Rect.fromCircle(center: Offset(c.dx - 4, c.dy), radius: 15), -pi/3, (2*pi)/3, false, strokePaint); // Wave 2
+    } 
+    else if (maskId == 'vermin') {
+      // 3 tiny land-based critter circles
+      canvas.drawCircle(Offset(c.dx - 10, c.dy), 3, fillPaint);
+      canvas.drawCircle(Offset(c.dx, c.dy), 3, fillPaint);
+      canvas.drawCircle(Offset(c.dx + 10, c.dy), 3, fillPaint);
+    } 
+    else if (maskId == 'flying') {
+      // Bat vector shape with altitude lines
+      final path = Path()
+        ..moveTo(c.dx - 14, c.dy - 4)
+        ..quadraticBezierTo(c.dx - 7, c.dy - 10, c.dx, c.dy - 2) // Left wing
+        ..quadraticBezierTo(c.dx + 7, c.dy - 10, c.dx + 14, c.dy - 4); // Right wing
+      canvas.drawPath(path, strokePaint);
+      canvas.drawLine(Offset(c.dx - 7, c.dy + 4), Offset(c.dx - 7, c.dy + 10), strokePaint);
+      canvas.drawLine(Offset(c.dx + 7, c.dy + 4), Offset(c.dx + 7, c.dy + 10), strokePaint);
+    } 
+    else {
+      canvas.drawCircle(c, 4, fillPaint);
+    }
   }
 
   @override
@@ -64,10 +109,10 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
     canvas.drawCircle(center, buttonRadius, bgPaint);
 
     final List<List<double>> quadrantAngles = [
-      [-pi / 2, pi / 2], // Top-Right
-      [0, pi / 2],       // Bottom-Right
-      [pi / 2, pi / 2],  // Bottom-Left
-      [pi, pi / 2],      // Top-Left
+      [pi, pi / 2],      // 0: Top-Left
+      [-pi / 2, pi / 2], // 1: Top-Right
+      [pi / 2, pi / 2],  // 2: Bottom-Left
+      [0, pi / 2],       // 3: Bottom-Right
     ];
 
     for (int i = 0; i < 4; i++) {
@@ -78,7 +123,15 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
 
       if (mask != null) {
         final fillRatio = (player.energy / mask.energyCost).clamp(0.0, 1.0);
-        final activeColor = fillRatio >= 1.0 ? Colors.redAccent : Colors.red.withOpacity(0.3);
+        
+        // Determine the base color
+        Color activeColor = fillRatio >= 1.0 ? Colors.redAccent : Colors.red.withOpacity(0.3);
+        
+        // Override with a bright white flash if this slot was just tapped
+        if (_flashedSlot == i) {
+          activeColor = Colors.white;
+        }
+
         final paint = Paint()..color = activeColor..style = PaintingStyle.fill;
 
         canvas.drawArc(
@@ -89,17 +142,14 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
           paint,
         );
 
-        // --- NEW: Draw the Letter perfectly centered in the slice! ---
-        final textAngle = startAngle + (sweepAngle / 2);
-        final textRadius = buttonRadius * 0.65; // Push the letter out toward the edge
-        final textCenter = Offset(
-          center.dx + cos(textAngle) * textRadius,
-          center.dy + sin(textAngle) * textRadius,
+        final iconAngle = startAngle + (sweepAngle / 2);
+        final iconRadius = buttonRadius * 0.65; 
+        final iconCenter = Offset(
+          center.dx + cos(iconAngle) * iconRadius,
+          center.dy + sin(iconAngle) * iconRadius,
         );
         
-        // Grab the first letter (S for Siren, B for Bat, etc.)
-        String letter = mask.name.substring(0, 1).toUpperCase();
-        _textPaint.render(canvas, letter, Vector2(textCenter.dx, textCenter.dy), anchor: Anchor.center);
+        _drawMaskIcon(canvas, iconCenter, mask.id);
 
       } else {
         final emptyPaint = Paint()..color = Colors.white10..style = PaintingStyle.fill;

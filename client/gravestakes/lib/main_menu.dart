@@ -25,20 +25,20 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   String _username = 'Loading...';
   int _level = 1;
   int _shadows = 0;
-  int _coins = 0; // <-- Swapped stakes for coins
+  int _coins = 0; 
   bool _isLoading = true;
   bool _isSearchingForMatch = false;
   String? _errorMessage;
-  // The map that will be passed into the game
-  String _selectedMapName = 'L1T1V1.0.0';// db row name value of level 1 map. new dungeon map name is 'L2T1V1.0.0'
+  
+  String _selectedMapName = 'L1T1V1.0.0';
+  // --- NEW: Match Mode State ---
+  String _selectedMatchMode = 'casual'; 
 
   @override
   void initState() {
     super.initState();
     _fetchPlayerData();
   }
-
-  
 
   Future<void> _fetchPlayerData() async {
     final user = supabase.auth.currentUser;
@@ -59,7 +59,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       try {
         final responses = await Future.wait<dynamic>([
           supabase.from('profiles').select('username, level').eq('id', user.id).single(),
-          supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(), // <-- Fetching coins now
+          supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(),
         ]);
 
         if (mounted) {
@@ -67,7 +67,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             _username = responses[0]['username'] ?? 'Ghost';
             _level = responses[0]['level'] ?? 1;
             _shadows = responses[1]['shadows'] ?? 0;
-            _coins = responses[1]['coins'] ?? 0; // <-- Assigning coins
+            _coins = responses[1]['coins'] ?? 0; 
             _isLoading = false;
           });
         }
@@ -113,25 +113,38 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     });
 
     try {
-      final gameInstance = GraveStakesGame(mapName: _selectedMapName);
+      // --- NEW: Calculate target players based on selected mode ---
+      int targetPlayers = 8;
+      if (_selectedMatchMode == '1v1') targetPlayers = 2;
+      if (_selectedMatchMode == '2v2') targetPlayers = 4;
+
+      final gameInstance = GraveStakesGame(
+        mapName: _selectedMapName,
+        matchMode: _selectedMatchMode,
+        targetPlayers: targetPlayers,
+      );
+      
       await gameInstance.initAudioEngine();
 
+      // --- NEW: Pass the mode and targets to the database RPC ---
       final response = await supabase.rpc(
         'find_or_create_match',
-        params: {'p_map_name': _selectedMapName}, // This sends the dropdown value!
+        params: {
+          'p_map_name': _selectedMapName,
+          'p_mode': _selectedMatchMode,
+          'p_target_players': targetPlayers,
+        }, 
       );
       
       gameInstance.roomId = response as String;
 
       if (!context.mounted) return;
 
-      // Inside _findMatchAndStart in main_menu.dart:
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => Scaffold(
             body: GameWidget<GraveStakesGame>(
               game: gameInstance,
-              // 1. Move the loading UI to the dedicated loadingBuilder!
               loadingBuilder: (context) => Container(
                 color: Colors.black,
                 child: const Center(
@@ -209,12 +222,9 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      
-      // --- ADD THIS ENTIRE BLOCK ---
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.purpleAccent,
         onPressed: () {
-          // Try changing this string to 'soul_casket' or 'shadow_reliquary'
           VesselOpenerOverlay.show(context, 'void_chrysalis');
         },
         child: const Icon(Icons.science, color: Colors.white),
@@ -275,7 +285,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                           children: [
                             Text('Shadows: $_shadows', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 4),
-                            // <-- Updated to display Coins in Amber!
                             Text('Coins: $_coins', style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold)),
                           ],
                         ),
@@ -284,6 +293,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   ),
                   
                   const SizedBox(height: 32),
+                  
                   // --- THE MAP CHOOSER ---
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -299,8 +309,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                         isExpanded: true,
                         style: const TextStyle(color: Colors.yellowAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold),
                         items: const [
-                          DropdownMenuItem(value: 'L1T1V1.0.0', child: Text('MAP 1: ORIGINAL COMPOUND')),
-                          DropdownMenuItem(value: 'L2T1V1.0.0', child: Text('MAP 2: THE CATACOMBS')),
+                          DropdownMenuItem(value: 'L1T1V1.0.0', child: Text('BIOME: ORIGINAL COMPOUND')),
+                          DropdownMenuItem(value: 'L2T1V1.0.0', child: Text('BIOME: THE CATACOMBS')),
                         ],
                         onChanged: (String? newValue) {
                           if (newValue != null) {
@@ -312,8 +322,40 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       ),
                     ),
                   ),
+                  
+                  const SizedBox(height: 12),
+
+                  // --- NEW: THE MATCH MODE CHOOSER ---
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[900],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.purpleAccent),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedMatchMode,
+                        dropdownColor: Colors.black87,
+                        isExpanded: true,
+                        style: const TextStyle(color: Colors.purpleAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold),
+                        items: const [
+                          DropdownMenuItem(value: 'casual', child: Text('MODE: CASUAL FFA')),
+                          DropdownMenuItem(value: '1v1', child: Text('MODE: 1v1 COMPETITIVE')),
+                          DropdownMenuItem(value: '2v2', child: Text('MODE: 2v2 SQUAD BRAWL')),
+                        ],
+                        onChanged: (String? newValue) {
+                          if (newValue != null) {
+                            setState(() {
+                              _selectedMatchMode = newValue;
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                  
                   const SizedBox(height: 16),
-                  // -----------------------
 
                   ElevatedButton(
                     onPressed: () => _findMatchAndStart(context),

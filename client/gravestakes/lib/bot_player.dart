@@ -49,6 +49,15 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   List<Vector2> _hunterPath = [];
   double _pathRecalcTimer = 0.0;
 
+  static const List<String> _fakeNames = [
+    'ShadowWalker99', 'GraveDigger', 'LumenThief', 'SpookyToast', 
+    'NightTerrors', 'xX_Vamp_Xx', 'Echo_Location', 'SirenBait'
+  ];
+  
+  late final String fakeUsername;
+  int simulatedScore = 0; // Fake humans need to earn points too!
+
+
   void hearLoudNoise(Vector2 noisePos) {
     if (isHunter) {
       acousticAggroTarget = noisePos.clone();
@@ -76,8 +85,12 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     SoLoud.instance.set3dSourceAttenuation(handle, 1, 1.2);
   }
   
-  BotPlayer({this.isHunter = false}) : super(size: Vector2.all(32.0), anchor: Anchor.center);
+  //BotPlayer({this.isHunter = false}) : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
+  BotPlayer({this.isHunter = false}) : super(size: Vector2.all(32.0), anchor: Anchor.center) {
+    fakeUsername = _fakeNames[_random.nextInt(_fakeNames.length)];
+  }
+  
   bool _isInVisionCone(Vector2 targetPos) {
     final vectorToTarget = targetPos - position;
     final angleToTarget = atan2(vectorToTarget.y, vectorToTarget.x);
