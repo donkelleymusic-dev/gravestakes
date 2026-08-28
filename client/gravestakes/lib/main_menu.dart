@@ -12,6 +12,7 @@ import 'party_screen.dart';
 import 'spectator_mode.dart';
 import 'match_summary_overlay.dart';
 import 'vessel_opener_overlay.dart';
+import 'level_up_overlay.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -75,10 +76,32 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(),
         ]);
 
+        final serverLevel = responses[0]['level'] ?? 1;
+
+        // --- CHECK FOR LEVEL UP ---
+        final prefs = await SharedPreferences.getInstance();
+        int lastSeenLevel = prefs.getInt('last_seen_level') ?? serverLevel;
+
+        if (serverLevel > lastSeenLevel) {
+          // Update recorded local level so it only plays once
+          await prefs.setInt('last_seen_level', serverLevel);
+          
+          // Delay briefly to ensure UI is built before popping dialog
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              LevelUpOverlay.show(context, serverLevel);
+            }
+          });
+        } else {
+          // Ensure base key is initialized if missing
+          await prefs.setInt('last_seen_level', serverLevel);
+        }
+        // -------------------------
+
         if (mounted) {
           setState(() {
             _username = responses[0]['username'] ?? 'Ghost';
-            _level = responses[0]['level'] ?? 1;
+            _level = serverLevel;
             _shadows = responses[1]['shadows'] ?? 0;
             _coins = responses[1]['coins'] ?? 0; 
             _isLoading = false;
