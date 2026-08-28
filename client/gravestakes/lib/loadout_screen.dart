@@ -123,50 +123,65 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       else if (slotType == 'wearable_arms') _equippedArms = itemId;
       else if (slotType == 'wearable_belt') _equippedBelt = itemId;
       else if (slotType == 'mask') {
-        // Full 4-slot Toggle Logic
         if (_equippedMasks.contains(itemId)) {
-          _equippedMasks.remove(itemId); // Tap again to unequip
+          _equippedMasks.remove(itemId); 
         } else {
           if (_equippedMasks.length < 4) {
             _equippedMasks.add(itemId);
           } else {
-            _equippedMasks[0] = itemId; // Replace the first slot if full
+            _equippedMasks[0] = itemId; 
           }
         }
       }
     });
 
-    // Handle full model swaps vs simple gear flashes
     if (slotType == 'character') {
       _mannequinGame.updateCharacter(itemId);
     } else {
       _mannequinGame.triggerEquipAnimation();
     }
 
-    // Database Sync
-    if (slotType == 'mask') {
-      // 1. Sync all actively equipped masks
-      for (int i = 0; i < _equippedMasks.length; i++) {
-        await Supabase.instance.client.from('user_loadouts').upsert({
+    try {
+      if (slotType == 'mask') {
+        for (int i = 0; i < _equippedMasks.length; i++) {
+          final payload = {
+            'user_id': userId,
+            'slot_type': 'mask_${i + 1}',
+            'item_value': _equippedMasks[i],
+          };
+          debugPrint('DB UPSERT -> TABLE: user_loadouts | PAYLOAD: $payload');
+          // --- FIX: Explicitly define the conflict resolution columns ---
+          await Supabase.instance.client.from('user_loadouts').upsert(
+            payload, 
+            onConflict: 'user_id, slot_type'
+          );
+        }
+        
+        for (int i = _equippedMasks.length; i < 4; i++) {
+          final targetSlot = 'mask_${i + 1}';
+          debugPrint('DB DELETE -> TABLE: user_loadouts | MATCH: user_id=$userId, slot_type=$targetSlot');
+          await Supabase.instance.client.from('user_loadouts')
+              .delete()
+              .eq('user_id', userId)
+              .eq('slot_type', targetSlot);
+        }
+      } else {
+        final payload = {
           'user_id': userId,
-          'slot_type': 'mask_${i + 1}',
-          'item_value': _equippedMasks[i],
-        });
+          'slot_type': slotType,
+          'item_value': itemId,
+        };
+        debugPrint('DB UPSERT -> TABLE: user_loadouts | PAYLOAD: $payload');
+        // --- FIX: Explicitly define the conflict resolution columns ---
+        await Supabase.instance.client.from('user_loadouts').upsert(
+          payload, 
+          onConflict: 'user_id, slot_type'
+        );
       }
-      // 2. Wipe any empty trailing slots from the database
-      for (int i = _equippedMasks.length; i < 4; i++) {
-        await Supabase.instance.client.from('user_loadouts')
-            .delete()
-            .eq('user_id', userId)
-            .eq('slot_type', 'mask_${i + 1}');
-      }
-    } else {
-      // Standard single-slot gear sync
-      await Supabase.instance.client.from('user_loadouts').upsert({
-        'user_id': userId,
-        'slot_type': slotType,
-        'item_value': itemId,
-      });
+    } on PostgrestException catch (e) {
+      debugPrint('DATABASE REJECTION: [Code ${e.code}] ${e.message} \nDetails: ${e.details}');
+    } catch (e) {
+      debugPrint('UNKNOWN DB ERROR: $e');
     }
   }
 
