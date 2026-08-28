@@ -165,7 +165,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   Future<void> initAudioEngine() async {
     if (isAudioReady) return;
     try {
-      await SoLoud.instance.init();      
+      if (!SoLoud.instance.isInitialized) {
+        await SoLoud.instance.init();      
+      }    
       scareSource = await SoLoud.instance.loadAsset('assets/audio/ElevenLabs_Impact.mp3');
       footstepSource = await SoLoud.instance.loadAsset('assets/audio/footstep.mp3'); 
       powerupSource = await SoLoud.instance.loadAsset('assets/audio/ElevenLabs_Scary_stinger.mp3');
@@ -411,7 +413,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       final forwardX = -sin(player.angle);
       final forwardY = -cos(player.angle);
       SoLoud.instance.set3dListenerAt(forwardX, forwardY, 0.0);
-      SoLoud.instance.set3dListenerUp(0.0, 0.0, 1.0);
+      SoLoud.instance.set3dListenerUp(0.0, 0.0, -1.0);
     }
 
     if (isHost && bots.isNotEmpty) {
@@ -768,6 +770,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             final isDisguised = payload['d'] as bool? ?? false;
             final isMoving = payload['m'] as bool? ?? false;
             final isInvisible = payload['i'] as bool? ?? false;
+            final fScale = payload['f'] as double? ?? 1.0;
 
             if (!networkPlayers.containsKey(id)) {
               final newPlayer = RemotePlayer()..position = Vector2(x, y);
@@ -779,6 +782,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               x, y, angle, 
               colorStr: colorStr, newScore: newScore,
               isDisguised: isDisguised, isMoving: isMoving, isInvisible: isInvisible,
+              fScale: fScale,
             );
           }
         },

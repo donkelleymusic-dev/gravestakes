@@ -19,6 +19,8 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
 
   double highlightTimer = 0;
 
+  double flashlightScale = 1.0;
+
   void triggerPrivateHighlight() {
     highlightTimer = 1.0; 
     if (_fallbackSprite != null) _fallbackSprite!.paint.color = Colors.white;
@@ -97,6 +99,7 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     bool isDisguised = false, 
     bool isMoving = false, 
     bool isInvisible = false,
+    double? fScale,
     String? characterId,
     double? scaleValue,
   }) {
@@ -122,6 +125,7 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     this.isDisguised = isDisguised;
     this.isMoving = isMoving;
     this.isInvisible = isInvisible;
+    if (fScale != null) this.flashlightScale = fScale;
 
     // Hot-swap the art rig if the network tells us they changed characters
     if (characterId != null && characterId != equippedCharacterId) {

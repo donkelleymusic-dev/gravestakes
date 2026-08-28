@@ -468,7 +468,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           networkTick += dt;
           if (networkTick >= networkRate) {
             networkTick = 0;
-            channel.sendBroadcastMessage(event: 'move', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': facingAngle, 'c': equippedColorString, 's': score, 'd': isDisguised, 'm': isMoving, 'i': isInvisible});
+            channel.sendBroadcastMessage(event: 'move', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': facingAngle, 'c': equippedColorString, 's': score, 'd': isDisguised, 'm': isMoving, 'i': isInvisible,
+              'f': flashlightScale});
           }
         }
       }
@@ -619,7 +620,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     networkTick += dt;
     if (networkTick >= networkRate) {
       networkTick = 0;
-      channel.sendBroadcastMessage(event: 'move', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': facingAngle, 'c': equippedColorString, 's': score, 'd': isDisguised, 'm': isMoving, 'i': isInvisible});
+      channel.sendBroadcastMessage(event: 'move', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': facingAngle, 'c': equippedColorString, 's': score, 'd': isDisguised, 'm': isMoving, 'i': isInvisible,
+              'f': flashlightScale});
     }
   }
 }
