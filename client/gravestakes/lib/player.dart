@@ -32,6 +32,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   double flashlightBattery = 100.0;
   bool isFlashlightDead = false;
   bool isRecharging = false;
+
+  bool isCharmed = false;
+  double charmTimer = 0.0;
+  Vector2? charmTargetPos;
   
   double _timeUntilNextFlicker = 0.0;
   double _flickerDuration = 0.0;
@@ -44,6 +48,18 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     return 1.0; 
   }
 
+  // --- DEFENSIVE WEARABLES STATE ---
+  final Map<String, dynamic> equippedWearables = {};
+  
+  // Passive Multipliers (Loaded from DB buff_stat & buff_value)
+  double footstepReductionMult = 1.0; // footprint_reduction
+  double maxEnergyMult = 1.0;         // energy_max
+  double speedMult = 1.0;             // speed
+  double energyRegenMult = 1.0;       // regen
+
+  // Hard Counters
+  final Set<String> activeCounters = {}; // e.g. {'siren', 'flying', 'vermin', 'standard'}
+  
   double energy = 1.0; 
   double maxEnergy = 10.0;
   double energyRegenRate = 0.5;
@@ -91,12 +107,26 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   int coinsEarned = 0;
   SpriteComponent? _bushSprite;
 
-  bool isCharmed = false;
-  double charmTimer = 0;
   Vector2 charmerTarget = Vector2.zero();
 
   List<Vector2> _charmPath = [];
   double _pathRecalcTimer = 0.0;
+
+  // Add these variables near the top of Player class
+  bool isPhasing = false;
+  double phaseTimer = 0.0;
+  final double maxPhaseDuration = 0.5; // 0.5 seconds of invincibility
+
+  // Add the trigger method
+  void triggerPhaseDash() {
+    isPhasing = true;
+    phaseTimer = maxPhaseDuration;
+    // Broadcast the phase so remote players see the visual dodge
+    channel.sendBroadcastMessage(event: 'move', payload: {
+      'id': game.mySessionId, 'x': position.x, 'y': position.y, 
+      'a': facingAngle, 'm': isMoving, 'i': true // Briefly flag as invisible to network
+    });
+  }
   
   // --- NEW: Helper method to paint team colors ---
  void applyTeamColor(int teamId) {
@@ -119,16 +149,65 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     }
   }
 
-  void applyCharm(double duration, Vector2 charmer) {
+  void applyCharm(double duration, Vector2 charmerPos, {String? charmerId}) {
+    if (isPhasing) return;
+
+    // Tuning Fork: Invert charm back to the caster
+    if (activeCounters.contains('siren') && charmerId != null) {
+      game.camera.viewport.add(FloatingText(
+        text: 'PHASE INVERTED!', 
+        worldPosition: Vector2(position.x - 20, position.y - 40),
+      ));
+
+      // Broadcast charm reflection back at the attacker
+      game.myChannel.sendBroadcastMessage(
+        event: 'charm',
+        payload: {
+          'id': charmerId,
+          'duration': duration,
+          'charmer_x': position.x,
+          'charmer_y': position.y,
+        },
+      );
+      return;
+    }
+
+    // Standard charm handling
     isCharmed = true;
     charmTimer = duration;
-    charmerTarget = charmer.clone();
-    isStunned = false; 
+    charmTargetPos = charmerPos;
   }
 
-  void applyStun(double duration) {
-    isStunned = true; 
-    stunTimer = duration; 
+  void applyStun(double duration, {bool isVermin = false, String? attackerId}) {
+    if (isPhasing) {
+      game.camera.viewport.add(FloatingText(
+        text: 'DODGED!', 
+        worldPosition: Vector2(position.x - 20, position.y - 40),
+      ));
+      return;
+    }
+
+    // High-Pass Talisman: Ignore vermin swarm stuns completely
+    if (isVermin && activeCounters.contains('vermin')) {
+      game.camera.viewport.add(FloatingText(
+        text: 'SWARM FILTERED!', 
+        worldPosition: Vector2(position.x - 20, position.y - 40),
+      ));
+      return;
+    }
+
+    // Signal Clipper: Standard stuns truncated to 0.5s
+    double finalDuration = duration;
+    if (!isVermin && activeCounters.contains('standard') && duration > 0.5) {
+      finalDuration = 0.5;
+      game.camera.viewport.add(FloatingText(
+        text: 'SIGNAL CLIPPED! (0.5s)', 
+        worldPosition: Vector2(position.x - 20, position.y - 40),
+      ));
+    }
+
+    isStunned = true;
+    stunTimer = finalDuration;
   }
 
   void rechargeFlashlight() {
@@ -194,6 +273,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   Future<void> onLoad() async {
     priority = ((position.y + 16) * 10).toInt();
     await _fetchEquippedCosmetics();
+    await fetchEquippedWearables();
     add(RectangleHitbox(size: Vector2(32, 32), anchor: Anchor.center));
 
     _buffTimerText = TextComponent(
@@ -235,6 +315,60 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     } catch (e) {
       _fallbackSprite = RectangleComponent(size: size, paint: Paint()..color = _baseColor);
       add(_fallbackSprite!);
+    }
+  }
+
+  Future<void> fetchEquippedWearables() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      // Query equipped wearables via player_loadouts / user_inventory join
+      final res = await Supabase.instance.client
+          .from('player_loadouts')
+          .select('ability_id, wearables(*)')
+          .eq('player_id', user.id)
+          .eq('is_equipped', true);
+
+      if (res != null) {
+        // Reset base multipliers
+        footstepReductionMult = 1.0;
+        maxEnergyMult = 1.0;
+        speedMult = 1.0;
+        energyRegenMult = 1.0;
+        activeCounters.clear();
+
+        for (final item in res) {
+          final wearable = item['wearables'] as Map<String, dynamic>?;
+          if (wearable == null) continue;
+
+          final counterTarget = wearable['counter_target'] as String?;
+          final buffStat = wearable['buff_stat'] as String?;
+          final buffVal = (wearable['buff_value'] as num?)?.toDouble() ?? 1.0;
+
+          if (counterTarget != null) {
+            activeCounters.add(counterTarget);
+          }
+
+          // Apply passive stat buffs
+          switch (buffStat) {
+            case 'footprint_reduction':
+              footstepReductionMult = buffVal; // e.g. 0.6 -> 40% reduction
+              break;
+            case 'energy_max':
+              maxEnergyMult = buffVal;         // e.g. 1.2 -> +20% max energy
+              break;
+            case 'speed':
+              speedMult = buffVal;             // e.g. 1.08 -> +8% speed
+              break;
+            case 'regen':
+              energyRegenMult = buffVal;       // e.g. 1.15 -> +15% energy regen
+              break;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to load equipped wearables: $e');
     }
   }
 
@@ -385,6 +519,20 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     priority = ((position.y + 16) * 10).toInt();
     if (!game.gameStarted) return; 
     super.update(dt);
+
+    if (isPhasing) {
+      phaseTimer -= dt;
+      // Visual feedback: Drop opacity to look like an audio "ghost"
+      if (_fallbackSprite != null) {
+        _fallbackSprite!.paint.color = _fallbackSprite!.paint.color.withOpacity(0.3);
+      }
+      if (phaseTimer <= 0) {
+        isPhasing = false;
+        if (_fallbackSprite != null) {
+           _fallbackSprite!.paint.color = _fallbackSprite!.paint.color.withOpacity(1.0);
+        }
+      }
+    }
 
     if (voxelComponent != null) {
       voxelComponent!.targetAngle = facingAngle - (pi / 2); 
@@ -560,16 +708,18 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
              _playLocalFootstep();
              
              if (actualVelocity > 100) {
-               double timeRemaining = game.gameTimer.timeLeft;
-               double panicMultiplier = 1.0 + ((180.0 - timeRemaining) / 180.0) * 2.0;
-               double noiseRadius = 100 * panicMultiplier;
-               
-               for (var bot in game.bots) {
-                 if (bot.position.distanceTo(position) <= noiseRadius) {
-                   bot.hearLoudNoise(position);
-                 }
-               }
-             }
+                double timeRemaining = game.gameTimer.timeLeft;
+                double panicMultiplier = 1.0 + ((180.0 - timeRemaining) / 180.0) * 2.0;
+                
+                // --- APPLY WEARABLE FOOTPRINT REDUCTION ---
+                double noiseRadius = 100 * panicMultiplier * footstepReductionMult;
+                
+                for (var bot in game.bots) {
+                  if (bot.position.distanceTo(position) <= noiseRadius) {
+                    bot.hearLoudNoise(position);
+                  }
+                }
+              }
            }
         } else { _footstepTimer = 0.0; }
       } else { _footstepTimer = 0.0; }

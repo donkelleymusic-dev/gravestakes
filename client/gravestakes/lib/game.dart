@@ -25,6 +25,7 @@ import 'score_hud.dart';
 import 'game_timer.dart';
 import 'start_button.dart';
 import 'attack_button.dart';
+import 'defense_button.dart';
 import 'player_hud.dart';
 import 'scare_blast.dart';
 import 'level_manager.dart';
@@ -345,6 +346,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       overlays.add('searching');
     }
     camera.viewport.add(AttackButton());
+    camera.viewport.add(DefenseButton());
     camera.viewport.add(PlayerHud());
     camera.viewport.add(FlashlightHud());
 

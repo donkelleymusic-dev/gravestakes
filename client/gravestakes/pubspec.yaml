@@ -40,6 +40,7 @@ dependencies:
   flutter_native_splash: ^2.4.8
   flutter_soloud: ^4.1.7
   archive: ^4.0.2 # NEW: For extracting the custom character_assets.zip
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:

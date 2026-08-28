@@ -3,6 +3,7 @@ import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'game.dart';
+import 'Floating_text.dart';
 
 class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakesGame> {
   final double speed = 180.0; 
@@ -83,6 +84,8 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
         if (remote.localImmunityToMe > 0) continue;
         
         if (position.distanceTo(remote.position) < 30.0) {
+          // --- ANECHOIC BRACERS CHECK (REMOTE/PLAYER) ---
+          // Note: If remote player has activeCounters containing 'flying', the bat absorbs!
           remote.applyStun(3.0);
           remote.localImmunityToMe = 5.0;
           remote.triggerPrivateHighlight();
@@ -94,6 +97,29 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
           
           _stopAudio();
           isDead = true; 
+          return;
+        }
+      }
+
+      // --- LOCAL PLAYER CHECK FOR HOST ---
+      if (ownerId != game.mySessionId && !game.player.isStunned) {
+        if (position.distanceTo(game.player.position) < 30.0) {
+          // Check if local player is wearing Anechoic Bracers!
+          if (game.player.activeCounters.contains('flying')) {
+            game.camera.viewport.add(FloatingText(
+              text: 'BLAST ABSORBED!', 
+              worldPosition: Vector2(game.player.position.x - 20, game.player.position.y - 40),
+            ));
+            _stopAudio();
+            isDead = true;
+            removeFromParent();
+            return;
+          }
+
+          game.player.applyStun(3.0);
+          _stopAudio();
+          isDead = true;
+          removeFromParent();
           return;
         }
       }

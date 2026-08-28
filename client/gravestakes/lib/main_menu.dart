@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // <--- NEW
 import 'package:flame/game.dart';
 import 'game.dart';
 import 'store_screen.dart';
@@ -31,13 +32,25 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   String? _errorMessage;
   
   String _selectedMapName = 'L1T1V1.0.0';
-  // --- NEW: Match Mode State ---
-  String _selectedMatchMode = 'casual'; 
+  
+  // --- DEFAULT TO 1v1 INSTEAD OF CASUAL ---
+  String _selectedMatchMode = '1v1'; 
 
   @override
   void initState() {
     super.initState();
+    _loadSavedPreferences(); // <--- Load saved mode immediately
     _fetchPlayerData();
+  }
+
+  // --- NEW: Read from SharedPreferences ---
+  Future<void> _loadSavedPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _selectedMatchMode = prefs.getString('last_match_mode') ?? '1v1';
+      });
+    }
   }
 
   Future<void> _fetchPlayerData() async {
@@ -113,7 +126,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     });
 
     try {
-      // --- NEW: Calculate target players based on selected mode ---
       int targetPlayers = 8;
       if (_selectedMatchMode == '1v1') targetPlayers = 2;
       if (_selectedMatchMode == '2v2') targetPlayers = 4;
@@ -126,7 +138,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       
       await gameInstance.initAudioEngine();
 
-      // --- NEW: Pass the mode and targets to the database RPC ---
       final response = await supabase.rpc(
         'find_or_create_match',
         params: {
@@ -296,7 +307,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   
                   const SizedBox(height: 32),
                   
-                  // --- THE MAP CHOOSER ---
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
@@ -327,7 +337,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   
                   const SizedBox(height: 12),
 
-                  // --- NEW: THE MATCH MODE CHOOSER ---
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
@@ -346,8 +355,12 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                           DropdownMenuItem(value: '1v1', child: Text('MODE: 1v1 COMPETITIVE')),
                           DropdownMenuItem(value: '2v2', child: Text('MODE: 2v2 SQUAD BRAWL')),
                         ],
-                        onChanged: (String? newValue) {
+                        onChanged: (String? newValue) async {
                           if (newValue != null) {
+                            // --- NEW: Save their choice permanently ---
+                            final prefs = await SharedPreferences.getInstance();
+                            await prefs.setString('last_match_mode', newValue);
+                            
                             setState(() {
                               _selectedMatchMode = newValue;
                             });
