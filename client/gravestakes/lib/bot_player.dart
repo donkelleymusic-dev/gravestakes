@@ -17,6 +17,9 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   double visualScale = 1.0;
   String assignedCharacterId = 'default';
   
+  // --- NEW: Internal Team Awareness ---
+  int teamId = 0;
+  
   double _footstepTimer = 0.0;
   final double _audioScale = 50.0;   
 
@@ -44,7 +47,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   final Random _random = Random();
   double highlightTimer = 0;
 
-  // --- HUNTER SPECIFIC VARIABLES ---
   double coreCycleTimer = 0.0;
   bool isCoreExposed = false;
   Vector2? acousticAggroTarget;
@@ -58,8 +60,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   ];
   
   late final String fakeUsername;
-  int simulatedScore = 0; // Fake humans need to earn points too!
-
+  int simulatedScore = 0; 
 
   void hearLoudNoise(Vector2 noisePos) {
     if (isHunter) {
@@ -87,8 +88,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     SoLoud.instance.set3dSourceMinMaxDistance(handle, 2.0, 20.0);
     SoLoud.instance.set3dSourceAttenuation(handle, 1, 1.2);
   }
-  
-  //BotPlayer({this.isHunter = false}) : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
   BotPlayer({this.isHunter = false}) : super(size: Vector2.all(32.0), anchor: Anchor.center) {
     fakeUsername = _fakeNames[_random.nextInt(_fakeNames.length)];
@@ -133,9 +132,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
         scale = Vector2.all(visualScale); 
       }
-    } catch (e) {
-      debugPrint('Bot failed to load dynamic stats: $e');
-    }
+    } catch (e) {}
 
     try {
       final rig = game.characterRigCache[assignedCharacterId] ?? game.loadedRigData;
@@ -149,10 +146,32 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         ..position = Vector2(size.x / 2, size.y); 
       add(voxelComponent!);
     } catch (e) {
-      debugPrint('Bot failed to load Voxel Character: $e');
       _fallbackSprite = RectangleComponent(size: size, paint: Paint()..color = Colors.deepOrangeAccent);
       add(_fallbackSprite!);
     }
+    
+    // --- NEW: Paint Bot according to its dynamically assigned team! ---
+    // --- NEW: Paint Bot according to its dynamically assigned team! ---
+    if (game.matchMode == '2v2' && teamId != 0) {
+      // Team 1 = Accessible Blue, Team 2 = Accessible Orange
+      final teamColor = teamId == 1 ? const Color(0xFF0072B2) : const Color(0xFFE69F00);
+      
+      // Draw the permanent ring under their feet
+      add(CircleComponent(
+        radius: 20.0,
+        paint: Paint()
+          ..color = teamColor.withAlpha(180)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4.0,
+        anchor: Anchor.center,
+        position: size / 2,
+      ));
+
+      if (_fallbackSprite != null) {
+        _fallbackSprite!.paint.color = teamColor;
+      }
+    }
+        
     _chooseNewDirection();
   }
 
@@ -169,12 +188,10 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     isStunned = true;
     stunTimer = duration;
     
-    // Vermin cause a lingering 2-second slowdown after the stun wears off
     if (isVermin) {
       recoveryTimer = 2.0;
     }
 
-    // Award points to the attacker if they used a projectile mask!
     if (attackerId != null && game.mySessionId == attackerId) {
       game.player.score += 150;
       game.camera.viewport.add(FloatingText(
@@ -196,17 +213,24 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     double minDistance = 350.0; 
 
     if (!game.player.isStunned) {
-      bool isStealthing = game.player.isInvisible || (game.player.isDisguised && !game.player.isMoving);
-      if (!isStealthing) {
-        double dist = position.distanceTo(game.player.position);
-        if (dist < minDistance && _isInVisionCone(game.player.position) && game.gameMap.hasLineOfSight(position, game.player.position)) {
-          minDistance = dist;
-          closest = game.player;
+      // --- NEW: Bot skips targeting its own teammates! ---
+      if (game.matchMode == '2v2' && game.getEntityTeam(this) == game.getEntityTeam(game.player)) {
+        // Skip
+      } else {
+        bool isStealthing = game.player.isInvisible || (game.player.isDisguised && !game.player.isMoving);
+        if (!isStealthing) {
+          double dist = position.distanceTo(game.player.position);
+          if (dist < minDistance && _isInVisionCone(game.player.position) && game.gameMap.hasLineOfSight(position, game.player.position)) {
+            minDistance = dist;
+            closest = game.player;
+          }
         }
       }
     }
 
-    for (var remote in game.networkPlayers.values) {
+    for (var entry in game.networkPlayers.entries) {
+      if (game.matchMode == '2v2' && game.getEntityTeam(this) == game.getEntityTeam(entry.key)) continue; // SKIP
+      var remote = entry.value;
       bool isStealthing = remote.isInvisible || (remote.isDisguised && !remote.isMoving);
       if (!isStealthing) {
         double dist = position.distanceTo(remote.position);
@@ -224,10 +248,16 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     double minDistance = 99999.0; 
 
     if (!game.player.isStunned) {
-      double dist = position.distanceTo(game.player.position);
-      if (dist < minDistance) { minDistance = dist; closest = game.player; }
+      if (game.matchMode == '2v2' && game.getEntityTeam(this) == game.getEntityTeam(game.player)) {
+        // Skip
+      } else {
+        double dist = position.distanceTo(game.player.position);
+        if (dist < minDistance) { minDistance = dist; closest = game.player; }
+      }
     }
-    for (var remote in game.networkPlayers.values) {
+    for (var entry in game.networkPlayers.entries) {
+      if (game.matchMode == '2v2' && game.getEntityTeam(this) == game.getEntityTeam(entry.key)) continue; // SKIP
+      var remote = entry.value;
       double dist = position.distanceTo(remote.position);
       if (dist < minDistance) { minDistance = dist; closest = remote; }
     }
@@ -255,7 +285,9 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     if (highlightTimer > 0) {
       highlightTimer -= dt;
       if (highlightTimer <= 0 && !isStunned && _fallbackSprite != null) {
-        _fallbackSprite!.paint.color = isHunter ? Colors.redAccent : Colors.deepOrangeAccent; 
+        _fallbackSprite!.paint.color = (game.matchMode == '2v2' && teamId != 0) 
+            ? (teamId == 1 ? Colors.blueAccent : Colors.orangeAccent) 
+            : (isHunter ? Colors.redAccent : Colors.deepOrangeAccent); 
       }
     }
 
@@ -269,7 +301,9 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       if (stunTimer <= 0) {
         isStunned = false;
         if (_fallbackSprite != null) {
-          _fallbackSprite!.paint.color = isHunter ? Colors.redAccent : Colors.deepOrangeAccent; 
+          _fallbackSprite!.paint.color = (game.matchMode == '2v2' && teamId != 0) 
+            ? (teamId == 1 ? Colors.blueAccent : Colors.orangeAccent) 
+            : (isHunter ? Colors.redAccent : Colors.deepOrangeAccent); 
           _fallbackSprite!.position = Vector2.zero(); 
         }
       }
@@ -285,13 +319,11 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
     if (!game.isHost) return;
 
-    // --- LATE GAME PANIC: THE 60-SECOND FLIP ---
-    // At 60 seconds, if the bot is NOT a hunter, they snap and become one!
     if (game.gameTimer.timeLeft <= 60.0 && game.gameTimer.timeLeft > 0 && !isHunter) {
       isHunter = true;
-      huntSpeed *= 1.35; // They get an adrenaline boost
+      huntSpeed *= 1.35; 
       if (_fallbackSprite != null) _fallbackSprite!.paint.color = Colors.redAccent;
-      if (voxelComponent != null) triggerPrivateHighlight(); // Flash to show they snapped
+      if (voxelComponent != null) triggerPrivateHighlight(); 
     }
 
     if (!isStunned) {
@@ -405,12 +437,10 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         }
       }
 
-      // --- NEW: Apply half-speed penalty if recovering from vermin! ---
       if (recoveryTimer > 0) {
         recoveryTimer -= dt;
-        currentSpeed *= 0.5; // Stumble at 50% speed while recovering
+        currentSpeed *= 0.5; 
       }
-      // ----------------------------------------------------------------
 
       final potentialPosition = position + (movementDelta * currentSpeed * dt);
       final oldPosition = position.clone();

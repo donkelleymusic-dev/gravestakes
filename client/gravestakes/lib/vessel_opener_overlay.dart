@@ -7,11 +7,10 @@ class VesselOpenerOverlay extends StatefulWidget {
   final String vesselId;
   const VesselOpenerOverlay({super.key, required this.vesselId});
 
-  // Easy helper to pop this open over your game
   static void show(BuildContext context, String vesselId) {
     showGeneralDialog(
       context: context,
-      barrierColor: Colors.transparent, // We handle the dark fade manually!
+      barrierColor: Colors.transparent, 
       transitionDuration: const Duration(milliseconds: 400),
       pageBuilder: (context, anim1, anim2) => VesselOpenerOverlay(vesselId: vesselId),
     );
@@ -27,7 +26,7 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
   
   bool _isOpened = false;
   bool _isFetching = false;
-  Map<String, dynamic>? _rewardData;
+  List<Map<String, dynamic>> _rewards = [];
   
   final Random _random = Random();
   late Color _explosionColor;
@@ -36,16 +35,21 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
   @override
   void initState() {
     super.initState();
-    // Color-code the explosion and vessel based on the tier!
+    
+    // Scale hold duration and colors based on vessel tier
+    int durationMs = 1000;
     if (widget.vesselId == 'void_chrysalis') {
-      _explosionColor = Colors.purpleAccent;
+      _explosionColor = Colors.purpleAccent; // Legendary
+      durationMs = 3000;
     } else if (widget.vesselId == 'soul_casket') {
-      _explosionColor = Colors.redAccent;
+      _explosionColor = Colors.redAccent; // Rare
+      durationMs = 2000;
     } else {
-      _explosionColor = Colors.cyanAccent; // shadow_reliquary
+      _explosionColor = Colors.cyanAccent; // Common
+      durationMs = 1000; 
     }
 
-    _pressureController = AnimationController(vsync: this, duration: const Duration(milliseconds: 2000));
+    _pressureController = AnimationController(vsync: this, duration: Duration(milliseconds: durationMs));
     _shakeController = AnimationController(vsync: this, duration: const Duration(milliseconds: 50))..repeat(reverse: true);
 
     _pressureController.addListener(() {
@@ -64,16 +68,16 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
     });
 
     try {
-      // Call your backend RPC!
       final res = await Supabase.instance.client
           .rpc('open_vessel', params: {'p_vessel_id': widget.vesselId});
       
       if (res != null && (res as List).isNotEmpty) {
-        _rewardData = res.first;
+        // Now handles an array of multiple rewards returned from the database
+        _rewards = List<Map<String, dynamic>>.from(res);
       }
     } catch (e) {
       debugPrint('Vessel Burst Error: $e');
-      _rewardData = {'granted_reward_type': 'error', 'granted_reward_id': 'lost_soul', 'granted_amount': 0};
+      _rewards = [{'granted_reward_type': 'error', 'granted_reward_id': 'lost_soul', 'granted_amount': 0}];
     }
     
     setState(() { _isFetching = false; });
@@ -115,7 +119,6 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
   Widget build(BuildContext context) {
     final pressure = _pressureController.value;
     
-    // Procedural Shake Math
     final shakeIntensity = pressure * 25.0;
     final shakeX = _isOpened ? 0.0 : (sin(_shakeController.value * pi * 2) * shakeIntensity);
     final shakeY = _isOpened ? 0.0 : (cos(_shakeController.value * pi * 2.7) * shakeIntensity);
@@ -128,7 +131,6 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
         onPointerCancel: _onPointerCancel,
         child: Stack(
           children: [
-            // 1. The Breathing Dark Cloud Background
             Opacity(
               opacity: _isOpened ? 0.95 : 0.4 + (pressure * 0.5),
               child: Container(
@@ -141,8 +143,6 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
                 ),
               ),
             ),
-
-            // 2. The Vessel / Explosion System
             Center(
               child: Transform.translate(
                 offset: Offset(shakeX, shakeY),
@@ -154,8 +154,6 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
                 ),
               ),
             ),
-
-            // 3. Instruction Text
             if (!_isOpened)
               Positioned(
                 bottom: 100,
@@ -180,7 +178,6 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
       width: 140, height: 220,
       decoration: BoxDecoration(
         boxShadow: [
-          // This keeps the glowing aura behind the vessel
           BoxShadow(
             color: _explosionColor.withOpacity(0.1 + (pressure * 0.5)),
             blurRadius: 40 + (pressure * 60),
@@ -200,10 +197,9 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
       duration: const Duration(milliseconds: 1200),
       builder: (context, val, child) {
         
-        // Animate particles outward
         for (var p in _particles) {
           p.x += p.vx; p.y += p.vy;
-          p.vy += 0.5; // Gravity
+          p.vy += 0.5; 
           p.life -= 0.02;
         }
 
@@ -211,15 +207,12 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
           alignment: Alignment.center,
           clipBehavior: Clip.none,
           children: [
-            // Procedural Particle Blast
             CustomPaint(
               painter: ParticlePainter(_particles, _explosionColor),
               size: const Size(1, 1),
             ),
-            
-            // The Loot Text Slam
             Transform.scale(
-              scale: 1.5 - (val * 0.5), // Slams down from huge to normal
+              scale: 1.5 - (val * 0.5), 
               child: Opacity(
                 opacity: val,
                 child: _isFetching 
@@ -227,25 +220,26 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
                   : Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          '+${_rewardData?['granted_amount'] ?? 0}',
-                          style: const TextStyle(
-                            color: Colors.white, fontSize: 72, fontWeight: FontWeight.bold,
-                            shadows: [Shadow(color: Colors.black, blurRadius: 20)],
-                          ),
+                        const Text(
+                          'REWARDS RECOVERED',
+                          style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 2, fontFamily: 'Courier', shadows: [Shadow(color: Colors.black, blurRadius: 10)]),
                         ),
-                        Text(
-                          (_rewardData?['granted_reward_id'] ?? 'UNKNOWN').toString().toUpperCase(),
-                          style: TextStyle(
-                            color: _explosionColor, fontSize: 28, letterSpacing: 8,
-                            shadows: const [Shadow(color: Colors.black, blurRadius: 10)],
-                          ),
+                        const SizedBox(height: 30),
+                        // Dynamically render multiple rewards
+                        Wrap(
+                          spacing: 16,
+                          runSpacing: 16,
+                          alignment: WrapAlignment.center,
+                          children: _rewards.map((data) => RewardCard(rewardData: data)).toList(),
                         ),
-                        const SizedBox(height: 60),
+                        const SizedBox(height: 50),
                         ElevatedButton(
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.black, side: BorderSide(color: _explosionColor)),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.black, side: BorderSide(color: _explosionColor, width: 2)),
                           onPressed: () => Navigator.of(context).pop(),
-                          child: const Text('ACCEPT', style: TextStyle(color: Colors.white, letterSpacing: 2)),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+                            child: Text('ACCEPT', style: TextStyle(color: Colors.white, letterSpacing: 2, fontWeight: FontWeight.bold)),
+                          ),
                         )
                       ],
                     ),
@@ -258,6 +252,97 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
   }
 }
 
+// --- NEW COMPONENT: Handles the individual reward display and Shard-to-Coin conversion ---
+class RewardCard extends StatefulWidget {
+  final Map<String, dynamic> rewardData;
+  const RewardCard({super.key, required this.rewardData});
+
+  @override
+  State<RewardCard> createState() => _RewardCardState();
+}
+
+class _RewardCardState extends State<RewardCard> {
+  bool _isConverted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // If the database RPC flags this character shard as a duplicate, convert it after a brief delay
+    final bool isDuplicate = widget.rewardData['is_duplicate'] == true;
+    final String type = widget.rewardData['granted_reward_type'] ?? '';
+
+    if (type == 'character_shard' && isDuplicate) {
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (mounted) setState(() => _isConverted = true);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final String type = widget.rewardData['granted_reward_type'] ?? 'unknown';
+    final int amount = widget.rewardData['granted_amount'] ?? 0;
+    final String label = (widget.rewardData['granted_reward_id'] ?? '').toString().toUpperCase();
+
+    bool isShard = type == 'character_shard';
+    Color baseColor = isShard ? Colors.cyanAccent : (type == 'coins' ? Colors.yellowAccent : Colors.purpleAccent);
+    IconData icon = isShard ? Icons.person_add : (type == 'coins' ? Icons.monetization_on : Icons.diamond);
+
+    // Swap styling if the duplicate shard converts to coins
+    if (_isConverted) {
+      baseColor = Colors.yellowAccent;
+      icon = Icons.monetization_on;
+    }
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 600),
+      transitionBuilder: (Widget child, Animation<double> animation) {
+        // Flipping effect
+        final rotate = Tween(begin: pi, end: 0.0).animate(animation);
+        return AnimatedBuilder(
+          animation: rotate,
+          child: child,
+          builder: (context, child) {
+            final transform = Matrix4.rotationY(rotate.value);
+            return Transform(transform: transform, alignment: Alignment.center, child: child);
+          },
+        );
+      },
+      child: Container(
+        key: ValueKey<bool>(_isConverted),
+        width: 130, height: 150,
+        decoration: BoxDecoration(
+          color: Colors.black87,
+          border: Border.all(color: baseColor.withOpacity(0.8), width: 2),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [BoxShadow(color: baseColor.withOpacity(0.3), blurRadius: 10)],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 40, color: baseColor),
+            const SizedBox(height: 12),
+            Text(
+              _isConverted ? '+500' : '+$amount', // You can read the refund amount from DB payload as well
+              style: TextStyle(color: baseColor, fontSize: 24, fontWeight: FontWeight.bold, fontFamily: 'Courier', shadows: const [Shadow(color: Colors.black, blurRadius: 4)]),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+              child: Text(
+                _isConverted ? 'DUPLICATE\nREFUND' : label.replaceAll('_', ' '),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, fontSize: 11, fontFamily: 'Courier'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// --- EXISTING GRAPHICS COMPONENTS ---
 class VoidParticle {
   double x, y, vx, vy, size, life;
   VoidParticle({required this.x, required this.y, required this.vx, required this.vy, required this.size, required this.life});
@@ -302,7 +387,6 @@ class VesselPainter extends CustomPainter {
       ..maskFilter = MaskFilter.blur(BlurStyle.solid, 2 + pressure * 4);
 
     if (vesselId == 'void_chrysalis') {
-      // THE ANOMALY: A pulsating, biological egg/cocoon
       final swell = pressure * 15;
       final rect = Rect.fromLTRB(
         size.width * 0.15 - swell, 
@@ -315,7 +399,6 @@ class VesselPainter extends CustomPainter {
       canvas.drawRRect(rrect, paint);
       canvas.drawRRect(rrect, borderPaint);
 
-      // Draw organic inner veins that stretch as pressure increases
       final veinPaint = Paint()..color = baseColor.withOpacity(0.6)..style = PaintingStyle.stroke..strokeWidth = 2;
       final path = Path();
       path.moveTo(size.width * 0.5, size.height * 0.1 - swell);
@@ -325,7 +408,6 @@ class VesselPainter extends CustomPainter {
       canvas.drawPath(path, veinPaint);
 
     } else if (vesselId == 'soul_casket') {
-      // THE REVENANT: A heavy, chained coffin
       final path = Path();
       final swell = pressure * 8;
       
@@ -340,15 +422,13 @@ class VesselPainter extends CustomPainter {
       canvas.drawPath(path, paint);
       canvas.drawPath(path, borderPaint);
       
-      // Draw bindings/chains across the casket that snap and shake with pressure
       final chainPaint = Paint()..color = Colors.grey.shade800..style = PaintingStyle.stroke..strokeWidth = 4;
       canvas.drawLine(Offset(0, size.height * 0.4 + (sin(pressure * 20) * 5)), Offset(size.width, size.height * 0.45), chainPaint);
       canvas.drawLine(Offset(0, size.height * 0.7 + (cos(pressure * 20) * 5)), Offset(size.width, size.height * 0.65), chainPaint);
 
     } else {
-      // THE FLICKER: A sharp, jagged shadow reliquary (Diamond / Obelisk)
       final path = Path();
-      path.moveTo(size.width * 0.5, 0); // Top point
+      path.moveTo(size.width * 0.5, 0); 
       path.lineTo(size.width * 0.9 + (pressure * 15), size.height * 0.3);
       path.lineTo(size.width * 0.7, size.height);
       path.lineTo(size.width * 0.3, size.height);
@@ -358,7 +438,6 @@ class VesselPainter extends CustomPainter {
       canvas.drawPath(path, paint);
       canvas.drawPath(path, borderPaint);
 
-      // Inner glowing core
       canvas.drawCircle(Offset(size.width * 0.5, size.height * 0.4), 15 + (pressure * 25), borderPaint);
     }
   }

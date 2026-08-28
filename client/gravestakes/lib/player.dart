@@ -29,7 +29,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
   double facingAngle = 0;
 
-  // --- FLASHLIGHT VARIABLES ---
   double flashlightBattery = 100.0;
   bool isFlashlightDead = false;
   bool isRecharging = false;
@@ -38,16 +37,14 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   double _flickerDuration = 0.0;
   bool isLightFlickeringOut = false;
 
-  // Used by your lighting overlay to dynamically scale the beam!
   double get flashlightScale {
     if (isLightFlickeringOut) return 0.0; 
     if (isFlashlightDead && flashlightBattery <= 0) return 0.0; 
     if (isRecharging || isFlashlightDead) return (flashlightBattery / 100.0).clamp(0.1, 1.0); 
     return 1.0; 
   }
-  // ----------------------------
 
-  double energy = 1.0; // Start at 1.0 for the slow Minute 1 pacing!
+  double energy = 1.0; 
   double maxEnergy = 10.0;
   double energyRegenRate = 0.5;
 
@@ -100,6 +97,27 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
   List<Vector2> _charmPath = [];
   double _pathRecalcTimer = 0.0;
+  
+  // --- NEW: Helper method to paint team colors ---
+ void applyTeamColor(int teamId) {
+    // Team 1 = Accessible Deep Blue (0xFF0072B2), Team 2 = Accessible Warm Orange (0xFFE69F00)
+    final teamColor = teamId == 1 ? const Color(0xFF0072B2) : const Color(0xFFE69F00);
+    
+    // Add a glowing base ring under the player's feet
+    add(CircleComponent(
+      radius: 20.0,
+      paint: Paint()
+        ..color = teamColor.withAlpha(180)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4.0,
+      anchor: Anchor.center,
+      position: size / 2,
+    ));
+    
+    if (_fallbackSprite != null) {
+      _fallbackSprite!.paint.color = teamColor;
+    }
+  }
 
   void applyCharm(double duration, Vector2 charmer) {
     isCharmed = true;
@@ -116,7 +134,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   void rechargeFlashlight() {
     if (flashlightBattery < 100.0 && !isRecharging) {
       isRecharging = true;
-      // You can trigger a "plugging in" USB sound here!
     }
   }
 
@@ -194,9 +211,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     try {
       await game.images.load('mask_placeholder.png');
-    } catch (e) {
-      debugPrint('Missing mask placeholder, but keeping the player alive: $e');
-    }
+    } catch (e) {}
 
     try {
       final sheet = game.images.fromCache('Base_BaseChip_pipo.png');
@@ -218,7 +233,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         ..position = size / 2;
       add(voxelComponent!);
     } catch (e) {
-      debugPrint('Failed to load Voxel Character, rendering fallback box: $e');
       _fallbackSprite = RectangleComponent(size: size, paint: Paint()..color = _baseColor);
       add(_fallbackSprite!);
     }
@@ -262,13 +276,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           swapSpeedModifier = (charRes['swap_speed_modifier'] as num?)?.toDouble() ?? 1.0;
           visualScale = (charRes['visual_scale'] as num?)?.toDouble() ?? 1.0;
           
-          energy = 1.0; // Start deliberately low for minute 1 pacing!
+          energy = 1.0;
           scale = Vector2.all(visualScale);
         }
-
-      } catch (e) {
-        debugPrint('Error fetching loadouts or stats: $e');
-      }
+      } catch (e) {}
     }
 
     equippedMasks = List.filled(4, null);
@@ -281,7 +292,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   void triggerAttack({int? forceMaskIndex}) {
     if (attackCooldown > 0) return;
     
-    // Default to Top-Right (Slot 0) if they press the Spacebar
     int targetIndex = forceMaskIndex ?? 0;
     if (targetIndex < 0 || targetIndex >= 4) return;
 
@@ -325,7 +335,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         )); 
       }
     } else {
-      
       if (!isGunner && currentMask.id != 'siren') {
         final forward = Vector2(sin(facingAngle), -cos(facingAngle));
         double distanceToMove = 45.0; 
@@ -338,9 +347,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       }
       
       if (currentMask.id == 'siren') {
-        // Just pass the player! The blast will track movement and rotation automatically.
         add(SirenBlast()..position = size / 2);
-        //game.world.add(SirenBlast(position: position.clone(), angle: facingAngle - (pi / 2), ownerId: game.mySessionId));
       } else {
         game.world.add(ScareBlast(position: position.clone(), angle: facingAngle - (pi / 2))..priority = priority + 5);
       }
@@ -367,16 +374,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     if (keysPressed.contains(LogicalKeyboardKey.keyD) || keysPressed.contains(LogicalKeyboardKey.arrowRight)) keyboardDelta.x += 1;
     if (!keyboardDelta.isZero()) keyboardDelta.normalize();
     if (keysPressed.contains(LogicalKeyboardKey.space)) triggerAttack();
-    // --- FLASHLIGHT RECHARGE KEY ---
     if (keysPressed.contains(LogicalKeyboardKey.keyF) || keysPressed.contains(LogicalKeyboardKey.keyR)) {
       rechargeFlashlight();
     }
     return true; 
-  }
-
-  @override
-  void render(Canvas canvas) {
-    super.render(canvas);
   }
 
   @override
@@ -391,9 +392,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
       try {
         voxelComponent!.activeMaskImage = game.images.fromCache('mask_placeholder.png');
-      } catch (e) {
-        debugPrint('MASK IMAGE CACHE FAIL: $e');
-      }
+      } catch (e) {}
     }
 
     if (attackCooldown > 0) attackCooldown -= dt;
@@ -559,8 +558,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
              _footstepTimer = 0.0; 
              _playLocalFootstep();
              
-             // If you run fast, noise scales with late-game panic to alert enemies
-             // --- PANIC FOOTSTEPS ---
              if (actualVelocity > 100) {
                double timeRemaining = game.gameTimer.timeLeft;
                double panicMultiplier = 1.0 + ((180.0 - timeRemaining) / 180.0) * 2.0;
@@ -577,17 +574,14 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       } else { _footstepTimer = 0.0; }
     }
 
-    // --- 1. ENERGY PACING ---
     double timeRemaining = game.gameTimer.timeLeft;
-    double regenMultiplier = 0.4; // Minute 1 (Very Slow)
-    if (timeRemaining <= 120 && timeRemaining > 60) regenMultiplier = 1.0; // Minute 2 (Normal)
-    if (timeRemaining <= 60) regenMultiplier = 3.0; // Minute 3 (Desperation/Fast)
+    double regenMultiplier = 0.4; 
+    if (timeRemaining <= 120 && timeRemaining > 60) regenMultiplier = 1.0; 
+    if (timeRemaining <= 60) regenMultiplier = 3.0; 
     
     energy = (energy + (energyRegenRate * regenMultiplier * dt)).clamp(0.0, maxEnergy);
 
-    // --- 2. FLASHLIGHT BATTERY DRAIN & RECHARGE ---
     if (isRecharging) {
-      // Takes exactly 6 seconds to fully charge from 0 to 100
       flashlightBattery += (100.0 / 6.0) * dt; 
       isLightFlickeringOut = false;
       
@@ -597,17 +591,15 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         isFlashlightDead = false;
       }
     } else if (!isFlashlightDead) {
-      // Drains from 100 to 0 over 70 seconds
       flashlightBattery -= (100.0 / 70.0) * dt;
       
       if (flashlightBattery <= 0.0) {
         flashlightBattery = 0.0;
         isFlashlightDead = true;
-        hasExtendedRange = false; // PUNISHMENT: Lose the beam powerup!
+        hasExtendedRange = false; 
         isLightFlickeringOut = false;
       } 
       else if (flashlightBattery < 15.0) {
-        // THE FLICKER PHASE
         if (_flickerDuration > 0) {
           _flickerDuration -= dt;
           isLightFlickeringOut = true;
@@ -615,8 +607,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           isLightFlickeringOut = false;
           _timeUntilNextFlicker -= dt;
           if (_timeUntilNextFlicker <= 0) {
-            _flickerDuration = 0.1 + (_random.nextDouble() * 0.3); // Off for 0.1 - 0.4s
-            _timeUntilNextFlicker = 1.0 + (_random.nextDouble() * 3.0); // Stays on for 1 - 4s
+            _flickerDuration = 0.1 + (_random.nextDouble() * 0.3); 
+            _timeUntilNextFlicker = 1.0 + (_random.nextDouble() * 3.0); 
           }
         }
       } else {

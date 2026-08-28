@@ -45,12 +45,12 @@ import 'siren_blast.dart';
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
   String roomId;
   final bool isGunner;
-  final String matchMode; // 'casual', '1v1', '2v2'
+  final String matchMode; 
   final String mapName;
   final int targetPlayers;
   bool isWaitingInLobby = true;
 
-  String matchPhase = 'searching'; // 'searching', 'countdown', 'playing'
+  String matchPhase = 'searching'; 
   double lobbyTimer = 10.0;
   double countdownTimer = 3.0;
   int _lastTick = 3;
@@ -70,6 +70,24 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   Map<String, ui.Image> loadedAssetImages = {};
   Map<String, dynamic>? loadedRigData;
   bool isFpsMode = false;
+
+  // --- NEW: Global Team Registry ---
+  Map<String, int> playerTeams = {};
+
+  int getEntityTeam(dynamic entity) {
+    if (matchMode != '2v2') return 0; // 0 means Free-For-All
+    
+    if (entity is Player) return playerTeams[mySessionId] ?? 1;
+    if (entity is BotPlayer) return entity.teamId;
+    if (entity is String) return playerTeams[entity] ?? 0; 
+    
+    if (entity is RemotePlayer) {
+      String? remoteId;
+      networkPlayers.forEach((key, val) { if (val == entity) remoteId = key; });
+      return playerTeams[remoteId] ?? 0;
+    }
+    return 0;
+  }
   
   GraveStakesGame({
     this.roomId = 'public_match', 
@@ -102,6 +120,36 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   final double hostBotSyncRate = 0.12;
 
   late final RealtimeChannel myChannel;
+
+  void broadcastStartGame() async {
+    myChannel.sendBroadcastMessage(event: 'match_control', payload: {'action': 'start'});
+    triggerLocalStart(); 
+    try {
+      await Supabase.instance.client.from('active_matches').update({'status': 'playing'}).eq('id', roomId);
+    } catch (e) {}
+  }
+
+  void resetForNextRound() async {
+    overlays.remove('summary'); 
+    player.score = 0;
+    player.hasExtendedRange = false; 
+    player.isDisguised = false;      
+    player.isInvisible = false;      
+
+    for (var remote in networkPlayers.values) remote.score = 0; 
+    
+    List<Vector2> availableSpawns = List.from(baseSpawnPoints)..shuffle();
+    player.position = gameMap.getSafeSpawnLocation(availableSpawns.first, Vector2.all(32.0));
+    camera.viewport.add(StartButton()); 
+    final hud = camera.viewport.children.whereType<PlayerHud>().firstOrNull;
+    hud?.fetchPlayerData();
+
+    if (isHost) {
+      try {
+        await Supabase.instance.client.from('active_matches').update({'status': 'waiting'}).eq('id', roomId);
+      } catch (e) {}
+    }
+  }
 
   final List<Vector2> baseSpawnPoints = [
     Vector2(150, 150),     
@@ -287,7 +335,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     } catch (e) {}
 
     if (matchMode == 'casual') {
-      matchPhase = 'playing'; // Casual drops right in
+      matchPhase = 'playing'; 
       camera.viewport.add(StartButton());
     } else {
       overlays.add('searching');
@@ -312,7 +360,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   void update(double dt) {
     super.update(dt);
     
-    // PHASE 1: SEARCHING FOR OPPONENTS
     if (matchPhase == 'searching') {
       if (isHost) {
         lobbyTimer -= dt;
@@ -329,7 +376,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       return; 
     }
 
-    // PHASE 2: THE COUNTDOWN
     if (matchPhase == 'countdown') {
       countdownTimer -= dt;
       int currentTick = countdownTimer.ceil();
@@ -338,7 +384,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         _lastTick = currentTick;
         if (isAudioReady && footstepSource != null) SoLoud.instance.play(footstepSource!);
         
-        // Force the UI to redraw the new countdown number
         overlays.remove('countdown');
         overlays.add('countdown');
       }
@@ -347,7 +392,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         matchPhase = 'playing';
         gameStarted = true;
         overlays.remove('countdown');
-        gameTimer.start(); // <--- THIS STARTS THE TIMER AND FIXES ENERGY SCALING!
+        gameTimer.start(); 
         if (isAudioReady && scareSource != null) SoLoud.instance.play(scareSource!);
       }
       return; 
@@ -400,7 +445,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     availableSpawns.removeWhere((spawn) => spawn.distanceTo(player.position) < 300.0);
 
     if (matchMode == 'casual') {
-      // --- CASUAL MODE (Endless Bots & Hunters) ---
       final config = LevelManager.getConfigForLevel(myPlayerLevel);
       bool spawnHunter = Random().nextDouble() < 0.40;
       int regularBotCount = spawnHunter ? config.botCount - 1 : config.botCount;
@@ -416,22 +460,36 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       for (var b in bots) world.add(b);
       
     } else {
-      // --- COMPETITIVE 1v1 & 2v2 MODE (Fake Human Fill) ---
-      // Target players minus the host (1) and any connected remote players
+      // --- COMPETITIVE TEAM ASSIGNMENT ---
+      playerTeams[mySessionId] = 1; 
+      if (matchMode == '2v2') player.applyTeamColor(1);
+
+      int nextTeam = matchMode == '2v2' ? 2 : 0; 
+      
+      for (var remoteId in networkPlayers.keys) {
+        playerTeams[remoteId] = nextTeam;
+        if (matchMode == '2v2') {
+          networkPlayers[remoteId]?.applyTeamColor(nextTeam);
+          nextTeam = (nextTeam == 1) ? 2 : 1;
+        }
+      }
+
       int missingPlayers = targetPlayers - (1 + networkPlayers.length);
       
       for (int i = 0; i < missingPlayers; i++) {
         if (availableSpawns.isEmpty) break;
         Vector2 safeSpawn = gameMap.getSafeSpawnLocation(availableSpawns.removeAt(0), Vector2.all(32.0));
         
-        // Fake humans get standard bot stats but act as player substitutes
         final fakeHuman = BotPlayer(isHunter: false)
           ..position = safeSpawn
           ..wanderSpeed = 100.0 
-          ..huntSpeed = 160.0; 
+          ..huntSpeed = 160.0
+          ..teamId = (matchMode == '2v2') ? nextTeam : 0; 
           
         bots.add(fakeHuman);
         world.add(fakeHuman);
+
+        if (matchMode == '2v2') nextTeam = (nextTeam == 1) ? 2 : 1; 
       }
     }
 
@@ -445,32 +503,58 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
 
     if (gameMap.potentialBoxSpawns.isNotEmpty) {
-      // Provide a fallback if the algorithmic map generator failed to create box spawns
-    List<Vector2> boxNodes = gameMap.potentialBoxSpawns.isNotEmpty 
-        ? List.from(gameMap.potentialBoxSpawns)
-        : [Vector2(400, 400), Vector2(800, 800), Vector2(1200, 1200), Vector2(1600, 1600)];
+      List<Vector2> boxNodes = gameMap.potentialBoxSpawns.isNotEmpty 
+          ? List.from(gameMap.potentialBoxSpawns)
+          : [Vector2(400, 400), Vector2(800, 800), Vector2(1200, 1200), Vector2(1600, 1600)];
 
-    boxNodes.shuffle();
-    int boxesToSpawn = min(8, boxNodes.length);
-    List<Map<String, dynamic>> boxPayload = [];
+      boxNodes.shuffle();
+      int boxesToSpawn = min(8, boxNodes.length);
+      List<Map<String, dynamic>> boxPayload = [];
 
-    for (int i = 0; i < boxesToSpawn; i++) {
-      String boxId = 'spooky_box_${DateTime.now().millisecondsSinceEpoch}_$i';
-      Vector2 pos = boxNodes[i];
-      world.add(SpookyBox(id: boxId, position: pos));
-      boxPayload.add({'id': boxId, 'x': pos.x, 'y': pos.y});
-    }
+      for (int i = 0; i < boxesToSpawn; i++) {
+        String boxId = 'spooky_box_${DateTime.now().millisecondsSinceEpoch}_$i';
+        Vector2 pos = boxNodes[i];
+        world.add(SpookyBox(id: boxId, position: pos));
+        boxPayload.add({'id': boxId, 'x': pos.x, 'y': pos.y});
+      }
 
-    myChannel.sendBroadcastMessage(event: 'spawn_boxes', payload: {'boxes': boxPayload});
+      myChannel.sendBroadcastMessage(event: 'spawn_boxes', payload: {'boxes': boxPayload});
     }
   }
 
   Future<void> endGame() async {
     gameStarted = false; 
+    
+    // --- TEAM SCORING LOGIC ---
+    int myTeamScore = player.score;
+    int enemyTeamScore = 0;
+    
+    if (matchMode == '2v2') {
+      int myTeamId = getEntityTeam(player);
+
+      for (var bot in bots) {
+        if (getEntityTeam(bot) == myTeamId) myTeamScore += bot.simulatedScore;
+        else enemyTeamScore += bot.simulatedScore;
+      }
+      for (var entry in networkPlayers.entries) {
+        if (getEntityTeam(entry.key) == myTeamId) myTeamScore += entry.value.score;
+        else enemyTeamScore += entry.value.score;
+      }
+
+      if (myTeamScore > enemyTeamScore) {
+        player.score += 1500; 
+        camera.viewport.add(FloatingText(
+          text: 'VICTORY BONUS! +1500', 
+          worldPosition: Vector2(player.position.x - 40, player.position.y - 80)
+        ));
+      }
+    }
+
     final xpEarned = (player.score * 0.1).toInt();
     final shadowsEarned = (player.score * 0.05).toInt();
-    final coinsEarned = player.coinsEarned; 
 
+    // Since victory bonus is applied locally to player.score before calling RPC,
+    // the database records the exact same schema and accurately scales your rewards!
     if (player.score > 0 || player.coinsEarned > 0) {
       try {
         await Supabase.instance.client.rpc(
@@ -489,8 +573,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     if (buildContext != null) {
       VesselOpenerOverlay.show(buildContext!, 'shadow_reliquary');
-    } else {
-      debugPrint('Error: Could not find Flutter BuildContext to show overlay.');
     }
   }
 
@@ -522,34 +604,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       camera.viewport.add(FloatingText(text: selectedReward.label, worldPosition: Vector2(boxPos.x - 20, boxPos.y - 40)));
     }
   }
-
-  void resetForNextRound() async {
-    overlays.remove('summary'); 
-    player.score = 0;
-    player.hasExtendedRange = false; 
-    player.isDisguised = false;      
-    player.isInvisible = false;      
-
-    for (var remote in networkPlayers.values) remote.score = 0; 
-    
-    List<Vector2> availableSpawns = List.from(baseSpawnPoints)..shuffle();
-    player.position = gameMap.getSafeSpawnLocation(availableSpawns.first, Vector2.all(32.0));
-    camera.viewport.add(StartButton()); 
-    final hud = camera.viewport.children.whereType<PlayerHud>().firstOrNull;
-    hud?.fetchPlayerData();
-
-    if (isHost) {
-      try {
-        await Supabase.instance.client.from('active_matches').update({'status': 'waiting'}).eq('id', roomId);
-      } catch (e) {}
-    }
-  }
   
   int triggerLocalScare(Vector2 attackerPos, double attackerAngle, bool isPoweredUp, {bool hasExtendedRange = false, double range = 250.0, required String maskId}) {
     int hitCount = 0;
     final forward = Vector2(sin(attackerAngle), -cos(attackerAngle));
     
-    // --- TEST MOD: Massive 2000px range for the Siren! ---
     final double scareRadius = maskId == 'siren' ? 2000.0 : (hasExtendedRange ? 600.0 : range);
 
     for (var bot in bots) {
@@ -560,17 +619,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     // 1. Bot Logic
     for (var bot in bots) {
+      if (matchMode == '2v2' && getEntityTeam(player) == getEntityTeam(bot)) continue; // SKIP ALLIES
       if (bot.localImmunityToMe > 0) continue; 
-      final toBot = bot.position - attackerPos;
       
+      final toBot = bot.position - attackerPos;
       if (toBot.length < scareRadius) {
         toBot.normalize();
         final dot = forward.dot(toBot);
 
         if (maskId == 'siren') {
-          // --- TEST MOD: Ignore Line of Sight, sound travels through walls! ---
           if (dot > 0.0) { 
-            double duration = 15.0; // 15 SECOND CHARM!
+            double duration = 15.0; 
             bot.applyCharm(duration, player);
             bot.localImmunityToMe = 16.0;
             hitCount++;
@@ -578,15 +637,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         } 
         else {
           final coneThreshold = isPoweredUp ? -0.2 : 0.1;
-          // Standard attacks still require Line of Sight
           if (dot > coneThreshold && gameMap.hasLineOfSight(bot.position, attackerPos)) {
-            
             if (bot.isHunter) {
               if (bot.isCoreExposed) {
                 bot.applyStun(8.0); 
                 bot.localImmunityToMe = 10.0; 
                 hitCount++;
-                
                 player.score += 2500; 
                 camera.viewport.add(FloatingText(
                   text: 'CRITICAL OVERLOAD! +2500', 
@@ -612,16 +668,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     // 2. Remote Player Logic
     for (var remoteId in networkPlayers.keys) {
+      if (matchMode == '2v2' && getEntityTeam(player) == getEntityTeam(remoteId)) continue; // SKIP ALLIES
+      
       var remotePlayer = networkPlayers[remoteId]!;
       if (remotePlayer.localImmunityToMe > 0) continue; 
-      final toPlayer = remotePlayer.position - attackerPos;
       
+      final toPlayer = remotePlayer.position - attackerPos;
       if (toPlayer.length < scareRadius) {
         toPlayer.normalize();
         final dot = forward.dot(toPlayer);
 
         if (maskId == 'siren') {
-          // --- TEST MOD: Same wall-penetrating 15s logic for Multiplayer ---
           if (dot > 0.0) {
             double duration = 15.0;
             remotePlayer.localImmunityToMe = 16.0;
@@ -650,14 +707,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     gameStarted = true;
     gameTimer.start();
     camera.viewport.children.whereType<StartButton>().toList().forEach((btn) => btn.removeFromParent());
-  }
-
-  void broadcastStartGame() async {
-    myChannel.sendBroadcastMessage(event: 'match_control', payload: {'action': 'start'});
-    triggerLocalStart(); 
-    try {
-      await Supabase.instance.client.from('active_matches').update({'status': 'playing'}).eq('id', roomId);
-    } catch (e) {}
   }
 
   void _setupSupabaseListener() {
@@ -724,12 +773,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               world.add(newPlayer);
             }
 
-            if (isGunner) {
-              final driverBackward = Vector2(sin(angle + pi), -cos(angle + pi));
-              player.position.x = x + (driverBackward.x * 20); 
-              player.position.y = y + (driverBackward.y * 20);
-            }
-
             networkPlayers[id]!.updatePosition(
               x, y, angle, 
               colorStr: colorStr, newScore: newScore,
@@ -763,9 +806,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
                 ));
               }
             } else if (maskId == 'siren') {
-              // Pass the remote player reference!
               remote.add(SirenBlast()..position = remote.size / 2);
-              //world.add(SirenBlast(position: remote.position.clone(), angle: remote.angle - (pi / 2), ownerId: id));
              } else {
               world.add(ScareBlast(position: remote.position.clone(), angle: remote.angle - (pi / 2))..priority = remote.priority + 5);
             }
@@ -773,7 +814,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             if (isHost && maskId != 'flying' && maskId != 'vermin') {
               final forward = Vector2(sin(remote.angle), -cos(remote.angle));
               for (var bot in bots) {
+                if (matchMode == '2v2' && getEntityTeam(id) == getEntityTeam(bot)) continue; // SKIP ALLIES
                 if (bot.localImmunityToMe > 0) continue; 
+                
                 final toBot = bot.position - remote.position;
                 if (toBot.length < 250.0) {
                   toBot.normalize();

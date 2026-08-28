@@ -208,4 +208,22 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
       canvas.drawCircle(Offset(size.x / 2, size.y / 2), 24, paint);
     }
   }
+
+  void applyTeamColor(int teamId) {
+    final teamColor = teamId == 1 ? const Color(0xFF0072B2) : const Color(0xFFE69F00);
+    
+    add(CircleComponent(
+      radius: 20.0,
+      paint: Paint()
+        ..color = teamColor.withAlpha(180)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4.0,
+      anchor: Anchor.center,
+      position: size / 2,
+    ));
+
+    if (_fallbackSprite != null) {
+      _fallbackSprite!.paint.color = teamColor;
+    }
+  }
 }

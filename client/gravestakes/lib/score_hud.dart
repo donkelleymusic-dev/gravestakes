@@ -6,7 +6,7 @@ class ScoreHud extends TextComponent with HasGameReference<GraveStakesGame> {
   ScoreHud() : super(
     position: Vector2(20, 20),
     anchor: Anchor.topRight,
-    priority: 100, // Even higher priority so it's always on top
+    priority: 100, 
   );
 
   @override
@@ -21,11 +21,9 @@ class ScoreHud extends TextComponent with HasGameReference<GraveStakesGame> {
     );
   }
 
-  // NEW: Automatically position it 20px from the top-right corner
   @override
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
-    // 10px from left edge, 40px down to clear the mobile status bar
     position = Vector2(10, 40); 
     anchor = Anchor.topLeft;
   }
@@ -33,7 +31,25 @@ class ScoreHud extends TextComponent with HasGameReference<GraveStakesGame> {
   @override
   void update(double dt) {
     super.update(dt);
-    // Safely grab the score from the player
-    text = 'SOULS COLLECTED: ${game.player.score}';
+    
+    // Switch HUD display mode based on the current match format
+    if (game.matchMode == '2v2') {
+      int myTeamId = game.getEntityTeam(game.player);
+      int myTeamScore = game.player.score;
+      int enemyTeamScore = 0;
+      
+      for (var bot in game.bots) {
+        if (game.getEntityTeam(bot) == myTeamId) myTeamScore += bot.simulatedScore;
+        else enemyTeamScore += bot.simulatedScore;
+      }
+      for (var entry in game.networkPlayers.entries) {
+        if (game.getEntityTeam(entry.key) == myTeamId) myTeamScore += entry.value.score;
+        else enemyTeamScore += entry.value.score;
+      }
+      
+      text = 'TEAM: $myTeamScore | ENEMY: $enemyTeamScore | YOU: ${game.player.score}';
+    } else {
+      text = 'SOULS COLLECTED: ${game.player.score}';
+    }
   }
-}//ElevenLabs_Impact.mp3
+}

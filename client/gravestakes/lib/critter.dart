@@ -6,7 +6,7 @@ import 'game.dart';
 import 'mask_data.dart';
 
 class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
-  bool isDead = false; // <--- NEW: Flag for the manager
+  bool isDead = false; 
   final SwarmBehavior behavior;
   final int seed;
   final int index;
@@ -16,7 +16,7 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
   late Random _localRandom;
   late Vector2 velocity;
   double lifeTimer = 3.0; 
-  double spawnTimer = 0.15; // NEW: Grace period for visual scattering
+  double spawnTimer = 0.15; 
   
   SoundHandle? _scurryHandle;
   static const double _audioScale = 50.0;
@@ -30,7 +30,7 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
     required this.ownerId,
   }) : super(
          position: position,
-         radius: 8.0, // The component IS the circle now!
+         radius: 8.0, 
          paint: Paint()..color = Colors.greenAccent,
          anchor: Anchor.center,
        ) {
@@ -46,9 +46,6 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
   @override
   Future<void> onLoad() async {
     try {
-      debugPrint('CRITTER [$index] LOADED at world position: $position');
-
-      // 3D AUDIO HOOK wrapped to catch any crash
       if (index == 0 && game.isAudioReady && game.ratScurrySource != null) {
         final posX = position.x / _audioScale;
         final posY = position.y / _audioScale;
@@ -62,31 +59,18 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
         );
         SoLoud.instance.set3dSourceMinMaxDistance(_scurryHandle!, 1.0, 15.0);
       }
-      
-      debugPrint('CRITTER [$index] SURVIVED ONLOAD!');
-    } catch (e) {
-      debugPrint('CRITTER [$index] CRASHED INSIDE ONLOAD: $e');
-    }
-  }
-
-  @override
-  void onMount() {
-    super.onMount();
-    debugPrint('CRITTER [$index] SUCCESSFULLY MOUNTED!');
+    } catch (e) {}
   }
 
   @override
   void update(double dt) {
-    debugPrint('CRITTER [$index] TICKING UPDATE. dt: $dt');
     super.update(dt);
-    // Match the * 10 system used by players and walls
     priority = ((position.y + 16) * 10).toInt();
     
     lifeTimer -= dt;
     if (lifeTimer <= 0) {
       _stopAudio();
-      //removeFromParent();
-      isDead = true; // <--- CHANGE removeFromParent() to this
+      isDead = true; 
       return;
     }
 
@@ -97,7 +81,6 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
       }
     }
 
-    // Always move the critter, even during spawn timer
     final potentialPosition = position + (velocity * dt);
     
     if (!game.gameMap.checkCollision(Vector2(potentialPosition.x, position.y), size)) {
@@ -112,30 +95,27 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
       velocity.y *= -1; 
     }
 
-    // Update the 3D position of the swarm's audio anchor if this is critter #0
     if (index == 0 && _scurryHandle != null && game.isAudioReady) {
       final posX = position.x / _audioScale;
       final posY = position.y / _audioScale;
       SoLoud.instance.set3dSourcePosition(_scurryHandle!, posX, posY, 0.0);
     }
 
-    // NEW: Skip collision checks for the first 0.15 seconds
     if (spawnTimer > 0) {
       spawnTimer -= dt;
       return;
     }
 
-    // Host Authority damage logic...
     if (game.isHost) {
       for (var bot in game.bots) {
+        if (game.matchMode == '2v2' && game.getEntityTeam(ownerId) == game.getEntityTeam(bot)) continue;
         if (bot.localImmunityToMe > 0) continue;
         if (position.distanceTo(bot.position) < 20.0) {
-          //bot.applyStun(1.5);
           bot.applyStun(1.5, isVermin: true, attackerId: ownerId);
           bot.localImmunityToMe = 3.0; 
           bot.triggerPrivateHighlight();
           _stopAudio();
-          isDead = true; // <--- HERE
+          isDead = true; 
           removeFromParent();
           return;
         }
@@ -143,6 +123,7 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
 
       for (var entry in game.networkPlayers.entries) {
         if (entry.key == ownerId) continue;
+        if (game.matchMode == '2v2' && game.getEntityTeam(ownerId) == game.getEntityTeam(entry.key)) continue;
         var remote = entry.value;
         if (remote.localImmunityToMe > 0) continue;
         if (position.distanceTo(remote.position) < 20.0) {
@@ -160,6 +141,7 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
       }
 
       if (ownerId != game.mySessionId && !game.player.isStunned) {
+        if (game.matchMode == '2v2' && game.getEntityTeam(ownerId) == game.getEntityTeam(game.player)) return;
         if (position.distanceTo(game.player.position) < 20.0) {
           game.jumpScareEffect.trigger();
           game.player.applyStun(1.5);

@@ -10,15 +10,12 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
   double lifeTimer = 2.0; 
   double spawnTimer = 0.15; 
   
-  // --- NEW: Define the ownerId property ---
   final String ownerId;
-  
   bool isDead = false; 
   
   SoundHandle? _audioHandle;
   static const double _audioScale = 50.0;
 
-  // --- NEW: Require ownerId in the constructor ---
   FlyingScareBlast({required Vector2 position, required double angle, required this.ownerId})
       : super(
           position: position,
@@ -33,8 +30,6 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
   @override
   Future<void> onLoad() async {
     super.onLoad();
-    debugPrint('FLYING BAT LOADED at world position: $position with direction: $direction');
-    
     if (game.isAudioReady && game.batScreechSource != null) {
       final posX = position.x / _audioScale;
       final posY = position.y / _audioScale;
@@ -58,7 +53,7 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
     lifeTimer -= dt;
     if (lifeTimer <= 0) {
       _stopAudio();
-      isDead = true; // <--- Changed from removeFromParent()
+      isDead = true; 
       return;
     }
 
@@ -67,28 +62,26 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
       return; 
     }
 
-    // ==========================================
-    // HOST AUTHORITY: STOP ON FIRST ENEMY HIT
-    // ==========================================
     if (game.isHost) {
-      // 1. Check Bots
       for (var bot in game.bots) {
+        if (game.matchMode == '2v2' && game.getEntityTeam(ownerId) == game.getEntityTeam(bot)) continue; // SKIP ALLIES
         if (bot.localImmunityToMe > 0) continue;
+        
         if (position.distanceTo(bot.position) < 30.0) {
-          //bot.applyStun(3.0);
           bot.applyStun(3.0, isVermin: true, attackerId: ownerId);
           bot.localImmunityToMe = 5.0;
           bot.triggerPrivateHighlight();
           _stopAudio();
-          isDead = true; // <--- Changed from removeFromParent()
+          isDead = true; 
           return; 
         }
       }
 
-      // 2. Check Remote Players
       for (var entry in game.networkPlayers.entries) {
+        if (game.matchMode == '2v2' && game.getEntityTeam(ownerId) == game.getEntityTeam(entry.key)) continue; // SKIP ALLIES
         var remote = entry.value;
         if (remote.localImmunityToMe > 0) continue;
+        
         if (position.distanceTo(remote.position) < 30.0) {
           remote.applyStun(3.0);
           remote.localImmunityToMe = 5.0;
@@ -100,7 +93,7 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
           );
           
           _stopAudio();
-          isDead = true; // <--- Changed from removeFromParent()
+          isDead = true; 
           return;
         }
       }
