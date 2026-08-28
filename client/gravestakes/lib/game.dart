@@ -313,6 +313,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     camera.viewport.add(jumpScareEffect);
 
+    camera.viewport.add(DarknessOverlay(player));
+
     if (isGunner) {
       camera.viewport.add(rightJoystick);
     } else {
