@@ -24,6 +24,13 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   final RealtimeChannel channel; 
   final bool isGunner; 
 
+  String get currentMaskId {
+    if (selectedMaskIndex >= 0 && selectedMaskIndex < equippedMasks.length) {
+      return equippedMasks[selectedMaskIndex]?.id ?? 'standard';
+    }
+    return 'standard';
+  }
+
   double maxSpeed = 200.0;
   int score = 0;
 

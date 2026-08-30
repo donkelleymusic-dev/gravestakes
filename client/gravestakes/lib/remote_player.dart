@@ -8,6 +8,8 @@ import 'voxel_character_component.dart';
 
 class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
   String currentColorStr = 'red';
+
+  double facingAngle = 0.0;
   
   // Track dynamic character ID and scale
   String equippedCharacterId = 'default';
@@ -109,7 +111,8 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     _distanceAccumulator += _targetPosition.distanceTo(newPos);
     
     _targetPosition = newPos;
-    angle = newAngle;
+    //angle = newAngle;
+    facingAngle = newAngle;
 
     if (colorStr != null && colorStr != currentColorStr) {
       currentColorStr = colorStr;
@@ -151,7 +154,7 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     priority = ((position.y + 16) * 10).toInt();
 
     if (voxelComponent != null) {
-      voxelComponent!.targetAngle = angle - (pi / 2); 
+      voxelComponent!.targetAngle = facingAngle - (pi / 2); 
       
       // --- FIX: Delete this line so they stop spinning like a clock! ---
       // voxelComponent!.angle = -angle; 

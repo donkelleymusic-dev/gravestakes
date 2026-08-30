@@ -252,6 +252,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
   @override
   Future<void> onLoad() async {
+    await images.load('Base_BaseChip_pipo.png');
     await _loadVoxelAssets(); 
 
     mySessionId = DateTime.now().millisecondsSinceEpoch.toString();
@@ -797,7 +798,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             final remote = networkPlayers[id]!;
             remote.position.x = payload['x'] as double;
             remote.position.y = payload['y'] as double;
-            remote.angle = payload['a'] as double;
+            remote.facingAngle = payload['a'] as double;
             
             final maskId = payload['mask_id'] as String? ?? 'standard'; 
             final seed = payload['seed'] as int? ?? 0;
@@ -805,22 +806,22 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             if (isAudioReady && scareSource != null) SoLoud.instance.play(scareSource!);
 
             if (maskId == 'flying') {
-              scareManager.spawnBat(FlyingScareBlast(position: remote.position.clone(), angle: remote.angle, ownerId: payload['id']));
+              scareManager.spawnBat(FlyingScareBlast(position: remote.position.clone(), angle: remote.facingAngle, ownerId: payload['id']));
             } else if (maskId == 'vermin') {
               for (int i = 0; i < 15; i++) { 
                 scareManager.spawnCritter(Critter(
                   position: remote.position.clone(), behavior: SwarmBehavior.scatter,
-                  seed: seed, index: i, initialAngle: remote.angle, ownerId: id,
+                  seed: seed, index: i, initialAngle: remote.facingAngle, ownerId: id,
                 ));
               }
             } else if (maskId == 'siren') {
               remote.add(SirenBlast()..position = remote.size / 2);
              } else {
-              world.add(ScareBlast(position: remote.position.clone(), angle: remote.angle - (pi / 2))..priority = remote.priority + 5);
+              world.add(ScareBlast(position: remote.position.clone(), angle: remote.facingAngle - (pi / 2))..priority = remote.priority + 5);
             }
 
             if (isHost && maskId != 'flying' && maskId != 'vermin') {
-              final forward = Vector2(sin(remote.angle), -cos(remote.angle));
+              final forward = Vector2(sin(remote.facingAngle), -cos(remote.facingAngle));
               for (var bot in bots) {
                 if (matchMode == '2v2' && getEntityTeam(id) == getEntityTeam(bot)) continue; // SKIP ALLIES
                 if (bot.localImmunityToMe > 0) continue; 
