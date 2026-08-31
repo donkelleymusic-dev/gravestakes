@@ -20,6 +20,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final supabase = Supabase.instance.client;
 
   Future<void> _authenticate() async {
+    // Prevent submitting if already loading
+    if (_isLoading) return; 
+
     setState(() => _isLoading = true);
     try {
       if (_isSignUp) {
@@ -84,17 +87,21 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextField(
                   controller: _usernameController,
                   style: const TextStyle(color: Colors.white),
+                  textInputAction: TextInputAction.next, // Keyboard shows "Next"
                   decoration: const InputDecoration(labelText: 'Username', labelStyle: TextStyle(color: Colors.grey)),
                 ),
               TextField(
                 controller: _emailController,
                 style: const TextStyle(color: Colors.white),
+                textInputAction: TextInputAction.next, // Keyboard shows "Next"
                 decoration: const InputDecoration(labelText: 'Email', labelStyle: TextStyle(color: Colors.grey)),
               ),
               TextField(
                 controller: _passwordController,
                 obscureText: true,
                 style: const TextStyle(color: Colors.white),
+                textInputAction: TextInputAction.done, // Keyboard shows checkmark/done icon
+                onSubmitted: (_) => _authenticate(), // Triggers "Enter the Darkness" on Enter key press
                 decoration: const InputDecoration(labelText: 'Password', labelStyle: TextStyle(color: Colors.grey)),
               ),
               const SizedBox(height: 24),

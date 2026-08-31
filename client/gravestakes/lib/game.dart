@@ -44,7 +44,9 @@ import 'flashlight_hud.dart';
 import 'siren_blast.dart';
 import 'map_overlay.dart';
 import 'map_button.dart';
-
+import 'fps_viewport_overlay.dart';
+import 'mode_toggle_button.dart'
+;
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
   String roomId;
   final bool isGunner;
@@ -342,6 +344,13 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     camera.viewport.add(ScoreHud());
     camera.viewport.add(gameTimer = GameTimer());
+
+    // 1. Add Raycaster Overlay to viewport
+    await camera.viewport.add(FpsViewportOverlay());
+
+    // 2. Add 2D/3D Mode Toggle Button
+    await camera.viewport.add(ModeToggleButton());
+
     mapOverlay = MapOverlay();
     await camera.viewport.add(mapOverlay);
 

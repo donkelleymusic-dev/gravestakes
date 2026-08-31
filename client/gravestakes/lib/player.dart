@@ -513,10 +513,40 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   @override
   bool onKeyEvent(KeyEvent event, Set<LogicalKeyboardKey> keysPressed) {
     keyboardDelta = Vector2.zero();
-    if (keysPressed.contains(LogicalKeyboardKey.keyW) || keysPressed.contains(LogicalKeyboardKey.arrowUp)) keyboardDelta.y -= 1;
-    if (keysPressed.contains(LogicalKeyboardKey.keyS) || keysPressed.contains(LogicalKeyboardKey.arrowDown)) keyboardDelta.y += 1;
-    if (keysPressed.contains(LogicalKeyboardKey.keyA) || keysPressed.contains(LogicalKeyboardKey.arrowLeft)) keyboardDelta.x -= 1;
-    if (keysPressed.contains(LogicalKeyboardKey.keyD) || keysPressed.contains(LogicalKeyboardKey.arrowRight)) keyboardDelta.x += 1;
+    if (game.isFpsMode) {
+      // ==========================================
+      // FPS TANK CONTROLS
+      // ==========================================
+      const double rotationSpeed = 2.2; // Radians per second
+      
+      // A & D rotate your facing angle gradually
+      if (keysPressed.contains(LogicalKeyboardKey.keyA) || keysPressed.contains(LogicalKeyboardKey.arrowLeft)) {
+        facingAngle -= rotationSpeed * 0.016; // Gradual left turn
+      }
+      if (keysPressed.contains(LogicalKeyboardKey.keyD) || keysPressed.contains(LogicalKeyboardKey.arrowRight)) {
+        facingAngle += rotationSpeed * 0.016; // Gradual right turn
+      }
+
+      // W & S push forward / backward along your facing direction
+      double forwardStep = 0.0;
+      if (keysPressed.contains(LogicalKeyboardKey.keyW) || keysPressed.contains(LogicalKeyboardKey.arrowUp)) {
+        forwardStep += 1.0;
+      }
+      if (keysPressed.contains(LogicalKeyboardKey.keyS) || keysPressed.contains(LogicalKeyboardKey.arrowDown)) {
+        forwardStep -= 1.0;
+      }
+
+      if (forwardStep != 0.0) {
+        // Calculate forward vector based on current facingAngle
+        keyboardDelta = Vector2(sin(facingAngle), -cos(facingAngle)) * forwardStep;
+      }
+
+    } else {
+      if (keysPressed.contains(LogicalKeyboardKey.keyW) || keysPressed.contains(LogicalKeyboardKey.arrowUp)) keyboardDelta.y -= 1;
+      if (keysPressed.contains(LogicalKeyboardKey.keyS) || keysPressed.contains(LogicalKeyboardKey.arrowDown)) keyboardDelta.y += 1;
+      if (keysPressed.contains(LogicalKeyboardKey.keyA) || keysPressed.contains(LogicalKeyboardKey.arrowLeft)) keyboardDelta.x -= 1;
+      if (keysPressed.contains(LogicalKeyboardKey.keyD) || keysPressed.contains(LogicalKeyboardKey.arrowRight)) keyboardDelta.x += 1;
+    }
     if (!keyboardDelta.isZero()) keyboardDelta.normalize();
     if (keysPressed.contains(LogicalKeyboardKey.space)) triggerAttack();
     if (keysPressed.contains(LogicalKeyboardKey.keyF) || keysPressed.contains(LogicalKeyboardKey.keyR)) {

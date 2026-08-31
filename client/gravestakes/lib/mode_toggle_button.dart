@@ -3,51 +3,45 @@ import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import 'game.dart';
 
-class MapButton extends PositionComponent with HasGameReference<GraveStakesGame>, TapCallbacks {
-  // 1. Make the button much smaller (shrunk from 25.0 down to 14.0)
-  final double buttonRadius = 14.0;
+class ModeToggleButton extends PositionComponent with HasGameReference<GraveStakesGame>, TapCallbacks {
+  final double buttonRadius = 25.0;
 
-  MapButton() {
+  ModeToggleButton() {
     size = Vector2.all(buttonRadius * 2);
     anchor = Anchor.center;
-    priority = 200; // Keep above world elements
+    priority = 200000; 
   }
 
   @override
   void onGameResize(Vector2 gameSize) {
     super.onGameResize(gameSize);
-    
-    // 2. Position under the left joystick:
-    // Left joystick is at margin (left: 40, bottom: 40) with radius 60 (center at X:100, Y: gameSize.y - 100).
-    // Placing this at X: 100, Y: gameSize.y - 22 puts it cleanly under/below the joystick knob area.
-    position = Vector2(100, gameSize.y - 22);
+    // Sits just to the right of the mini MAP button under the left joystick
+    position = Vector2(140, gameSize.y - 22); 
   }
 
   @override
   void onTapDown(TapDownEvent event) {
-    game.mapOverlay.toggle();
+    game.isFpsMode = !game.isFpsMode;
   }
 
   @override
   void render(Canvas canvas) {
     final center = Offset(buttonRadius, buttonRadius);
-
     final bgPaint = Paint()..color = Colors.black87;
     final borderPaint = Paint()
-      ..color = Colors.cyanAccent
+      ..color = game.isFpsMode ? Colors.redAccent : Colors.cyanAccent
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
+      ..strokeWidth = 2.0;
 
     canvas.drawCircle(center, buttonRadius, bgPaint);
     canvas.drawCircle(center, buttonRadius, borderPaint);
 
-    // Scaled text down to fit the compact circle
     final textPainter = TextPainter(
-      text: const TextSpan(
-        text: 'MAP',
+      text: TextSpan(
+        text: game.isFpsMode ? '3D' : '2D',
         style: TextStyle(
-          color: Colors.cyanAccent,
-          fontSize: 8,
+          color: game.isFpsMode ? Colors.redAccent : Colors.cyanAccent,
+          fontSize: 12,
           fontWeight: FontWeight.bold,
         ),
       ),
