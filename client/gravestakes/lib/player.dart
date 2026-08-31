@@ -515,30 +515,29 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     keyboardDelta = Vector2.zero();
     if (game.isFpsMode) {
       // ==========================================
-      // FPS TANK CONTROLS
+      // FPS TANK CONTROLS (SMOOTH REVERSE FIX)
       // ==========================================
       const double rotationSpeed = 2.2; // Radians per second
-      
-      // A & D rotate your facing angle gradually
+
+      // 1. ROTATION (A & D turn camera in place)
       if (keysPressed.contains(LogicalKeyboardKey.keyA) || keysPressed.contains(LogicalKeyboardKey.arrowLeft)) {
-        facingAngle -= rotationSpeed * 0.016; // Gradual left turn
+        facingAngle -= rotationSpeed * 0.016; 
       }
       if (keysPressed.contains(LogicalKeyboardKey.keyD) || keysPressed.contains(LogicalKeyboardKey.arrowRight)) {
-        facingAngle += rotationSpeed * 0.016; // Gradual right turn
+        facingAngle += rotationSpeed * 0.016; 
       }
 
-      // W & S push forward / backward along your facing direction
-      double forwardStep = 0.0;
-      if (keysPressed.contains(LogicalKeyboardKey.keyW) || keysPressed.contains(LogicalKeyboardKey.arrowUp)) {
-        forwardStep += 1.0;
-      }
-      if (keysPressed.contains(LogicalKeyboardKey.keyS) || keysPressed.contains(LogicalKeyboardKey.arrowDown)) {
-        forwardStep -= 1.0;
-      }
+      // 2. FORWARD / BACKWARD TRANSLATION
+      bool isMovingForward = keysPressed.contains(LogicalKeyboardKey.keyW) || keysPressed.contains(LogicalKeyboardKey.arrowUp);
+      bool isMovingBackward = keysPressed.contains(LogicalKeyboardKey.keyS) || keysPressed.contains(LogicalKeyboardKey.arrowDown);
 
-      if (forwardStep != 0.0) {
-        // Calculate forward vector based on current facingAngle
-        keyboardDelta = Vector2(sin(facingAngle), -cos(facingAngle)) * forwardStep;
+      if (isMovingForward && !isMovingBackward) {
+        // Drive Forward along current facing angle
+        keyboardDelta = Vector2(sin(facingAngle), -cos(facingAngle));
+      } else if (isMovingBackward && !isMovingForward) {
+        // Drive Backward: Calculate the exact 180-degree reverse vector
+        double reverseAngle = facingAngle + pi;
+        keyboardDelta = Vector2(sin(reverseAngle), -cos(reverseAngle));
       }
 
     } else {
@@ -546,8 +545,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       if (keysPressed.contains(LogicalKeyboardKey.keyS) || keysPressed.contains(LogicalKeyboardKey.arrowDown)) keyboardDelta.y += 1;
       if (keysPressed.contains(LogicalKeyboardKey.keyA) || keysPressed.contains(LogicalKeyboardKey.arrowLeft)) keyboardDelta.x -= 1;
       if (keysPressed.contains(LogicalKeyboardKey.keyD) || keysPressed.contains(LogicalKeyboardKey.arrowRight)) keyboardDelta.x += 1;
+      if (!keyboardDelta.isZero()) keyboardDelta.normalize();
     }
-    if (!keyboardDelta.isZero()) keyboardDelta.normalize();
+    
     if (keysPressed.contains(LogicalKeyboardKey.space)) triggerAttack();
     if (keysPressed.contains(LogicalKeyboardKey.keyF) || keysPressed.contains(LogicalKeyboardKey.keyR)) {
       rechargeFlashlight();
@@ -739,7 +739,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       } else if (!leftJoystick.delta.isZero()) { movementDelta = leftJoystick.relativeDelta; }
 
       if (!movementDelta.isZero()) {
-        if (rightJoystick.delta.isZero()) facingAngle = movementDelta.screenAngle();
+        // FIX: Only snap facingAngle to movement direction if we are NOT in FPS mode!
+        if (!game.isFpsMode && rightJoystick.delta.isZero()) {
+          facingAngle = movementDelta.screenAngle();
+        }
         double currentSpeed = isPoweredUp ? 280.0 : maxSpeed;
         final potentialPosition = position + (movementDelta * currentSpeed * dt);
         final oldPosition = position.clone();
