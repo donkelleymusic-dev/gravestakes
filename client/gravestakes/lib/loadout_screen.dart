@@ -29,7 +29,6 @@ class WearableDef {
 }
 
 class LoadoutScreen extends StatefulWidget {
-  // REMOVED the GraveStakesGame dependency!
   const LoadoutScreen({super.key});
 
   @override
@@ -51,14 +50,15 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
   Map<String, dynamic> _characterBaseStats = {};
   List<Map<String, dynamic>> _inventory = [];
   Map<String, WearableDef> _wearablesCatalog = {};
+  Map<String, Map<String, dynamic>> _charactersCatalog = {}; // <--- NEW: Character Catalog Cache
 
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
-    _mannequinGame = MannequinGame(); // No longer requires game reference
+    _tabController = TabController(length: 5, vsync: this); // <--- UPDATED to 5 tabs (Characters + 4 equipment tabs)
+    _mannequinGame = MannequinGame();
     _fetchLoadoutData();
   }
 
@@ -67,12 +67,20 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     if (userId == null) return;
 
     try {
+      // Fetch wearables catalog
       final wearablesRes = await Supabase.instance.client.from('wearables').select();
       for (var row in wearablesRes) {
         final w = WearableDef.fromJson(row);
         _wearablesCatalog[w.id] = w;
       }
 
+      // --- NEW: Fetch characters catalog so we have display names for owned characters ---
+      final charactersRes = await Supabase.instance.client.from('characters').select();
+      for (var row in charactersRes) {
+        _charactersCatalog[row['id'].toString()] = row;
+      }
+
+      // Fetch user loadout settings
       final loadoutRes = await Supabase.instance.client
           .from('user_loadouts')
           .select('slot_type, item_value')
@@ -88,18 +96,20 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         else if (slot.startsWith('mask_')) _equippedMasks.add(val);
       }
 
+      // Fetch base stats for currently equipped character
       _characterBaseStats = await Supabase.instance.client
           .from('characters')
           .select('*')
           .eq('id', _equippedCharacterId)
           .single();
 
+      // Fetch user inventory
       _inventory = await Supabase.instance.client
           .from('user_inventory')
           .select('item_id, item_type')
           .eq('user_id', userId);
 
-      // Async tell the mannequin to load its own graphics!
+      // Async tell the mannequin to load its graphics!
       await _mannequinGame.updateCharacter(_equippedCharacterId);
 
       if (mounted) {
@@ -118,7 +128,13 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     if (userId == null) return;
 
     setState(() {
-      if (slotType == 'character') _equippedCharacterId = itemId;
+      if (slotType == 'character') {
+        _equippedCharacterId = itemId;
+        // Also update local base stats cache immediately for live stat previews
+        if (_charactersCatalog.containsKey(itemId)) {
+          _characterBaseStats = _charactersCatalog[itemId]!;
+        }
+      }
       else if (slotType == 'wearable_neck') _equippedNeck = itemId;
       else if (slotType == 'wearable_arms') _equippedArms = itemId;
       else if (slotType == 'wearable_belt') _equippedBelt = itemId;
@@ -136,7 +152,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     });
 
     if (slotType == 'character') {
-      _mannequinGame.updateCharacter(itemId);
+      await _mannequinGame.updateCharacter(itemId);
     } else {
       _mannequinGame.triggerEquipAnimation();
     }
@@ -149,8 +165,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
             'slot_type': 'mask_${i + 1}',
             'item_value': _equippedMasks[i],
           };
-          debugPrint('DB UPSERT -> TABLE: user_loadouts | PAYLOAD: $payload');
-          // --- FIX: Explicitly define the conflict resolution columns ---
           await Supabase.instance.client.from('user_loadouts').upsert(
             payload, 
             onConflict: 'user_id, slot_type'
@@ -159,7 +173,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         
         for (int i = _equippedMasks.length; i < 4; i++) {
           final targetSlot = 'mask_${i + 1}';
-          debugPrint('DB DELETE -> TABLE: user_loadouts | MATCH: user_id=$userId, slot_type=$targetSlot');
           await Supabase.instance.client.from('user_loadouts')
               .delete()
               .eq('user_id', userId)
@@ -168,11 +181,9 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       } else {
         final payload = {
           'user_id': userId,
-          'slot_type': slotType,
+          'slot_type': slotType == 'character' ? 'character' : slotType,
           'item_value': itemId,
         };
-        debugPrint('DB UPSERT -> TABLE: user_loadouts | PAYLOAD: $payload');
-        // --- FIX: Explicitly define the conflict resolution columns ---
         await Supabase.instance.client.from('user_loadouts').upsert(
           payload, 
           onConflict: 'user_id, slot_type'
@@ -306,7 +317,9 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                     indicatorColor: Colors.purpleAccent,
                     labelColor: Colors.purpleAccent,
                     unselectedLabelColor: Colors.white54,
+                    isScrollable: true,
                     tabs: const [
+                      Tab(icon: Icon(Icons.person), text: 'Character'), // <--- NEW TAB
                       Tab(icon: Icon(Icons.masks), text: 'Masks'),
                       Tab(icon: Icon(Icons.diamond), text: 'Neck'),
                       Tab(icon: Icon(Icons.back_hand), text: 'Arms'),
@@ -317,6 +330,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                     child: TabBarView(
                       controller: _tabController,
                       children: [
+                        _buildInventoryGrid('character'), // <--- NEW TAB VIEW
                         _buildInventoryGrid('mask'),
                         _buildInventoryGrid('wearable_neck'),
                         _buildInventoryGrid('wearable_arms'),
@@ -334,7 +348,16 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
   }
 
   Widget _buildInventoryGrid(String targetItemType) {
-    final items = _inventory.where((i) => i['item_type'] == targetItemType).toList();
+    // Note: The default character 'default' is always available even if not explicitly in user_inventory.
+    List<Map<String, dynamic>> items = _inventory.where((i) => i['item_type'] == targetItemType).toList();
+    
+    if (targetItemType == 'character') {
+      // Ensure 'default' character is always listed as owned/available
+      bool hasDefault = items.any((i) => i['item_id'] == 'default');
+      if (!hasDefault) {
+        items.insert(0, {'item_type': 'character', 'item_id': 'default'});
+      }
+    }
 
     if (items.isEmpty) {
       return const Center(child: Text('No items in this category.', style: TextStyle(color: Colors.white54)));
@@ -350,10 +373,14 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       itemCount: items.length,
       itemBuilder: (context, index) {
         final itemId = items[index]['item_id'] as String;
-        bool isEquipped = _equippedNeck == itemId || _equippedArms == itemId || _equippedBelt == itemId || _equippedMasks.contains(itemId);
+        bool isEquipped = targetItemType == 'character' 
+            ? _equippedCharacterId == itemId 
+            : (_equippedNeck == itemId || _equippedArms == itemId || _equippedBelt == itemId || _equippedMasks.contains(itemId));
 
         String displayTitle = itemId.replaceAll('_', ' ').toUpperCase();
-        if (targetItemType != 'mask' && _wearablesCatalog.containsKey(itemId)) {
+        if (targetItemType == 'character' && _charactersCatalog.containsKey(itemId)) {
+          displayTitle = _charactersCatalog[itemId]!['name'] ?? displayTitle;
+        } else if (targetItemType != 'mask' && targetItemType != 'character' && _wearablesCatalog.containsKey(itemId)) {
           displayTitle = _wearablesCatalog[itemId]!.name;
         }
 
@@ -371,7 +398,11 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(isEquipped ? Icons.check_circle : Icons.inventory, size: 32, color: isEquipped ? Colors.purpleAccent : Colors.white54),
+                    Icon(
+                      isEquipped ? Icons.check_circle : (targetItemType == 'character' ? Icons.person : Icons.inventory), 
+                      size: 32, 
+                      color: isEquipped ? Colors.purpleAccent : Colors.white54
+                    ),
                     const SizedBox(height: 12),
                     Text(displayTitle, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: isEquipped ? Colors.white : Colors.white70, fontWeight: isEquipped ? FontWeight.bold : FontWeight.normal)),
                   ],
@@ -439,8 +470,6 @@ class MannequinGame extends FlameGame {
           hitboxSize: Vector2(160, 160), 
         );
         
-        // --- THE FIX: Only ask for size if Flame has actually built the layout! ---
-        // If not, onGameResize will automatically snap it to the center a frame later.
         if (hasLayout) {
           mannequin!.position = size / 2;
         }
