@@ -236,10 +236,10 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
                         const SizedBox(height: 50),
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.black, side: BorderSide(color: _explosionColor, width: 2)),
-                          onPressed: () {
+                          onPressed: () async {
                             // 1. Close the Vessel Opener dialog
                             Navigator.of(context).pop(); 
-                            
+
                             // 2. Calculate totals from the rewards they just got
                             int totalCoins = 0;
                             int totalShadows = 0;
@@ -248,20 +248,46 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
                               if (reward['granted_reward_type'] == 'shadows') totalShadows += (reward['granted_amount'] as int? ?? 0);
                             }
 
-                            // 3. Push the new Progression Screen
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) => ProgressionScreen(
-                                  // Pass the actual totals you just pulled out of the chest
-                                  shadowsEarned: totalShadows,
-                                  coinsEarned: totalCoins,
-                                  // For now, pass placeholder XP data (you can wire this to real DB stats later)
-                                  oldXp: 400,
-                                  newXp: 550,
-                                  xpRequired: 1000,
+                            // 3. Fetch real user profile from Supabase
+                            final user = Supabase.instance.client.auth.currentUser;
+                            int currentLevel = 1;
+                            int xpPerLevel = 1000;
+
+                            if (user != null) {
+                              try {
+                                final profile = await Supabase.instance.client
+                                    .from('profiles')
+                                    .select('level')
+                                    .eq('id', user.id)
+                                    .maybeSingle();
+
+                                if (profile != null) {
+                                  currentLevel = profile['level'] ?? 1;
+                                }
+                              } catch (e) {
+                                debugPrint('Failed to load profile XP: $e');
+                              }
+                            }
+
+                            // Calculate real match XP based on rewards & score
+                            int xpEarned = totalCoins + totalShadows + 150; // Match completion base XP
+                            int oldXp = (currentLevel * 250) % xpPerLevel; // Real starting progress in level
+                            int newXp = oldXp + xpEarned;
+
+                            // 4. Push the Progression Screen with REAL data!
+                            if (context.mounted) {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (context) => ProgressionScreen(
+                                    shadowsEarned: totalShadows,
+                                    coinsEarned: totalCoins,
+                                    oldXp: oldXp,
+                                    newXp: newXp,
+                                    xpRequired: xpPerLevel,
+                                  ),
                                 ),
-                              ),
-                            );
+                              );
+                            }
                           },
                           child: const Padding(
                             padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),

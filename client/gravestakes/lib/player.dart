@@ -750,14 +750,40 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       
     } else if (!isGunner) {
       Vector2 movementDelta = Vector2.zero();
-      if (!keyboardDelta.isZero()) { movementDelta = keyboardDelta;
-      } else if (!leftJoystick.delta.isZero()) { movementDelta = leftJoystick.relativeDelta; }
+
+      if (!keyboardDelta.isZero()) { 
+        movementDelta = keyboardDelta;
+      } else if (!leftJoystick.delta.isZero()) { 
+        if (game.isFpsMode) {
+          // ==========================================
+          // 3D FPS MODE TOUCH JOYSTICK STEERING
+          // ==========================================
+          // X-Axis rotates camera angle (facingAngle)
+          const double touchRotationSpeed = 2.5;
+          facingAngle += leftJoystick.relativeDelta.x * touchRotationSpeed * dt;
+
+          // Y-Axis drives forward / backward along current facingAngle heading
+          double forwardStep = -leftJoystick.relativeDelta.y; // Push up = forward
+          
+          if (forwardStep.abs() > 0.1) {
+            final forwardVector = Vector2(sin(facingAngle), -cos(facingAngle));
+            movementDelta = forwardVector * forwardStep;
+          } else {
+            movementDelta = Vector2.zero();
+          }
+
+        } else {
+          // 2D Top-Down Mode standard movement
+          movementDelta = leftJoystick.relativeDelta;
+        }
+      }
 
       if (!movementDelta.isZero()) {
-        // FIX: Only snap facingAngle to movement direction if we are NOT in FPS mode!
+        // Snap facingAngle to movement direction ONLY when in 2D top-down mode
         if (!game.isFpsMode && rightJoystick.delta.isZero()) {
           facingAngle = movementDelta.screenAngle();
         }
+
         double currentSpeed = isPoweredUp ? 280.0 : maxSpeed;
         final potentialPosition = position + (movementDelta * currentSpeed * dt);
         final oldPosition = position.clone();

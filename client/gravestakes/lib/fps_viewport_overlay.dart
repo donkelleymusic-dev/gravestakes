@@ -11,6 +11,7 @@ import 'flying_scare_blast.dart';
 import 'critter.dart';
 import 'scare_blast.dart';
 import 'siren_blast.dart';
+import 'player.dart';
 
 class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveStakesGame> {
   FpsViewportOverlay() : super(priority: 10); 
@@ -29,7 +30,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     final player = game.player;
     final gameMap = game.gameMap;
     
-    final double fov = pi / 3.0; // 60-degree FOV
+    final double fov = pi / 3.0; 
     final double halfFov = fov / 2.0;
     
     final double totalViewAngle = player.facingAngle + player.glanceOffset;
@@ -41,14 +42,23 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
 
     final List<double> zBuffer = List.filled(screenWidth, 999999.0);
 
+    // =============================================================
+    // 1. FLASHLIGHT THROW DISTANCE TUNING
+    // =============================================================
+    // Base 2D flashlight throw (~280px). Extended pickup boosts it to ~420px.
+    double maxRayDistance = player.hasExtendedRange ? 420.0 : 280.0;
+    
+    // Scale distance if flashlight is dying/recharging
+    maxRayDistance *= player.flashlightScale;
+
     // -------------------------------------------------------------
-    // 1. CEILING AND FLOOR
+    // CEILING AND FLOOR
     // -------------------------------------------------------------
     canvas.drawRect(Rect.fromLTWH(0, 0, size.x, screenHeight / 2), Paint()..color = const Color(0xFF0A0A10));
     canvas.drawRect(Rect.fromLTWH(0, screenHeight / 2, size.x, screenHeight / 2), Paint()..color = const Color(0xFF14141E));
 
     // -------------------------------------------------------------
-    // 2. RAYCAST WALLS & Z-BUFFER
+    // 2. RAYCAST WALLS & LIMITED VISIBILITY
     // -------------------------------------------------------------
     int stripWidth = 2; 
     for (int x = 0; x < screenWidth; x += stripWidth) {
@@ -60,7 +70,8 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       bool hitWall = false;
       Vector2 impactPos = Vector2.zero();
 
-      while (!hitWall && dist < 1600.0) {
+      // Clamp ray march to flashlight throw distance
+      while (!hitWall && dist < maxRayDistance) {
         dist += 4.0;
         Vector2 checkPos = playerPos + Vector2(sinRay * dist, -cosRay * dist);
         int gridX = (checkPos.x / gameMap.tileSize).floor();
@@ -85,7 +96,9 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       double wallHeight = min(screenHeight * 2.5, (gameMap.tileSize * focalLength) / correctedDist);
       double wallTop = (screenHeight - wallHeight) / 2;
 
-      int brightness = (255 - (correctedDist * 0.18)).clamp(15, 255).toInt();
+      // Darkens walls quickly at flashlight edge
+      double fadeFactor = (1.0 - (correctedDist / maxRayDistance)).clamp(0.0, 1.0);
+      int brightness = (255 * fadeFactor).clamp(10, 255).toInt();
       
       double hitX = impactPos.x % gameMap.tileSize;
       double hitY = impactPos.y % gameMap.tileSize;
@@ -109,7 +122,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     }
 
     // -------------------------------------------------------------
-    // 3. PROJECT BILLBOARDS (DOT-PRODUCT VECTOR PROJECTION)
+    // 3. PROJECT BILLBOARDS WITH CUSTOM HEIGHT OFFSETS
     // -------------------------------------------------------------
     List<_RenderableEntity> entities = [];
 
@@ -140,26 +153,34 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     for (var blast in game.world.children.whereType<ScareBlast>()) {
       entities.add(_RenderableEntity(pos: blast.position, component: blast));
     }
+    // Collect Siren Blasts attached to world or players
     for (var siren in game.world.children.whereType<SirenBlast>()) {
       entities.add(_RenderableEntity(pos: siren.position, component: siren));
+    }
+    // ALSO check for Siren Blasts parented to local player / remote players
+    for (var playerComp in game.children.whereType<Player>()) {
+      for (var siren in playerComp.children.whereType<SirenBlast>()) {
+        entities.add(_RenderableEntity(pos: playerComp.position, component: siren));
+      }
+    }
+    for (var remoteComp in game.networkPlayers.values) {
+      for (var siren in remoteComp.children.whereType<SirenBlast>()) {
+        entities.add(_RenderableEntity(pos: remoteComp.position, component: siren));
+      }
     }
 
     entities.sort((a, b) => b.pos.distanceToSquared(playerPos).compareTo(a.pos.distanceToSquared(playerPos)));
 
-    // Exact Camera Orientation Vectors
     final Vector2 forwardDir = Vector2(sin(totalViewAngle), -cos(totalViewAngle));
     final Vector2 rightDir = Vector2(cos(totalViewAngle), sin(totalViewAngle));
 
     for (var entity in entities) {
       Vector2 relPos = entity.pos - playerPos;
 
-      // DOT PRODUCT PROJECTION (Immune to angle boundary wraps):
-      // CamY = depth distance along camera forward vector
-      // CamX = horizontal distance along camera right vector
       double camY = relPos.dot(forwardDir);
       double camX = relPos.dot(rightDir);
 
-      if (camY <= 5.0) continue; // Behind or right on top of camera
+      if (camY <= 5.0 || camY > maxRayDistance) continue; // Cutoff past flashlight distance!
 
       double entityAngle = atan2(camX, camY);
       double screenX = (screenWidth / 2) + tan(entityAngle) * focalLength;
@@ -172,11 +193,26 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       int rightCol = (screenX + (projectedWidth / 2)).toInt().clamp(0, screenWidth - 1);
 
       if (camY > zBuffer[centerCol] && camY > zBuffer[leftCol] && camY > zBuffer[rightCol]) {
-        continue; // Occluded behind wall
+        continue; 
+      }
+
+      // Default Y position is center horizon (screenHeight / 2)
+      double renderY = screenHeight / 2;
+      double wallHeightAtDist = min(screenHeight * 2.5, (gameMap.tileSize * focalLength) / camY);
+
+      // =============================================================
+      // CUSTOM VERTICAL POSITIONING
+      // =============================================================
+      if (entity.component is FlyingScareBlast) {
+        // BAT: Soar high near the top of the wall / ceiling!
+        renderY -= (wallHeightAtDist * 0.42);
+      } else if (entity.component is Critter) {
+        // CRITTER: Hug the floor plane!
+        renderY += (wallHeightAtDist * 0.38);
       }
 
       canvas.save();
-      canvas.translate(screenX, screenHeight / 2);
+      canvas.translate(screenX, renderY);
       canvas.scale(scale * 0.5, scale * 0.5);
 
       if (entity.component is BotPlayer) {
@@ -195,16 +231,45 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         canvas.drawCircle(Offset.zero, 16, Paint()..color = Colors.yellowAccent);
         canvas.drawCircle(Offset.zero, 8, Paint()..color = Colors.white);
       } else if (entity.component is FlyingScareBlast) {
+        // Glowing Purple Bat Billboard
         canvas.drawCircle(Offset.zero, 24, Paint()..color = Colors.purpleAccent.withOpacity(0.9));
         canvas.drawCircle(Offset.zero, 12, Paint()..color = Colors.white);
       } else if (entity.component is Critter) {
-        canvas.drawCircle(Offset.zero, 12, Paint()..color = Colors.greenAccent);
+        // Glowing Green Vermin Critter on the ground
+        canvas.drawCircle(Offset.zero, 5, Paint()..color = Colors.greenAccent);
       } else if (entity.component is ScareBlast) {
         final blastPaint = Paint()..color = Colors.white.withOpacity(0.7);
         canvas.drawArc(const Rect.fromLTWH(-120, -120, 240, 240), -pi / 2, pi, true, blastPaint);
       } else if (entity.component is SirenBlast) {
-        final sirenPaint = Paint()..color = Colors.pinkAccent.withOpacity(0.6);
-        canvas.drawArc(const Rect.fromLTWH(-200, -200, 400, 400), -pi / 2, pi, true, sirenPaint);
+        final siren = entity.component as SirenBlast;
+        
+        // Calculate dynamic alpha fade over its full 15-second life
+        double fade = siren.lifeTimer > 2.0 ? 1.0 : (siren.lifeTimer / 2.0);
+        int alpha = (fade * 180).toInt().clamp(0, 255);
+
+        // Solid Pink Wash Arc
+        final washPaint = Paint()
+          ..color = Colors.pinkAccent.withAlpha(alpha)
+          ..style = PaintingStyle.fill;
+        canvas.drawArc(const Rect.fromLTWH(-180, -180, 360, 360), -pi / 2, pi, true, washPaint);
+
+        // Pulsing Sonic Ripple Strokes
+        final ripplePaint = Paint()
+          ..color = Colors.white.withAlpha(alpha)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3.0;
+
+        for (int i = 0; i < 3; i++) {
+          double wavePhase = ((15.0 - siren.lifeTimer) * 2 + (i * 0.33)) % 1.0;
+          double rippleRadius = wavePhase * 180.0;
+          canvas.drawArc(
+            Rect.fromCircle(center: Offset.zero, radius: rippleRadius), 
+            -pi / 2, 
+            pi, 
+            false, 
+            ripplePaint
+          );
+        }
       }
       canvas.restore();
     }
