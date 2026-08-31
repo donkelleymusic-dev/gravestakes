@@ -522,6 +522,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     if (keysPressed.contains(LogicalKeyboardKey.keyF) || keysPressed.contains(LogicalKeyboardKey.keyR)) {
       rechargeFlashlight();
     }
+    // Toggle Map on 'M' key press (KeyDown only so it doesn't flutter on hold)
+  if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.keyM) {
+    game.mapOverlay.toggle();
+  }
     return true; 
   }
 
@@ -530,6 +534,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     priority = ((position.y + 16) * 10).toInt();
     if (!game.gameStarted) return; 
     super.update(dt);
+
+    // Reveal 2 tiles in every direction around current foot position
+    game.gameMap.revealRadius(position, radius: 2);
 
     if (isPhasing) {
       phaseTimer -= dt;

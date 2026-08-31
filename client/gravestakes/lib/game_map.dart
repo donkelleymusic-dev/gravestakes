@@ -21,6 +21,38 @@ class GameMap extends Component with HasGameReference<FlameGame> {
 
   GameMap({required this.roomId, required this.mapName});
 
+  late List<List<bool>> visitedGrid;
+
+  // Track exploration bounds for auto-scaling
+  int minExploredX = 999, maxExploredX = -1;
+  int minExploredY = 999, maxExploredY = -1;
+
+  void initExplorationGrid() {
+    visitedGrid = List.generate(gridHeight, (_) => List.filled(gridWidth, false));
+  }
+
+  void revealRadius(Vector2 worldPos, {int radius = 2}) {
+    int gridX = (worldPos.x / tileSize).floor();
+    int gridY = (worldPos.y / tileSize).floor();
+
+    for (int dy = -radius; dy <= radius; dy++) {
+      for (int dx = -radius; dx <= radius; dx++) {
+        int targetX = gridX + dx;
+        int targetY = gridY + dy;
+
+        if (targetX >= 0 && targetX < gridWidth && targetY >= 0 && targetY < gridHeight) {
+          visitedGrid[targetY][targetX] = true;
+
+          // Expand bounding box for the mini-map zoom calculation
+          if (targetX < minExploredX) minExploredX = targetX;
+          if (targetX > maxExploredX) maxExploredX = targetX;
+          if (targetY < minExploredY) minExploredY = targetY;
+          if (targetY > maxExploredY) maxExploredY = targetY;
+        }
+      }
+    }
+  }
+
   @override
   Future<void> onLoad() async {
     priority = 0;
@@ -28,7 +60,10 @@ class GameMap extends Component with HasGameReference<FlameGame> {
     // 1. Generate the Procedural 30x30 Dungeon!
     _generateDrunkenWalkGrid();
 
-    // 2. Build the physical map from the grid
+    // 2. Initialize the visited memory grid right after the map dimensions exist
+    initExplorationGrid();
+
+    // 2.1 Build the physical map from the grid
     _buildMapFromGrid();
     
     // 3. Fallback borders to keep players inside the universe

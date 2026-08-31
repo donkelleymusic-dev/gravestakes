@@ -2,6 +2,7 @@ import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'progression_screen.dart';
 
 class VesselOpenerOverlay extends StatefulWidget {
   final String vesselId;
@@ -235,7 +236,33 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
                         const SizedBox(height: 50),
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.black, side: BorderSide(color: _explosionColor, width: 2)),
-                          onPressed: () => Navigator.of(context).pop(),
+                          onPressed: () {
+                            // 1. Close the Vessel Opener dialog
+                            Navigator.of(context).pop(); 
+                            
+                            // 2. Calculate totals from the rewards they just got
+                            int totalCoins = 0;
+                            int totalShadows = 0;
+                            for (var reward in _rewards) {
+                              if (reward['granted_reward_type'] == 'coins') totalCoins += (reward['granted_amount'] as int? ?? 0);
+                              if (reward['granted_reward_type'] == 'shadows') totalShadows += (reward['granted_amount'] as int? ?? 0);
+                            }
+
+                            // 3. Push the new Progression Screen
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => ProgressionScreen(
+                                  // Pass the actual totals you just pulled out of the chest
+                                  shadowsEarned: totalShadows,
+                                  coinsEarned: totalCoins,
+                                  // For now, pass placeholder XP data (you can wire this to real DB stats later)
+                                  oldXp: 400,
+                                  newXp: 550,
+                                  xpRequired: 1000,
+                                ),
+                              ),
+                            );
+                          },
                           child: const Padding(
                             padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
                             child: Text('ACCEPT', style: TextStyle(color: Colors.white, letterSpacing: 2, fontWeight: FontWeight.bold)),

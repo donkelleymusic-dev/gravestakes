@@ -42,6 +42,8 @@ import 'vessel_opener_overlay.dart';
 import 'scare_manager.dart';
 import 'flashlight_hud.dart';
 import 'siren_blast.dart';
+import 'map_overlay.dart';
+import 'map_button.dart';
 
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
   String roomId;
@@ -109,6 +111,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
   late final JumpScareEffect jumpScareEffect;
   late final GameMap gameMap; 
+
+  late MapOverlay mapOverlay;
 
   late final GameTimer gameTimer;
   late final ScoreHud scoreHud;
@@ -250,6 +254,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
   }
 
+  
+
   @override
   Future<void> onLoad() async {
     await images.load('Base_BaseChip_pipo.png');
@@ -336,6 +342,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     camera.viewport.add(ScoreHud());
     camera.viewport.add(gameTimer = GameTimer());
+    mapOverlay = MapOverlay();
+    await camera.viewport.add(mapOverlay);
+
+// Add the touch button to the HUD
+await camera.viewport.add(MapButton());
 
     try {
       final logoSprite = await Sprite.load('lumen_breach_small.jpg');
@@ -370,6 +381,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     camera.viewport.add(SpecialButton());
     _setupSupabaseListener();
+
+    mapOverlay = MapOverlay();
+    camera.viewport.add(mapOverlay);
   }
 
   @override
@@ -386,7 +400,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           matchPhase = 'countdown';
           overlays.remove('searching');
           overlays.add('countdown');
-          myChannel.sendBroadcastMessage(event: 'start_countdown', payload: {});
+          // NEW: Send the team layout to the client
+          myChannel.sendBroadcastMessage(
+            event: 'start_countdown', 
+            payload: {'teams': playerTeams}
+          );
         }
       }
       return; 
@@ -755,6 +773,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         for (var user in allUsers) {
           final id = user['id'] as String;
           if (id != mySessionId && !networkPlayers.containsKey(id)) {
+            // NEW: Do not accept late joiners if the match has already started!
+            if (matchPhase != 'searching') continue; 
+            
             final newPlayer = RemotePlayer()..position = Vector2(-100, -100);
             networkPlayers[id] = newPlayer;
             world.add(newPlayer);
@@ -787,6 +808,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             final maskId = payload['mask_id'] as String? ?? 'standard';
 
             if (!networkPlayers.containsKey(id)) {
+              // NEW: If the lobby is closed, ignore this ghost completely.
+              if (matchPhase != 'searching') return; 
+              
               final newPlayer = RemotePlayer()..position = Vector2(x, y);
               networkPlayers[id] = newPlayer;
               world.add(newPlayer);
@@ -897,6 +921,37 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             for (var data in boxList) {
               world.add(SpookyBox(id: data['id'] as String, position: Vector2(data['x'] as double, data['y'] as double)));
             }
+          }
+        },
+      )
+      .onBroadcast(
+        event: 'start_countdown',
+        callback: (payload) {
+          if (!isHost && matchPhase == 'searching') {
+            
+            // 1. Sync the teams from the host
+            if (payload.containsKey('teams')) {
+              final teamsData = payload['teams'] as Map<String, dynamic>;
+              teamsData.forEach((key, value) {
+                playerTeams[key] = value as int;
+              });
+
+              // 2. Visually apply team colors if playing 2v2
+              if (matchMode == '2v2') {
+                int myTeam = playerTeams[mySessionId] ?? 1;
+                player.applyTeamColor(myTeam);
+
+                for (var remoteId in networkPlayers.keys) {
+                  int remoteTeam = playerTeams[remoteId] ?? 0;
+                  networkPlayers[remoteId]?.applyTeamColor(remoteTeam);
+                }
+              }
+            }
+            
+            // 3. Break out of the infinite timer trap!
+            matchPhase = 'countdown';
+            overlays.remove('searching');
+            overlays.add('countdown');
           }
         },
       )

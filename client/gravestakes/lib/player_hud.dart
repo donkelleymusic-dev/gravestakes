@@ -36,9 +36,9 @@ class PlayerHud extends PositionComponent with HasGameReference<GraveStakesGame>
   @override
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
-    // Pin to the far right edge (minus 20px padding), 40px down
-    position = Vector2(size.x - 20, 40); 
+    position = Vector2(size.x - 10, 40); // Tighter to the edge
     anchor = Anchor.topRight;
+    scale = Vector2.all(size.x < 600 ? 0.65 : 1.0);
   }
 
   @override

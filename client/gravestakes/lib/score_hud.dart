@@ -26,6 +26,8 @@ class ScoreHud extends TextComponent with HasGameReference<GraveStakesGame> {
     super.onGameResize(size);
     position = Vector2(10, 40); 
     anchor = Anchor.topLeft;
+    // Scale down text significantly if screen is narrow (portrait phone)
+    scale = Vector2.all(size.x < 600 ? 0.65 : 1.0);
   }
 
   @override

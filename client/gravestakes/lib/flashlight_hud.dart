@@ -5,15 +5,17 @@ import 'game.dart';
 
 class FlashlightHud extends PositionComponent with HasGameReference<GraveStakesGame>, TapCallbacks {
   FlashlightHud() {
-    size = Vector2(120, 40);
+    // Shrink to a sleek, modern bar instead of a bulky battery
+    size = Vector2(80, 10);
     priority = 200;
   }
 
   @override
   void onGameResize(Vector2 gameSize) {
     super.onGameResize(gameSize);
-    // Position it center-bottom, slightly offset to not block the player
-    position = Vector2((gameSize.x / 2) - (size.x / 2), gameSize.y - 80);
+    // Align directly under the Attack Button's X axis (which is gameSize.x - 110)
+    // Push it down to gameSize.y - 25 so it sits cleanly below the button
+    position = Vector2(gameSize.x - 110 - (size.x / 2), gameSize.y - 25);
   }
 
   @override
@@ -45,32 +47,32 @@ class FlashlightHud extends PositionComponent with HasGameReference<GraveStakesG
     }
 
     final bgPaint = Paint()..color = Colors.black54;
-    final borderPaint = Paint()..color = Colors.white54..style = PaintingStyle.stroke..strokeWidth = 2.0;
+    final borderPaint = Paint()..color = Colors.white54..style = PaintingStyle.stroke..strokeWidth = 1.0;
     final fillPaint = Paint()..color = barColor;
 
-    // Draw Battery Body
-    final bodyRect = Rect.fromLTWH(0, 0, size.x - 10, size.y);
-    canvas.drawRRect(RRect.fromRectAndRadius(bodyRect, const Radius.circular(6)), bgPaint);
-    canvas.drawRRect(RRect.fromRectAndRadius(bodyRect, const Radius.circular(6)), borderPaint);
+    // Draw Sleek Bar Body
+    final bodyRect = Rect.fromLTWH(0, 0, size.x, size.y);
+    canvas.drawRRect(RRect.fromRectAndRadius(bodyRect, const Radius.circular(4)), bgPaint);
+    canvas.drawRRect(RRect.fromRectAndRadius(bodyRect, const Radius.circular(4)), borderPaint);
 
-    // Draw Battery Tip
-    final tipRect = Rect.fromLTWH(size.x - 10, size.y / 4, 10, size.y / 2);
-    canvas.drawRRect(RRect.fromRectAndRadius(tipRect, const Radius.circular(3)), bgPaint);
-    canvas.drawRRect(RRect.fromRectAndRadius(tipRect, const Radius.circular(3)), borderPaint);
-
-    // Draw Fill (With 4px padding)
+    // Draw Fill (With 2px padding so the border shows)
     if (fillRatio > 0 && !isDead || isRecharging) {
-      final fillRect = Rect.fromLTWH(4, 4, (size.x - 18) * fillRatio, size.y - 8);
-      canvas.drawRRect(RRect.fromRectAndRadius(fillRect, const Radius.circular(3)), fillPaint);
+      final fillRect = Rect.fromLTWH(2, 2, (size.x - 4) * fillRatio, size.y - 4);
+      canvas.drawRRect(RRect.fromRectAndRadius(fillRect, const Radius.circular(2)), fillPaint);
     }
     
-    // Draw "TAP TO CHARGE" if dead
+    // Draw "TAP TO PLUG IN" hovering right above the bar if dead
     if (isDead && !isRecharging) {
-      const textStyle = TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold);
+      const textStyle = TextStyle(
+        color: Colors.white, 
+        fontSize: 10, 
+        fontWeight: FontWeight.bold, 
+        shadows: [Shadow(blurRadius: 2, color: Colors.black)]
+      );
       final textSpan = TextSpan(text: 'TAP TO PLUG IN', style: textStyle);
       final textPainter = TextPainter(text: textSpan, textDirection: TextDirection.ltr);
       textPainter.layout();
-      textPainter.paint(canvas, Offset((size.x - 10 - textPainter.width) / 2, (size.y - textPainter.height) / 2));
+      textPainter.paint(canvas, Offset((size.x - textPainter.width) / 2, -14));
     }
   }
 }
