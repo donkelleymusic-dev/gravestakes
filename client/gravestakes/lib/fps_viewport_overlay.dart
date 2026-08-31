@@ -29,10 +29,10 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     final player = game.player;
     final gameMap = game.gameMap;
     
-    final double fov = pi / 3.0; 
+    final double fov = pi / 3.0; // 60-degree Field of View
     final double halfFov = fov / 2.0;
     
-    // Include the peek/glance offset directly in the camera angle
+    // Total camera heading including peek/glance offset
     final double totalViewAngle = player.facingAngle + player.glanceOffset;
     final Vector2 playerPos = player.position;
 
@@ -49,7 +49,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     canvas.drawRect(Rect.fromLTWH(0, screenHeight / 2, size.x, screenHeight / 2), Paint()..color = const Color(0xFF14141E));
 
     // -------------------------------------------------------------
-    // 2. RAYCAST WALLS & Z-BUFFER (INCLUDES GLANCE ANGLE)
+    // 2. RAYCAST WALLS & Z-BUFFER
     // -------------------------------------------------------------
     int stripWidth = 2; 
     for (int x = 0; x < screenWidth; x += stripWidth) {
@@ -110,7 +110,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     }
 
     // -------------------------------------------------------------
-    // 3. PROJECT BILLBOARDS (FIXED DEPTH & ROTATION MATRIX)
+    // 3. PROJECT BILLBOARDS (FIXED AXIS DIRECTION & ROTATION)
     // -------------------------------------------------------------
     List<_RenderableEntity> entities = [];
 
@@ -141,7 +141,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     for (var critter in game.scareManager.critters) {
       if (!critter.isDead) entities.add(_RenderableEntity(pos: critter.position, component: critter));
     }
-    // Flash Blast and Siren Arc Effects
+    // Scare Effects
     for (var blast in game.world.children.whereType<ScareBlast>()) {
       entities.add(_RenderableEntity(pos: blast.position, component: blast));
     }
@@ -149,7 +149,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       entities.add(_RenderableEntity(pos: siren.position, component: siren));
     }
 
-    // Far-to-Near Sorting
+    // Sort Far-to-Near relative to player distance
     entities.sort((a, b) => b.pos.distanceToSquared(playerPos).compareTo(a.pos.distanceToSquared(playerPos)));
 
     final double cosView = cos(totalViewAngle);
@@ -158,14 +158,15 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     for (var entity in entities) {
       Vector2 relPos = entity.pos - playerPos;
 
-      // FIXED CAMERA SPACE TRANSFORM:
-      // CamX = lateral offset (left/right)
-      // CamY = forward depth distance in front of player
-      double camX = relPos.x * cosView + relPos.y * sinView;
-      double camY = -relPos.x * sinView + relPos.y * cosView;
+      // CORRECTED CAMERA MATRIX:
+      // CamX > 0 means item is to the RIGHT of screen center
+      // CamY > 0 means item is FORWARD in front of player
+      double camX = relPos.x * cosView - relPos.y * sinView;
+      double camY = -(relPos.x * sinView + relPos.y * cosView);
 
-      if (camY <= 5.0) continue; // Item is behind or right on top of camera
+      if (camY <= 5.0) continue; // Behind or right on top of camera
 
+      // Angular position across screen
       double entityAngle = atan2(camX, camY);
       double screenX = (screenWidth / 2) + tan(entityAngle) * focalLength;
 
@@ -176,7 +177,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       int leftCol = (screenX - (projectedWidth / 2)).toInt().clamp(0, screenWidth - 1);
       int rightCol = (screenX + (projectedWidth / 2)).toInt().clamp(0, screenWidth - 1);
 
-      // Occlusion check against walls
+      // Z-Buffer Wall Occlusion
       if (camY > zBuffer[centerCol] && camY > zBuffer[leftCol] && camY > zBuffer[rightCol]) {
         continue; 
       }
@@ -191,9 +192,9 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         (entity.component as RemotePlayer).voxelComponent?.render(canvas);
       } else if (entity.component is SpookyBox) {
         // 3D Chest Container
-        final boxPaint = Paint()..color = const Color(0xFF8B4513); // Saddle Brown
-        final lidPaint = Paint()..color = const Color(0xFFA0522D); // Sienna Lid
-        final lockPaint = Paint()..color = Colors.amberAccent;      // Gold Lock
+        final boxPaint = Paint()..color = const Color(0xFF8B4513); 
+        final lidPaint = Paint()..color = const Color(0xFFA0522D); 
+        final lockPaint = Paint()..color = Colors.amberAccent;      
 
         canvas.drawRect(const Rect.fromLTWH(-20, -10, 40, 28), boxPaint);
         canvas.drawRect(const Rect.fromLTWH(-22, -22, 44, 12), lidPaint);
@@ -217,7 +218,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     }
 
     // -------------------------------------------------------------
-    // 4. ATTACK MUZZLE FLASH & FLASHLIGHT SPOTLIGHT
+    // 4. ATTACK FLASH & FLASHLIGHT SPOTLIGHT
     // -------------------------------------------------------------
     if (player.attackCooldown > 0.4) {
       final attackPaint = Paint()..color = Colors.redAccent.withOpacity(0.20);

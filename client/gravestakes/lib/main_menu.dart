@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // <--- NEW
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flame/game.dart';
 import 'game.dart';
 import 'store_screen.dart';
@@ -32,19 +32,18 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   bool _isSearchingForMatch = false;
   String? _errorMessage;
   
-  String _selectedMapName = 'L1T1V1.0.0';
+  // Kept internally so backend RPC and game instances get a valid map key
+  final String _selectedMapName = 'L1T1V1.0.0';
   
-  // --- DEFAULT TO 1v1 INSTEAD OF CASUAL ---
   String _selectedMatchMode = '1v1'; 
 
   @override
   void initState() {
     super.initState();
-    _loadSavedPreferences(); // <--- Load saved mode immediately
+    _loadSavedPreferences();
     _fetchPlayerData();
   }
 
-  // --- NEW: Read from SharedPreferences ---
   Future<void> _loadSavedPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) {
@@ -78,25 +77,20 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
         final serverLevel = responses[0]['level'] ?? 1;
 
-        // --- CHECK FOR LEVEL UP ---
         final prefs = await SharedPreferences.getInstance();
         int lastSeenLevel = prefs.getInt('last_seen_level') ?? serverLevel;
 
         if (serverLevel > lastSeenLevel) {
-          // Update recorded local level so it only plays once
           await prefs.setInt('last_seen_level', serverLevel);
           
-          // Delay briefly to ensure UI is built before popping dialog
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
               LevelUpOverlay.show(context, serverLevel);
             }
           });
         } else {
-          // Ensure base key is initialized if missing
           await prefs.setInt('last_seen_level', serverLevel);
         }
-        // -------------------------
 
         if (mounted) {
           setState(() {
@@ -329,37 +323,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   ),
                   
                   const SizedBox(height: 32),
-                  
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[900],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _selectedMapName,
-                        dropdownColor: Colors.black87,
-                        isExpanded: true,
-                        style: const TextStyle(color: Colors.yellowAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold),
-                        items: const [
-                          DropdownMenuItem(value: 'L1T1V1.0.0', child: Text('BIOME: ORIGINAL COMPOUND')),
-                          DropdownMenuItem(value: 'L2T1V1.0.0', child: Text('BIOME: THE CATACOMBS')),
-                        ],
-                        onChanged: (String? newValue) {
-                          if (newValue != null) {
-                            setState(() {
-                              _selectedMapName = newValue;
-                            });
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 12),
 
+                  // MATCH MODE SELECTOR DROPDOWN
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
@@ -380,7 +345,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                         ],
                         onChanged: (String? newValue) async {
                           if (newValue != null) {
-                            // --- NEW: Save their choice permanently ---
                             final prefs = await SharedPreferences.getInstance();
                             await prefs.setString('last_match_mode', newValue);
                             
@@ -556,9 +520,6 @@ class CountdownOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // We use a StreamBuilder or ValueListenable in production, but 
-    // for Flame overlays, we can force a quick state refresh if needed,
-    // or just let Flame's natural overlay lifecycle handle it.
     return Container(
       color: Colors.black45,
       child: Center(
