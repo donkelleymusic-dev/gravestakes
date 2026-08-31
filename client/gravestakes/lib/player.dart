@@ -24,6 +24,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   final RealtimeChannel channel; 
   final bool isGunner; 
 
+  int selectedMaskIndex = 0; 
+  List<MaskData?> equippedMasks = List.filled(4, null);
+
+  // ADD THIS GETTER:
   String get currentMaskId {
     if (selectedMaskIndex >= 0 && selectedMaskIndex < equippedMasks.length) {
       return equippedMasks[selectedMaskIndex]?.id ?? 'standard';
@@ -74,9 +78,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   String equippedCharacterId = 'default';
   double swapSpeedModifier = 1.0;
   double visualScale = 1.0;
-
-  int selectedMaskIndex = 0; 
-  List<MaskData?> equippedMasks = List.filled(4, null);
 
   double powerUpTimer = 0;
   bool get isPoweredUp => powerUpTimer > 0;
@@ -436,6 +437,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     int targetIndex = forceMaskIndex ?? 0;
     if (targetIndex < 0 || targetIndex >= 4) return;
 
+    // ADD THIS TO EQUIP VISUALLY:
+    selectedMaskIndex = targetIndex;
+
     final currentMask = equippedMasks[targetIndex];
     if (currentMask == null) {
       game.camera.viewport.add(FloatingText(text: 'EMPTY SLOT!', worldPosition: Vector2(position.x - 40, position.y - 60)));
@@ -545,8 +549,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       voxelComponent!.targetAngle = facingAngle - (pi / 2); 
       voxelComponent!.isMoving = isMoving;
 
+      // ADD THESE TWO LINES:
+      voxelComponent!.attackCooldown = attackCooldown;
       try {
-        voxelComponent!.activeMaskImage = game.images.fromCache('mask_placeholder.png');
+        voxelComponent!.activeMaskImage = game.images.fromCache('${currentMaskId}_mask.png');
       } catch (e) {}
     }
 
@@ -624,7 +630,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           if (networkTick >= networkRate) {
             networkTick = 0;
             channel.sendBroadcastMessage(event: 'move', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': facingAngle, 'c': equippedColorString, 's': score, 'd': isDisguised, 'm': isMoving, 'i': isInvisible,
-              'f': flashlightScale});
+              'f': flashlightScale, 'mask_id': currentMaskId});
           }
         }
       }
@@ -778,7 +784,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     if (networkTick >= networkRate) {
       networkTick = 0;
       channel.sendBroadcastMessage(event: 'move', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': facingAngle, 'c': equippedColorString, 's': score, 'd': isDisguised, 'm': isMoving, 'i': isInvisible,
-              'f': flashlightScale});
+              'f': flashlightScale, 'mask_id': currentMaskId});
     }
   }
 }

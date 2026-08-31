@@ -253,6 +253,15 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   @override
   Future<void> onLoad() async {
     await images.load('Base_BaseChip_pipo.png');
+
+    // ADD THIS PRELOADER BLOCK:
+    await images.loadAll([
+      'standard_mask.png', 
+      'flying_mask.png', 
+      'vermin_mask.png', 
+      'siren_mask.png'
+    ]);
+
     await _loadVoxelAssets(); 
 
     mySessionId = DateTime.now().millisecondsSinceEpoch.toString();
@@ -775,6 +784,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             final isInvisible = payload['i'] as bool? ?? false;
             final fScale = payload['f'] as double? ?? 1.0;
 
+            final maskId = payload['mask_id'] as String? ?? 'standard';
+
             if (!networkPlayers.containsKey(id)) {
               final newPlayer = RemotePlayer()..position = Vector2(x, y);
               networkPlayers[id] = newPlayer;
@@ -786,6 +797,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               colorStr: colorStr, newScore: newScore,
               isDisguised: isDisguised, isMoving: isMoving, isInvisible: isInvisible,
               fScale: fScale,
+              maskId: maskId,
             );
           }
         },
@@ -802,6 +814,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             
             final maskId = payload['mask_id'] as String? ?? 'standard'; 
             final seed = payload['seed'] as int? ?? 0;
+
+            remote.currentMaskId = maskId;
+            remote.visualAttackCooldown = 0.6;
 
             if (isAudioReady && scareSource != null) SoLoud.instance.play(scareSource!);
 

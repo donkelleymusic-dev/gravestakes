@@ -9,6 +9,9 @@ import 'voxel_character_component.dart';
 class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
   String currentColorStr = 'red';
 
+  String currentMaskId = 'standard';
+  double visualAttackCooldown = 0.0;
+
   double facingAngle = 0.0;
   
   // Track dynamic character ID and scale
@@ -104,6 +107,7 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     double? fScale,
     String? characterId,
     double? scaleValue,
+    String? maskId,
   }) {
     final newPos = Vector2(newX, newY);
     
@@ -140,6 +144,8 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
       visualScale = scaleValue;
       scale = Vector2.all(visualScale);
     }
+
+    if (maskId != null) currentMaskId = maskId;
   }
 
   void applyStun(double duration) {
@@ -165,6 +171,11 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
       voxelComponent!.isHighlighted = (highlightTimer > 0);
       voxelComponent!.isVisible = !(isDisguised || isInvisible);
     }
+
+    voxelComponent!.attackCooldown = visualAttackCooldown;
+      try {
+        voxelComponent!.activeMaskImage = game.images.fromCache('${currentMaskId}_mask.png');
+      } catch (e) {}
 
     if (!_targetPosition.isZero()) position.lerp(_targetPosition, 15 * dt);
     if (localImmunityToMe > 0) localImmunityToMe -= dt;

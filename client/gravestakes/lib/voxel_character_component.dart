@@ -14,6 +14,8 @@ class VoxelCharacterComponent extends PositionComponent {
   bool isVisible = true;
   double stunTimer = 0.0;
 
+  double attackCooldown = 0.0;
+
   ui.Image? activeMaskImage;
   
   double _walkCycleTime = 0.0;
@@ -154,16 +156,17 @@ class VoxelCharacterComponent extends PositionComponent {
       double pY = headData['pivot_y'].toDouble();
 
       canvas.save();
-      // Anchor the mask to the exact same neck joint as the head
       canvas.translate(x, y);
       
-      // Scale the high-res mask to roughly match the width of the head
       double maskScale = hW / activeMaskImage!.width;
+
+      if (attackCooldown > 0) {
+        canvas.rotate(sin(attackCooldown * 40) * 0.15); 
+        maskScale += sin(attackCooldown * 20).clamp(0.0, 1.0) * 0.15; 
+      }
+
       canvas.scale(maskScale, maskScale);
 
-      // Add a slight attacking wobble if the attack cooldown is active!
-      // (We will pass 'attackCooldown' into the component shortly)
-      
       canvas.drawImage(
         activeMaskImage!, 
         Offset(-activeMaskImage!.width / 2, -pY * (1/maskScale)), 
