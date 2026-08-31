@@ -23,6 +23,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   final JoystickComponent rightJoystick; 
   final RealtimeChannel channel; 
   final bool isGunner; 
+  
+  double glanceOffset = 0.0;
 
   int selectedMaskIndex = 0; 
   List<MaskData?> equippedMasks = List.filled(4, null);
@@ -514,12 +516,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   bool onKeyEvent(KeyEvent event, Set<LogicalKeyboardKey> keysPressed) {
     keyboardDelta = Vector2.zero();
     if (game.isFpsMode) {
-      // ==========================================
-      // FPS TANK CONTROLS (SMOOTH REVERSE FIX)
-      // ==========================================
-      const double rotationSpeed = 2.2; // Radians per second
+      const double rotationSpeed = 2.2; 
 
-      // 1. ROTATION (A & D turn camera in place)
+      // 1. GRADUAL TURNING (A / D)
       if (keysPressed.contains(LogicalKeyboardKey.keyA) || keysPressed.contains(LogicalKeyboardKey.arrowLeft)) {
         facingAngle -= rotationSpeed * 0.016; 
       }
@@ -527,15 +526,31 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         facingAngle += rotationSpeed * 0.016; 
       }
 
-      // 2. FORWARD / BACKWARD TRANSLATION
+      // 2. INSTANT 90° SNAP TURNS (Z & C - KeyDown Only)
+      if (event is KeyDownEvent) {
+        if (event.logicalKey == LogicalKeyboardKey.keyZ) {
+          facingAngle -= (pi / 2); // 90 degrees Left
+        } else if (event.logicalKey == LogicalKeyboardKey.keyC) {
+          facingAngle += (pi / 2); // 90 degrees Right
+        }
+      }
+
+      // 3. GLANCE / PEEK (Q & E - Hold to Peek)
+      if (keysPressed.contains(LogicalKeyboardKey.keyQ)) {
+        glanceOffset = -pi / 4; // Peek 45 degrees Left
+      } else if (keysPressed.contains(LogicalKeyboardKey.keyE)) {
+        glanceOffset = pi / 4;  // Peek 45 degrees Right
+      } else {
+        glanceOffset = 0.0;     // Return to center
+      }
+
+      // 4. FORWARD / REVERSE
       bool isMovingForward = keysPressed.contains(LogicalKeyboardKey.keyW) || keysPressed.contains(LogicalKeyboardKey.arrowUp);
       bool isMovingBackward = keysPressed.contains(LogicalKeyboardKey.keyS) || keysPressed.contains(LogicalKeyboardKey.arrowDown);
 
       if (isMovingForward && !isMovingBackward) {
-        // Drive Forward along current facing angle
         keyboardDelta = Vector2(sin(facingAngle), -cos(facingAngle));
       } else if (isMovingBackward && !isMovingForward) {
-        // Drive Backward: Calculate the exact 180-degree reverse vector
         double reverseAngle = facingAngle + pi;
         keyboardDelta = Vector2(sin(reverseAngle), -cos(reverseAngle));
       }
