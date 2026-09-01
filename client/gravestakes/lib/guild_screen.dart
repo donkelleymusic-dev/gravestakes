@@ -494,8 +494,27 @@ class _GuildScreenState extends State<GuildScreen> {
   }
 
   Widget _buildGuildDashboard() {
+    final vaultCoins = _myGuild?['vault_coins'] ?? 0;
+    final vaultShadows = _myGuild?['vault_shadows'] ?? 0;
+    final guildLevel = _myGuild?['guild_level'] ?? 1;
+
     return Column(
       children: [
+        // --- NEW: Guild War Treasury & Level Banner ---
+        Container(
+          padding: const EdgeInsets.all(12),
+          color: Colors.grey[900],
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              Text('Level $guildLevel Guild', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
+              Text('Vault Shadows: $vaultShadows', style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'Courier')),
+              Text('Vault Coins: $vaultCoins', style: const TextStyle(color: Colors.amberAccent, fontSize: 12, fontFamily: 'Courier')),
+            ],
+          ),
+        ),
+        const Divider(height: 1, color: Colors.white24),
+
         Container(
           height: 120,
           padding: const EdgeInsets.all(8),
@@ -505,9 +524,11 @@ class _GuildScreenState extends State<GuildScreen> {
             itemBuilder: (context, index) {
               final member = _members[index];
               final profile = member['profiles'] ?? {};
+              final weeklyIp = member['weekly_ip'] ?? 0;
               return ListTile(
                 dense: true,
                 title: Text('${profile['username'] ?? 'Ghost'} (${member['role'].toUpperCase()})', style: const TextStyle(color: Colors.white)),
+                trailing: Text('$weeklyIp IP', style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
               );
             },
           ),

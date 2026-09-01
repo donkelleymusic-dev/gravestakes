@@ -13,6 +13,8 @@ import 'spectator_mode.dart';
 import 'match_summary_overlay.dart';
 import 'vessel_opener_overlay.dart';
 import 'level_up_overlay.dart';
+import 'guild_war_map_screen.dart';
+import 'guild_war_results_overlay.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -74,6 +76,24 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           supabase.from('profiles').select('username, level').eq('id', user.id).single(),
           supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(),
         ]);
+
+        // Inside _fetchPlayerData() in main_menu.dart, add this query check after fetching wallets/profiles:
+        final rewardsRes = await supabase
+            .from('guild_war_rewards_queue')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('claimed', false)
+            .maybeSingle();
+
+        if (rewardsRes != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              GuildWarResultsOverlay.show(context, rewardsRes, () {
+                _fetchPlayerData(); // Refresh player wallet after claiming
+              });
+            }
+          });
+        }
 
         final serverLevel = responses[0]['level'] ?? 1;
 
@@ -408,6 +428,16 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   const SizedBox(height: 24),
                   const Text('COMMUNITY & MANAGEMENT', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
                   const SizedBox(height: 12),
+
+                  _buildMenuButton(
+                    icon: Icons.local_fire_department,
+                    label: 'CRYPT WAR MAP',
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const GuildWarMapScreen()),
+                      );
+                    },
+                  ),
 
                   _buildMenuButton(
                     icon: Icons.store,
