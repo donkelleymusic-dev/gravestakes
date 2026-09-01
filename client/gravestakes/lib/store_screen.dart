@@ -15,8 +15,8 @@ class _StoreScreenState extends State<StoreScreen> {
   List<Map<String, dynamic>> _masks = [];
   List<Map<String, dynamic>> _maps = [];
   List<Map<String, dynamic>> _abilities = [];
+  List<Map<String, dynamic>> _wearables = []; // <--- Wearables store list
 
-  // Tracks owned items by type (e.g., {'mask': ['standard', 'siren']})
   Map<String, List<String>> _ownedItems = {};
   List<String> _ownedAbilityIds = []; 
   
@@ -43,6 +43,7 @@ class _StoreScreenState extends State<StoreScreen> {
         supabase.from('maps').select('*').order('price'),
         supabase.from('abilities').select('*'),
         supabase.from('player_loadouts').select('ability_id').eq('player_id', user.id),
+        supabase.from('wearables').select('*'), // <--- Fetch wearables catalog
       ]);
 
       final walletData = responses[0] as Map<String, dynamic>;
@@ -71,6 +72,7 @@ class _StoreScreenState extends State<StoreScreen> {
           _maps = List<Map<String, dynamic>>.from(responses[4]);
           _abilities = List<Map<String, dynamic>>.from(responses[5]);
           _ownedAbilityIds = ownedAbilities;
+          _wearables = List<Map<String, dynamic>>.from(responses[7]);
           _isLoading = false;
         });
       }
@@ -114,7 +116,6 @@ class _StoreScreenState extends State<StoreScreen> {
     }
   }
 
-  // Legacy ability purchase (keeping separate until abilities migrate to inventory)
   Future<void> _buyAbility(String abilityId, int price, String currency) async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
@@ -173,15 +174,15 @@ class _StoreScreenState extends State<StoreScreen> {
         final desc = item['description'] ?? '';
         final price = item['price'] ?? 0;
         final currency = item['currency'] ?? 'shadows';
+        final targetSlot = item['slot_type'] ?? itemType;
         
-        // Dynamically grab the image path depending on the table
         final imagePath = item['asset_path'] ?? item['thumbnail_path'];
 
         bool isOwned = false;
         if (itemType == 'ability') {
           isOwned = _ownedAbilityIds.contains(id);
         } else {
-          isOwned = (_ownedItems[itemType] ?? []).contains(id);
+          isOwned = (_ownedItems[targetSlot] ?? []).contains(id) || (_ownedItems[itemType] ?? []).contains(id);
         }
 
         final userCurrency = currency == 'coins' ? _playerCoins : _playerShadows;
@@ -197,7 +198,6 @@ class _StoreScreenState extends State<StoreScreen> {
           ),
           child: Row(
             children: [
-              // --- NEW: ASSET THUMBNAIL ---
               Container(
                 width: 64,
                 height: 64,
@@ -213,17 +213,15 @@ class _StoreScreenState extends State<StoreScreen> {
                       ? Image.asset(
                           imagePath,
                           fit: BoxFit.cover,
-                          // If the image file doesn't exist yet, show a fallback icon instead of crashing
-                          errorBuilder: (context, error, stackTrace) => const Icon(Icons.image_not_supported, color: Colors.grey, size: 32),
+                          errorBuilder: (context, error, stackTrace) => const Icon(Icons.shield, color: Colors.purpleAccent, size: 32),
                         )
                       : Icon(
-                          itemType == 'mask' ? Icons.masks : (itemType == 'character' ? Icons.person : Icons.map),
+                          itemType == 'mask' ? Icons.masks : (itemType == 'character' ? Icons.person : Icons.shield),
                           color: Colors.grey[700],
                           size: 32,
                         ),
                 ),
               ),
-              // --- END THUMBNAIL ---
 
               Expanded(
                 child: Column(
@@ -243,7 +241,7 @@ class _StoreScreenState extends State<StoreScreen> {
                   : ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: canAfford ? (currency == 'coins' ? Colors.amber[800] : Colors.red[800]) : Colors.grey[800]),
                       onPressed: canAfford 
-                          ? () => itemType == 'ability' ? _buyAbility(id, price, currency) : _buyItem(itemType, id, price, currency)
+                          ? () => itemType == 'ability' ? _buyAbility(id, price, currency) : _buyItem(targetSlot, id, price, currency)
                           : null,
                       child: const Text('BUY', style: TextStyle(color: Colors.white)),
                     ),
@@ -257,7 +255,7 @@ class _StoreScreenState extends State<StoreScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 4,
+      length: 5, // <--- Expanded to 5 tabs
       child: Scaffold(
         backgroundColor: Colors.black,
         appBar: AppBar(
@@ -284,6 +282,7 @@ class _StoreScreenState extends State<StoreScreen> {
             isScrollable: true,
             tabs: [
               Tab(text: 'MASKS'),
+              Tab(text: 'WEARABLES'), // <--- Added WEARABLES tab
               Tab(text: 'CHARACTERS'),
               Tab(text: 'MAPS'),
               Tab(text: 'PERKS'),
@@ -295,6 +294,7 @@ class _StoreScreenState extends State<StoreScreen> {
             : TabBarView(
                 children: [
                   _buildItemList(_masks, 'mask'),
+                  _buildItemList(_wearables, 'wearable'), // <--- Added WEARABLES tab view
                   _buildItemList(_characters, 'character'),
                   _buildItemList(_maps, 'map'),
                   _buildItemList(_abilities, 'ability'),

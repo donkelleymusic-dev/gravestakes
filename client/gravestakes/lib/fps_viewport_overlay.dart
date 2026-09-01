@@ -29,6 +29,16 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
 
     final player = game.player;
     final gameMap = game.gameMap;
+
+    // --- Protect canvas state for camera shake ---
+    canvas.save(); 
+
+    // --- FPS Mask Swap Camera Shudder ---
+    if (player.maskSwapAnimationTimer > 0) {
+      double shakeX = sin(player.maskSwapAnimationTimer * 60) * 8.0;
+      double shakeY = cos(player.maskSwapAnimationTimer * 50) * 4.0;
+      canvas.translate(shakeX, shakeY);
+    }
     
     // --- WIDER FOV (75 Degrees) ---
     final double fov = pi / 2.4; 
@@ -315,6 +325,20 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       canvas.drawRect(size.toRect(), attackPaint);
     }
 
+    // --- FPS Active Defense (Phase Dash) Visual ---
+    if (player.isPhasing) {
+      final phasePaint = Paint()..color = Colors.cyanAccent.withOpacity(0.20);
+      canvas.drawRect(size.toRect(), phasePaint);
+    }
+
+    // --- FPS Mask Swap Blink Effect ---
+    if (player.maskSwapAnimationTimer > 0) {
+      // sine wave at ~100 rad/s produces about 2-3 rapid flashes within the 150ms window
+      double blinkAlpha = (sin(player.maskSwapAnimationTimer * 100).abs() * 1.5).clamp(0.0, 1.0);
+      final blinkPaint = Paint()..color = Colors.black.withOpacity(blinkAlpha);
+      canvas.drawRect(size.toRect(), blinkPaint);
+    }
+
     double spotRadius = (size.y * 0.45) * player.flashlightScale;
     if (spotRadius > 0) {
       final spotlightPaint = Paint()
@@ -346,6 +370,9 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
 
       canvas.drawRect(Rect.fromLTWH(0, size.y - 60, size.x, 60), teamEdgePaint);
     }
+
+    // --- Finalize camera shake transform ---
+    canvas.restore();
   }
 }
 

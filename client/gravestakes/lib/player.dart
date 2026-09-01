@@ -63,6 +63,14 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
   // --- DEFENSIVE WEARABLES STATE ---
   final Map<String, dynamic> equippedWearables = {};
+
+  // --- NEW: Active Defense State ---
+  bool hasActiveDefense = false;
+  double activeDefenseCooldown = 0.0;
+
+  // --- NEW: Mask Swap Animation State ---
+  double maskSwapAnimationTimer = 0.0;
+  String? pendingMaskId;
   
   // Passive Multipliers (Loaded from DB buff_stat & buff_value)
   double footstepReductionMult = 1.0; // footprint_reduction
@@ -333,7 +341,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     if (user == null) return;
 
     try {
-      // Query equipped wearables via player_loadouts / user_inventory join
       final res = await Supabase.instance.client
           .from('player_loadouts')
           .select('ability_id, wearables(*)')
@@ -341,12 +348,12 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           .eq('is_equipped', true);
 
       if (res != null) {
-        // Reset base multipliers
         footstepReductionMult = 1.0;
         maxEnergyMult = 1.0;
         speedMult = 1.0;
         energyRegenMult = 1.0;
         activeCounters.clear();
+        hasActiveDefense = false; // Reset
 
         for (final item in res) {
           final wearable = item['wearables'] as Map<String, dynamic>?;
@@ -355,25 +362,16 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           final counterTarget = wearable['counter_target'] as String?;
           final buffStat = wearable['buff_stat'] as String?;
           final buffVal = (wearable['buff_value'] as num?)?.toDouble() ?? 1.0;
+          final isActiveDef = wearable['is_active_defense'] as bool? ?? false;
 
-          if (counterTarget != null) {
-            activeCounters.add(counterTarget);
-          }
+          if (counterTarget != null) activeCounters.add(counterTarget);
+          if (isActiveDef) hasActiveDefense = true;
 
-          // Apply passive stat buffs
           switch (buffStat) {
-            case 'footprint_reduction':
-              footstepReductionMult = buffVal; // e.g. 0.6 -> 40% reduction
-              break;
-            case 'energy_max':
-              maxEnergyMult = buffVal;         // e.g. 1.2 -> +20% max energy
-              break;
-            case 'speed':
-              speedMult = buffVal;             // e.g. 1.08 -> +8% speed
-              break;
-            case 'regen':
-              energyRegenMult = buffVal;       // e.g. 1.15 -> +15% energy regen
-              break;
+            case 'footprint_reduction': footstepReductionMult = buffVal; break;
+            case 'energy_max': maxEnergyMult = buffVal; break;
+            case 'speed': speedMult = buffVal; break;
+            case 'regen': energyRegenMult = buffVal; break;
           }
         }
       }
@@ -434,18 +432,27 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   }
 
   void triggerAttack({int? forceMaskIndex}) {
-    if (attackCooldown > 0) return;
+    if (attackCooldown > 0 || maskSwapAnimationTimer > 0) return;
     
     int targetIndex = forceMaskIndex ?? 0;
     if (targetIndex < 0 || targetIndex >= 4) return;
-
-    // ADD THIS TO EQUIP VISUALLY:
-    selectedMaskIndex = targetIndex;
 
     final currentMask = equippedMasks[targetIndex];
     if (currentMask == null) {
       game.camera.viewport.add(FloatingText(text: 'EMPTY SLOT!', worldPosition: Vector2(position.x - 40, position.y - 60)));
       return;
+    }
+
+    // --- NEW: Mask Swap Animation Logic ---
+    if (currentMask.id != currentMaskId) {
+      pendingMaskId = currentMask.id;
+      maskSwapAnimationTimer = 0.15; // 150ms lightning-fast swap effect
+      selectedMaskIndex = targetIndex;
+      
+      // Play swap visual on voxel rig immediately
+      if (voxelComponent != null) {
+        voxelComponent!.triggerSwapAnimation();
+      }
     }
 
     if (energy < currentMask.energyCost) {
@@ -459,6 +466,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       energy -= currentMask.energyCost;
     }
     
+    selectedMaskIndex = targetIndex;
     attackCooldown = currentMask.cooldown * swapSpeedModifier; 
 
     if (game.isAudioReady) {
@@ -609,6 +617,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     }
 
     if (attackCooldown > 0) attackCooldown -= dt;
+    if (maskSwapAnimationTimer > 0) maskSwapAnimationTimer -= dt;
+    if (activeDefenseCooldown > 0) activeDefenseCooldown -= dt;
     
     bool isBuffActive = false;
     double lowestTimer = 999.0;

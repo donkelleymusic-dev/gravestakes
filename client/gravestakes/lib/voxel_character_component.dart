@@ -15,10 +15,14 @@ class VoxelCharacterComponent extends PositionComponent {
   double stunTimer = 0.0;
 
   double attackCooldown = 0.0;
+  double swapAnimTimer = 0.0; // NEW
 
   ui.Image? activeMaskImage;
-  
   double _walkCycleTime = 0.0;
+
+  void triggerSwapAnimation() {
+    swapAnimTimer = 0.15;
+  }
 
   VoxelCharacterComponent({
     required this.images,
@@ -29,6 +33,7 @@ class VoxelCharacterComponent extends PositionComponent {
   @override
   void update(double dt) {
     super.update(dt);
+    if (swapAnimTimer > 0) swapAnimTimer -= dt;
     if (isMoving && !isStunned) {
       _walkCycleTime += dt * 8.0; 
     } else {
@@ -159,6 +164,12 @@ class VoxelCharacterComponent extends PositionComponent {
       canvas.translate(x, y);
       
       double maskScale = hW / activeMaskImage!.width;
+
+      // --- NEW: Mask Swap Visual Polish ---
+      if (swapAnimTimer > 0) {
+        canvas.rotate(sin(swapAnimTimer * 60) * 0.3); // Quick shudder
+        maskScale *= 1.2; // Quick pop effect
+      }
 
       if (attackCooldown > 0) {
         canvas.rotate(sin(attackCooldown * 40) * 0.15); 
