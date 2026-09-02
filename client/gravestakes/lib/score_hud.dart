@@ -51,7 +51,7 @@ class ScoreHud extends TextComponent with HasGameReference<GraveStakesGame> {
       
       text = 'TEAM: $myTeamScore | ENEMY: $enemyTeamScore | YOU: ${game.player.score}';
     } else {
-      text = 'SOULS COLLECTED: ${game.player.score}';
+      text = 'SOULS: ${game.player.score}';
     }
   }
 }
