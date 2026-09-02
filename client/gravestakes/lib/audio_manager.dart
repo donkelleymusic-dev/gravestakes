@@ -36,6 +36,22 @@ class AudioManager {
   AudioSource? powerupSource;
   AudioSource? impactSource;
 
+  double _userGlobalVolume = 1.0;
+
+  void mute() {
+    if (SoLoud.instance.isInitialized) {
+      // Remember current master volume if needed
+      _userGlobalVolume = SoLoud.instance.getGlobalVolume();
+      SoLoud.instance.setGlobalVolume(0.0);
+    }
+  }
+
+  void unmute() {
+    if (SoLoud.instance.isInitialized) {
+      SoLoud.instance.setGlobalVolume(_userGlobalVolume);
+    }
+  }
+
   Future<void> init() async {
     if (isInitialized) return;
     try {
