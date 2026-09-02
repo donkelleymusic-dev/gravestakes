@@ -37,18 +37,20 @@ class AudioManager {
   AudioSource? impactSource;
 
   double _userGlobalVolume = 1.0;
+  bool _isMuted = false; // Add a tracking flag
 
   void mute() {
-    if (SoLoud.instance.isInitialized) {
-      // Remember current master volume if needed
+    if (SoLoud.instance.isInitialized && !_isMuted) {
       _userGlobalVolume = SoLoud.instance.getGlobalVolume();
       SoLoud.instance.setGlobalVolume(0.0);
+      _isMuted = true;
     }
   }
 
   void unmute() {
-    if (SoLoud.instance.isInitialized) {
+    if (SoLoud.instance.isInitialized && _isMuted) {
       SoLoud.instance.setGlobalVolume(_userGlobalVolume);
+      _isMuted = false;
     }
   }
 
