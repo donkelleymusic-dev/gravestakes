@@ -617,9 +617,42 @@ await camera.viewport.add(MapButton());
       try {
         await Supabase.instance.client.rpc(
           'process_match_rewards',
-          params: {'xp_earned': xpEarned, 'shadows_earned': shadowsEarned, 'coins_earned': player.coinsEarned},
+          params: {
+            'xp_earned': xpEarned, 
+            'shadows_earned': shadowsEarned, 
+            'coins_earned': player.coinsEarned
+          },
         );
-      } catch (e) {}
+
+        // Fetch user guild and award IP to an active resonator node
+        final userId = Supabase.instance.client.auth.currentUser?.id;
+        if (userId != null) {
+          final member = await Supabase.instance.client
+              .from('guild_members')
+              .select('guild_id')
+              .eq('user_id', userId)
+              .maybeSingle();
+
+          if (member != null) {
+            final activeNode = await Supabase.instance.client
+                .from('guild_nodes')
+                .select('id')
+                .limit(1)
+                .maybeSingle();
+
+            if (activeNode != null) {
+              await Supabase.instance.client.rpc('award_match_ip', params: {
+                'p_user_id': userId,
+                'p_guild_id': member['guild_id'],
+                'p_node_id': activeNode['id'],
+                'p_match_type': matchMode,
+              });
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Reward error: $e');
+      }
     }
 
     if (isHost) {

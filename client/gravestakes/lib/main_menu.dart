@@ -16,6 +16,7 @@ import 'level_up_overlay.dart';
 import 'guild_war_map_screen.dart';
 import 'guild_war_results_overlay.dart';
 import 'audio_manager.dart';
+import 'guild_war_results_overlay.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -40,11 +41,41 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   
   String _selectedMatchMode = '1v1'; 
 
+  Future<void> _checkPendingGuildWarRewards() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final pendingReward = await supabase
+          .from('guild_war_rewards_queue')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('claimed', false)
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (pendingReward != null && mounted) {
+        GuildWarResultsOverlay.show(
+          context,
+          pendingReward,
+          () {
+            // Callback fired after spoils are claimed
+            _fetchPlayerData(); // Refreshes shadows, coins, and wallet display
+          },
+        );
+      }
+    } catch (e) {
+      debugPrint('Error checking guild war rewards queue: $e');
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _loadSavedPreferences();
     _fetchPlayerData();
+    _checkPendingGuildWarRewards();
     _initMenuAudio(); // Initialize and play menu music
   }
 
@@ -235,6 +266,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         ),
       ).then((_) {
         _fetchPlayerData();
+        _checkPendingGuildWarRewards(); // Checks queue if a season reset concluded during the match
       });
       
     } on PostgrestException catch (e) {
@@ -448,7 +480,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       );
                     },
                   ),
-
+                  const SizedBox(height: 10),
                   _buildMenuButton(
                     icon: Icons.store,
                     label: 'THE BLACK MARKET',

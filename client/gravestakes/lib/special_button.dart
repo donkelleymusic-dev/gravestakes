@@ -8,6 +8,9 @@ class SpecialButton extends PositionComponent with HasGameReference<GraveStakesG
 
   late final TextComponent label;
 
+  // Checks if the player holds an unspent charge or is actively using it
+  bool get isActivatable => game.player.hasInvisibilityCharge || game.player.isInvisible;
+
   @override
   Future<void> onLoad() async {
     size = Vector2(110, 44);
@@ -31,26 +34,30 @@ class SpecialButton extends PositionComponent with HasGameReference<GraveStakesG
   @override
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
-    // Keeps it cleanly stacked above the 4-way attack button if the window resizes
+    // Keeps persistent position above the 4-way attack button
     position = Vector2(size.x - 165, size.y - 240);
+  }
+
+  @override
+  void renderTree(Canvas canvas) {
+    // Completely skips rendering both the container and child label when no action is available
+    if (!isActivatable) return;
+    super.renderTree(canvas);
   }
 
   @override
   void render(Canvas canvas) {
     final player = game.player;
-    final isReady = player.hasInvisibilityCharge;
     final isActive = player.isInvisible;
 
     final paint = Paint()
       ..color = isActive
           ? Colors.cyanAccent.withValues(alpha: 0.8)
-          : isReady
-              ? Colors.deepPurpleAccent.withValues(alpha: 0.85)
-              : Colors.grey.withValues(alpha: 0.3)
+          : Colors.deepPurpleAccent.withValues(alpha: 0.85)
       ..style = PaintingStyle.fill;
 
     final borderPaint = Paint()
-      ..color = (isReady || isActive) ? Colors.white : Colors.white24
+      ..color = Colors.white
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
 
@@ -77,6 +84,8 @@ class SpecialButton extends PositionComponent with HasGameReference<GraveStakesG
 
   @override
   void onTapDown(TapDownEvent event) {
+    // Ignores accidental taps when hidden
+    if (!isActivatable) return;
     game.player.activateInvisibility();
   }
 }
