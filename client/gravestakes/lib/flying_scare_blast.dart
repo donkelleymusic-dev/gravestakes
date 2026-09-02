@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'game.dart';
 import 'Floating_text.dart';
+import 'audio_manager.dart';
 
 class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakesGame> {
   final double speed = 180.0; 
@@ -31,10 +32,10 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
   @override
   Future<void> onLoad() async {
     super.onLoad();
-    if (game.isAudioReady && game.batScreechSource != null) {
+    if (AudioManager.instance.isInitialized && AudioManager.instance.maskScareSounds['flying'] != null) {
       final posX = position.x / _audioScale;
       final posY = position.y / _audioScale;
-      _audioHandle = SoLoud.instance.play3d(game.batScreechSource!, posX, posY, 0.0, volume: 1.0);
+      _audioHandle = SoLoud.instance.play3d(AudioManager.instance.maskScareSounds['flying']!, posX, posY, 0.0, volume: 1.0);
       SoLoud.instance.set3dSourceMinMaxDistance(_audioHandle!, 2.0, 30.0);
     }
   }
@@ -45,7 +46,7 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
     
     position += direction * speed * dt;
     
-    if (_audioHandle != null && game.isAudioReady) {
+    if (_audioHandle != null && AudioManager.instance.isInitialized) {
       final posX = position.x / _audioScale;
       final posY = position.y / _audioScale;
       SoLoud.instance.set3dSourcePosition(_audioHandle!, posX, posY, 0.0);
@@ -133,7 +134,7 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
   }
 
   void _stopAudio() {
-    if (_audioHandle != null && game.isAudioReady) {
+    if (_audioHandle != null && AudioManager.instance.isInitialized) {
       SoLoud.instance.stop(_audioHandle!);
       _audioHandle = null;
     }

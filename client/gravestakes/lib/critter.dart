@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'game.dart';
 import 'mask_data.dart';
+import 'audio_manager.dart';
 
 class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
   bool isDead = false; 
@@ -46,12 +47,12 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
   @override
   Future<void> onLoad() async {
     try {
-      if (index == 0 && game.isAudioReady && game.ratScurrySource != null) {
+      if (index == 0 && AudioManager.instance.isInitialized && AudioManager.instance.maskScareSounds['vermin'] != null) {
         final posX = position.x / _audioScale;
         final posY = position.y / _audioScale;
 
         _scurryHandle = SoLoud.instance.play3d(
-          game.ratScurrySource!,
+          AudioManager.instance.maskScareSounds['vermin']!,
           posX,
           posY,
           0.0,
@@ -95,7 +96,7 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
       velocity.y *= -1; 
     }
 
-    if (index == 0 && _scurryHandle != null && game.isAudioReady) {
+    if (index == 0 && _scurryHandle != null && AudioManager.instance.isInitialized) {
       final posX = position.x / _audioScale;
       final posY = position.y / _audioScale;
       SoLoud.instance.set3dSourcePosition(_scurryHandle!, posX, posY, 0.0);
@@ -161,7 +162,7 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
   }
 
   void _stopAudio() {
-    if (_scurryHandle != null && game.isAudioReady) {
+    if (_scurryHandle != null && AudioManager.instance.isInitialized) {
       SoLoud.instance.stop(_scurryHandle!);
       _scurryHandle = null;
     }

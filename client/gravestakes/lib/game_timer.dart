@@ -2,6 +2,7 @@ import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'game.dart';
+import 'audio_manager.dart';
 
 class GameTimer extends TextComponent with HasGameReference<GraveStakesGame> {
   double timeLeft = 180.0; 
@@ -43,8 +44,8 @@ class GameTimer extends TextComponent with HasGameReference<GraveStakesGame> {
         isRunning = false;
         
         // --- FINAL MATCH SOUND ---
-        if (game.isAudioReady && game.scareSource != null) {
-          SoLoud.instance.play(game.scareSource!, volume: 2.0); // Loud end bell!
+        if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
+          SoLoud.instance.play(AudioManager.instance.impactSource!, volume: 2.0); // Loud end bell!
         }
         
         if (game.isHost) {

@@ -506,9 +506,12 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
     selectedMaskIndex = targetIndex;
     attackCooldown = currentMask.cooldown * swapSpeedModifier; 
 
-    if (game.isAudioReady) {
-      if (currentMask.id == 'standard' && game.scareSource != null) SoLoud.instance.play(game.scareSource!);
-      else if (currentMask.id == 'flying' && game.batScreechSource != null) SoLoud.instance.play(game.batScreechSource!);
+    if (AudioManager.instance.isInitialized) {
+      if (currentMask.id == 'standard' && AudioManager.instance.impactSource != null) {
+        SoLoud.instance.play(AudioManager.instance.impactSource!);
+      } else if (currentMask.id == 'flying' && AudioManager.instance.maskScareSounds['flying'] != null) {
+        SoLoud.instance.play(AudioManager.instance.maskScareSounds['flying']!);
+      }
     }
 
     final masterSeed = DateTime.now().millisecondsSinceEpoch;
@@ -716,9 +719,9 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
       _tickAccumulator += dt;
       if (_tickAccumulator >= 1.0) {
         _tickAccumulator -= 1.0;
-        if (game.isAudioReady && game.tickSource != null) {
+        if (AudioManager.instance.isInitialized && AudioManager.instance.tickSource != null) {
           final tickVolume = lowestTimer <= 8.0 ? 1.0 : 0.05;
-          SoLoud.instance.play(game.tickSource!, volume: tickVolume);
+          SoLoud.instance.play(AudioManager.instance.tickSource!, volume: tickVolume);
         }
       }
     } else { _tickAccumulator = 0.0; }
@@ -750,7 +753,7 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
       if (comp is PowerUp) {
         if (position.distanceTo(comp.position) < 30) {
           powerUpTimer = 10.0; 
-          try { if (game.isAudioReady && game.powerupSource != null) SoLoud.instance.play(game.powerupSource!); } catch (e) {}
+          try { if (AudioManager.instance.isInitialized && AudioManager.instance.powerupSource != null) SoLoud.instance.play(AudioManager.instance.powerupSource!); } catch (e) {}
           powerUpsToRemove.add(comp);
           channel.sendBroadcastMessage(event: 'consume_powerup', payload: {'id': comp.id});
           

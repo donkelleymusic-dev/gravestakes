@@ -252,15 +252,23 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       if (game.matchMode == '2v2' && game.getEntityTeam(this) == game.getEntityTeam(game.player)) {
         // Skip
       } else {
-        double dist = position.distanceTo(game.player.position);
-        if (dist < minDistance) { minDistance = dist; closest = game.player; }
+        // --- Add stealth check to Hunter radar ---
+        bool isStealthing = game.player.isInvisible || (game.player.isDisguised && !game.player.isMoving);
+        if (!isStealthing) {
+          double dist = position.distanceTo(game.player.position);
+          if (dist < minDistance) { minDistance = dist; closest = game.player; }
+        }
       }
     }
     for (var entry in game.networkPlayers.entries) {
       if (game.matchMode == '2v2' && game.getEntityTeam(this) == game.getEntityTeam(entry.key)) continue; // SKIP
       var remote = entry.value;
-      double dist = position.distanceTo(remote.position);
-      if (dist < minDistance) { minDistance = dist; closest = remote; }
+      // Add stealth check to Hunter radar ---
+      bool isStealthing = remote.isInvisible || (remote.isDisguised && !remote.isMoving);
+      if (!isStealthing) {
+        double dist = position.distanceTo(remote.position);
+        if (dist < minDistance) { minDistance = dist; closest = remote; }
+      }
     }
     return closest;
   }
@@ -375,6 +383,11 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
               _hunterPath = game.gameMap.findPath(position, currentTarget!.position);
               _pathRecalcTimer = 0.5; 
             }
+          } else {
+            // --- If radar loses lock (everyone invisible), clear path and wander ---
+            _hunterPath.clear();
+            directionTimer -= dt;
+            if (directionTimer <= 0) _chooseNewDirection();
           }
         }
         

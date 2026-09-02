@@ -62,14 +62,14 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   double countdownTimer = 3.0;
   int _lastTick = 3;
   
-  AudioSource? scareSource;
+  /* AudioSource? scareSource;
   AudioSource? footstepSource;
   AudioSource? powerupSource;
   AudioSource? tickSource;
   AudioSource? batScreechSource;
   AudioSource? ratScurrySource;
 
-  bool isAudioReady = false;
+  bool isAudioReady = false; */
 
   Map<String, Map<String, ui.Image>> characterImagesCache = {};
   Map<String, Map<String, dynamic>> characterRigCache = {};
@@ -171,7 +171,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     Vector2(1770, 960),    
   ];
 
-  Future<void> initAudioEngine() async {
+  /* Future<void> initAudioEngine() async {
     if (isAudioReady) return;
     try {
       if (!SoLoud.instance.isInitialized) {
@@ -188,7 +188,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       debugPrint('AUDIO INIT FAILED: $e');
       isAudioReady = false;
     }
-  }
+  } */
 
   Future<void> _loadVoxelAssets() async {
     try {
@@ -429,7 +429,10 @@ await camera.viewport.add(MapButton());
       
       if (currentTick < _lastTick && currentTick > 0) {
         _lastTick = currentTick;
-        if (isAudioReady && footstepSource != null) SoLoud.instance.play(footstepSource!);
+        // Replaced footstepSource with tickSource for the countdown
+        if (AudioManager.instance.isInitialized && AudioManager.instance.tickSource != null) {
+          SoLoud.instance.play(AudioManager.instance.tickSource!);
+        }
         
         overlays.remove('countdown');
         overlays.add('countdown');
@@ -440,14 +443,17 @@ await camera.viewport.add(MapButton());
         gameStarted = true;
         overlays.remove('countdown');
         gameTimer.start(); 
-        if (isAudioReady && scareSource != null) SoLoud.instance.play(scareSource!);
+        // Play the heavy impact sound for "GO!"
+        if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
+          SoLoud.instance.play(AudioManager.instance.impactSource!);
+        }
       }
       return; 
     }
 
     if (!gameStarted) return;
 
-    if (isAudioReady) {
+    if (AudioManager.instance.isInitialized) {
       const double audioScale = 50.0; 
       final pX = player.position.x / audioScale;
       final pY = player.position.y / audioScale;
@@ -482,7 +488,7 @@ await camera.viewport.add(MapButton());
     // --- Bulletproof Music Handoff ---
     AudioManager.instance.stopMusic(); // Kills in-game tracks
     AudioManager.instance.playMenuMusic(); // Resumes menu theme
-    
+
     super.onRemove();
   }
 
@@ -640,7 +646,9 @@ await camera.viewport.add(MapButton());
     final boxPos = boxes.first.position.clone();
     for (var box in boxes) box.removeFromParent();
 
-    if (isAudioReady && powerupSource != null) SoLoud.instance.play(powerupSource!);
+    if (AudioManager.instance.isInitialized && AudioManager.instance.powerupSource != null) {
+      SoLoud.instance.play(AudioManager.instance.powerupSource!);
+    }
 
     if (playerId == mySessionId) {
       final rewards = [
@@ -923,7 +931,12 @@ await camera.viewport.add(MapButton());
             jumpScareEffect.trigger();
             player.applyStun(duration);
             player.triggerPrivateHighlight();
-            if (isAudioReady && scareSource != null) SoLoud.instance.play(scareSource!);
+            
+            // Replaced legacy scareSource with the new manager's impactSource
+            if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
+              SoLoud.instance.play(AudioManager.instance.impactSource!);
+            }
+            
             if (attackerId != null && networkPlayers.containsKey(attackerId)) {
               networkPlayers[attackerId]!.triggerPrivateHighlight();
             }

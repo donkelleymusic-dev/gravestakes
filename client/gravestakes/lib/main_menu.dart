@@ -180,7 +180,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         targetPlayers: targetPlayers,
       );
       
-      await gameInstance.initAudioEngine();
+      //await gameInstance.initAudioEngine();
 
       final response = await supabase.rpc(
         'find_or_create_match',
