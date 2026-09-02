@@ -42,6 +42,7 @@ class AudioManager {
       if (!SoLoud.instance.isInitialized) {
         try {
           await SoLoud.instance.init();
+          SoLoud.instance.setMaxActiveVoiceCount(64);
         } catch (e) {
           // Catch the native C++ hot-restart desync
           debugPrint('Native audio engine desync detected. Forcing reset...');
