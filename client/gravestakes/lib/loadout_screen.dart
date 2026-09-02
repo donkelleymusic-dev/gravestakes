@@ -29,7 +29,6 @@ class WearableDef {
         counterTarget = json['counter_target'] as String,
         buffStat = json['buff_stat'] as String,
         buffValue = (json['buff_value'] as num).toDouble(),
-        // Defaulting to false/0.0 if not yet in DB schema
         isActiveDefense = json['is_active_defense'] as bool? ?? false, 
         energyCost = (json['energy_cost'] as num?)?.toDouble() ?? 0.0;
 }
@@ -153,7 +152,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     setState(() => _isLoading = true);
 
     try {
-      // Upsert Character & Wearables
       final basePayloads = [
         {'user_id': userId, 'slot_type': 'character', 'item_value': _draftCharacterId}
       ];
@@ -240,7 +238,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     return baseValue * modifier;
   }
 
-  Widget buildSafeItemThumbnail({required String? assetPath, required String slotType, double size = 32.0}) {
+  Widget buildSafeItemThumbnail({required String? assetPath, required String slotType, double size = 26.0}) {
     IconData fallbackIcon = Icons.shield;
     Color iconColor = Colors.purpleAccent;
 
@@ -265,12 +263,12 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     Color valColor = isBuffed ? Colors.greenAccent : (isNerfed ? Colors.redAccent : Colors.grey);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      padding: const EdgeInsets.symmetric(vertical: 2.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 14, color: Colors.white70)),
-          Text(draftValue.toStringAsFixed(1), style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: valColor)),
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+          Text(draftValue.toStringAsFixed(1), style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: valColor)),
         ],
       ),
     );
@@ -285,12 +283,12 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     final activeCharData = _charactersCatalog[_draftCharacterId] ?? {};
     double baseSpeed = (activeCharData['base_speed'] as num?)?.toDouble() ?? 200.0;
     double baseEnergy = (activeCharData['max_energy'] as num?)?.toDouble() ?? 10.0;
-    double baseRegen = 0.5; // Update if regen added to DB
+    double baseRegen = 0.5;
 
     return Scaffold(
       backgroundColor: const Color(0xFF111111),
       appBar: AppBar(
-        title: const Text('RELIQUARY LOADOUT', style: TextStyle(letterSpacing: 2.0, color: Colors.purpleAccent)),
+        title: const Text('VESSEL ATTUNEMENT', style: TextStyle(letterSpacing: 2.0, color: Colors.purpleAccent, fontSize: 16)),
         backgroundColor: Colors.black,
         elevation: 0,
         leading: IconButton(
@@ -300,135 +298,191 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       ),
       body: Column(
         children: [
-          Expanded(
+          // ==========================================
+          // ROW 1: CHARACTER STATS (75%) & 3D RIG (25%)
+          // ==========================================
+          Container(
+            height: 125,
+            color: Colors.black54,
+            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
             child: Row(
               children: [
-                // LEFT PANEL: Stats & Active Slots
+                // LEFT: 75% Width Column
                 Expanded(
                   flex: 3,
-                  child: Container(
-                    padding: const EdgeInsets.all(16.0),
-                    color: Colors.black45,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text((activeCharData['name'] as String?)?.toUpperCase() ?? 'OPERATIVE', 
-                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
-                        const Divider(color: Colors.purpleAccent),
-                        _buildStatRow('Speed', baseSpeed, _getDraftStat('speed', baseSpeed), false),
-                        _buildStatRow('Max Energy', baseEnergy, _getDraftStat('energy_max', baseEnergy), false),
-                        _buildStatRow('Regen', baseRegen, _getDraftStat('regen', baseRegen), false),
-                        
-                        const Spacer(),
-                        const Text('DRAFT SLOTS (TAP TO ASSIGN/CLEAR)', style: TextStyle(fontSize: 11, color: Colors.orangeAccent)),
-                        const SizedBox(height: 8),
-                        
-                        // Mask Slots
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: List.generate(4, (i) {
-                            String mId = _draftMasks[i];
-                            bool isSelected = _selectedItemType == 'mask';
-                            return GestureDetector(
-                              onTap: () => mId.isEmpty && isSelected ? _assignSelectedToSlot('mask_${i + 1}') : _clearSlot('mask_${i + 1}'),
-                              child: Container(
-                                width: 40, height: 40,
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: isSelected && mId.isEmpty ? Colors.green : Colors.white30),
-                                  color: mId.isNotEmpty ? Colors.redAccent.withOpacity(0.2) : Colors.transparent,
-                                ),
-                                child: mId.isNotEmpty ? const Icon(Icons.masks, size: 20, color: Colors.redAccent) : const Icon(Icons.add, color: Colors.white30),
-                              ),
-                            );
-                          }),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          (activeCharData['name'] as String?)?.toUpperCase() ?? 'OPERATIVE', 
+                          maxLines: 1,
+                          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.0),
                         ),
-                        const SizedBox(height: 16),
-                        
-                        // Wearable Slots
-                        _buildWearableSlot('wearable_neck', 'Neck', Icons.diamond, Colors.cyanAccent),
-                        _buildWearableSlot('wearable_arms', 'Arms', Icons.back_hand, Colors.greenAccent),
-                        _buildWearableSlot('wearable_belt', 'Belt', Icons.accessibility, Colors.orangeAccent),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 2),
+                      const Divider(color: Colors.purpleAccent, height: 6, thickness: 1),
+                      _buildStatRow('Speed', baseSpeed, _getDraftStat('speed', baseSpeed), false),
+                      _buildStatRow('Max Energy', baseEnergy, _getDraftStat('energy_max', baseEnergy), false),
+                      _buildStatRow('Regen', baseRegen, _getDraftStat('regen', baseRegen), false),
+                    ],
                   ),
                 ),
-                
-                // CENTER PANEL: Mannequin Preview
+                const SizedBox(width: 8),
+                // RIGHT: 25% Width Column for Voxel Mannequin
                 Expanded(
-                  flex: 4,
+                  flex: 1,
                   child: GestureDetector(
                     onPanUpdate: (details) {
                       _mannequinGame.isAutoRotating = false;
                       if (_mannequinGame.mannequin != null) {
-                        _mannequinGame.mannequin!.targetAngle += details.delta.dx * 0.01;
+                        _mannequinGame.mannequin!.targetAngle += details.delta.dx * 0.02;
                       }
                     },
-                    child: GameWidget(game: _mannequinGame),
-                  ),
-                ),
-                
-                // RIGHT PANEL: Inventory Deck
-                Expanded(
-                  flex: 3,
-                  child: Container(
-                    color: Colors.black87,
-                    child: Column(
-                      children: [
-                        TabBar(
-                          controller: _tabController,
-                          indicatorColor: Colors.purpleAccent,
-                          labelColor: Colors.purpleAccent,
-                          unselectedLabelColor: Colors.white54,
-                          isScrollable: true,
-                          tabs: const [
-                            Tab(icon: Icon(Icons.person), text: 'Char'),
-                            Tab(icon: Icon(Icons.masks), text: 'Masks'),
-                            Tab(icon: Icon(Icons.diamond), text: 'Neck'),
-                            Tab(icon: Icon(Icons.back_hand), text: 'Arms'),
-                            Tab(icon: Icon(Icons.accessibility), text: 'Belt'),
-                          ],
-                        ),
-                        Expanded(
-                          child: TabBarView(
-                            controller: _tabController,
-                            children: [
-                              _buildInventoryGrid('character'),
-                              _buildInventoryGrid('mask'),
-                              _buildInventoryGrid('wearable_neck'),
-                              _buildInventoryGrid('wearable_arms'),
-                              _buildInventoryGrid('wearable_belt'),
-                            ],
-                          ),
-                        ),
-                      ],
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        color: Colors.black38,
+                        child: GameWidget(game: _mannequinGame),
+                      ),
                     ),
                   ),
                 ),
               ],
             ),
           ),
-          
-          // BOTTOM FOOTER: Save / Revert
-          if (_hasUnsavedChanges)
-            Container(
-              padding: const EdgeInsets.all(16.0),
-              color: Colors.black,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+
+          // ==========================================
+          // ROW 2: INVENTORY DECK (FULL-WIDTH EXPANDED)
+          // ==========================================
+          Expanded(
+            child: Container(
+              color: Colors.black87,
+              child: Column(
                 children: [
-                  TextButton(
-                    onPressed: _revertDraft,
-                    child: const Text('REVERT', style: TextStyle(color: Colors.redAccent, letterSpacing: 1.5)),
+                  TabBar(
+                    controller: _tabController,
+                    indicatorColor: Colors.purpleAccent,
+                    labelColor: Colors.purpleAccent,
+                    unselectedLabelColor: Colors.white54,
+                    labelPadding: const EdgeInsets.symmetric(horizontal: 10),
+                    tabs: const [
+                      Tab(icon: Icon(Icons.person, size: 18), text: 'Char'),
+                      Tab(icon: Icon(Icons.masks, size: 18), text: 'Masks'),
+                      Tab(icon: Icon(Icons.diamond, size: 18), text: 'Neck'),
+                      Tab(icon: Icon(Icons.back_hand, size: 18), text: 'Arms'),
+                      Tab(icon: Icon(Icons.accessibility, size: 18), text: 'Belt'),
+                    ],
                   ),
-                  const SizedBox(width: 16),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                    onPressed: _commitDraft,
-                    child: const Text('CONFIRM DEPLOYMENT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildInventoryGrid('character'),
+                        _buildInventoryGrid('mask'),
+                        _buildInventoryGrid('wearable_neck'),
+                        _buildInventoryGrid('wearable_arms'),
+                        _buildInventoryGrid('wearable_belt'),
+                      ],
+                    ),
                   ),
                 ],
               ),
-            )
+            ),
+          ),
+
+          // ==========================================
+          // ROW 3: ATTUNED WARDS & MASKS DOCK
+          // ==========================================
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+            decoration: const BoxDecoration(
+              color: Color(0xFF0D0D12),
+              border: Border(top: BorderSide(color: Colors.purpleAccent, width: 1)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('ATTUNED WARDS & MASKS', 
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.orangeAccent, letterSpacing: 1.0)),
+                    Text(
+                      _selectedInventoryId != null ? 'TAP SLOT TO BIND' : 'TAP TO DISMISS',
+                      style: const TextStyle(fontSize: 9, color: Colors.white38),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                
+                // Mask Slots (4 Across)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: List.generate(4, (i) {
+                    String mId = _draftMasks[i];
+                    bool isSelected = _selectedItemType == 'mask';
+                    return GestureDetector(
+                      onTap: () => mId.isEmpty && isSelected ? _assignSelectedToSlot('mask_${i + 1}') : _clearSlot('mask_${i + 1}'),
+                      child: Container(
+                        width: 44, height: 44,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: isSelected && mId.isEmpty ? Colors.greenAccent : Colors.white24),
+                          color: mId.isNotEmpty ? Colors.redAccent.withOpacity(0.25) : Colors.black45,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: mId.isNotEmpty 
+                          ? const Icon(Icons.masks, size: 22, color: Colors.redAccent) 
+                          : const Icon(Icons.add, size: 18, color: Colors.white24),
+                      ),
+                    );
+                  }),
+                ),
+                const SizedBox(height: 8),
+
+                // Wearable Slots (3 Across)
+                Row(
+                  children: [
+                    Expanded(child: _buildWearableSlot('wearable_neck', 'Neck', Icons.diamond, Colors.cyanAccent)),
+                    const SizedBox(width: 6),
+                    Expanded(child: _buildWearableSlot('wearable_arms', 'Arms', Icons.back_hand, Colors.greenAccent)),
+                    const SizedBox(width: 6),
+                    Expanded(child: _buildWearableSlot('wearable_belt', 'Belt', Icons.accessibility, Colors.orangeAccent)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // ==========================================
+          // BOTTOM CONFIRMATION / PURGE BAR
+          // ==========================================
+          if (_hasUnsavedChanges)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+              color: Colors.black,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  TextButton(
+                    onPressed: _revertDraft,
+                    child: const Text('DISMISS', style: TextStyle(color: Colors.redAccent, letterSpacing: 1.5, fontSize: 13)),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green[700],
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    ),
+                    onPressed: _commitDraft,
+                    child: const Text('SEAL ATTUNEMENT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2, fontSize: 13)),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -438,24 +492,38 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     String? assignedId = _draftLoadout[slotKey];
     bool isSelected = _selectedItemType == slotKey;
     
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
-      child: GestureDetector(
-        onTap: () => assignedId == null && isSelected ? _assignSelectedToSlot(slotKey) : _clearSlot(slotKey),
-        child: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            border: Border.all(color: isSelected && assignedId == null ? Colors.green : Colors.white24),
-            color: assignedId != null ? color.withOpacity(0.1) : Colors.transparent,
-          ),
-          child: Row(
-            children: [
-              Icon(icon, color: assignedId != null ? color : Colors.white30, size: 20),
-              const SizedBox(width: 12),
-              Expanded(child: Text(assignedId != null ? _wearablesCatalog[assignedId]?.name ?? 'UNKNOWN' : 'EMPTY $label', style: TextStyle(color: assignedId != null ? Colors.white : Colors.white54, fontSize: 12))),
-              if (assignedId == null) const Icon(Icons.add, color: Colors.white30, size: 16) else const Icon(Icons.close, color: Colors.redAccent, size: 16)
-            ],
-          ),
+    return GestureDetector(
+      onTap: () => assignedId == null && isSelected ? _assignSelectedToSlot(slotKey) : _clearSlot(slotKey),
+      child: Container(
+        height: 38,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        decoration: BoxDecoration(
+          border: Border.all(color: isSelected && assignedId == null ? Colors.greenAccent : Colors.white24),
+          color: assignedId != null ? color.withOpacity(0.15) : Colors.black45,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: assignedId != null ? color : Colors.white30, size: 16),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                assignedId != null ? _wearablesCatalog[assignedId]?.name ?? 'UNKNOWN' : label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: assignedId != null ? Colors.white : Colors.white54,
+                  fontSize: 10,
+                  fontWeight: assignedId != null ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ),
+            Icon(
+              assignedId == null ? Icons.add : Icons.close, 
+              color: assignedId == null ? Colors.white24 : Colors.redAccent, 
+              size: 14,
+            ),
+          ],
         ),
       ),
     );
@@ -467,47 +535,69 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       items.insert(0, {'item_type': 'character', 'item_id': 'default'});
     }
 
-    if (items.isEmpty) return const Center(child: Text('No items found.', style: TextStyle(color: Colors.white54)));
+    if (items.isEmpty) return const Center(child: Text('No relics found in crypt.', style: TextStyle(color: Colors.white54)));
 
-    return GridView.builder(
-      padding: const EdgeInsets.all(12.0),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12),
-      itemCount: items.length,
-      itemBuilder: (context, index) {
-        final itemId = items[index]['item_id'] as String;
-        bool isSelected = _selectedInventoryId == itemId;
-        String displayTitle = itemId.replaceAll('_', ' ').toUpperCase();
-        
-        if (targetItemType == 'character' && _charactersCatalog.containsKey(itemId)) {
-          displayTitle = _charactersCatalog[itemId]!['name'] ?? displayTitle;
-        } else if (targetItemType != 'character' && targetItemType != 'mask' && _wearablesCatalog.containsKey(itemId)) {
-          displayTitle = _wearablesCatalog[itemId]!.name;
-        }
+    // Center vertically in the available Expanded space
+    return Center(
+      child: ConstrainedBox(
+        // Enforce a strict max height so cards never cause vertical overflow
+        constraints: const BoxConstraints(maxHeight: 110), 
+        child: ListView.separated(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          // Force horizontal scrolling ONLY
+          scrollDirection: Axis.horizontal, 
+          itemCount: items.length,
+          separatorBuilder: (context, index) => const SizedBox(width: 12),
+          itemBuilder: (context, index) {
+            final itemId = items[index]['item_id'] as String;
+            bool isSelected = _selectedInventoryId == itemId;
+            String displayTitle = itemId.replaceAll('_', ' ').toUpperCase();
+            
+            if (targetItemType == 'character' && _charactersCatalog.containsKey(itemId)) {
+              displayTitle = _charactersCatalog[itemId]!['name'] ?? displayTitle;
+            } else if (targetItemType != 'character' && targetItemType != 'mask' && _wearablesCatalog.containsKey(itemId)) {
+              displayTitle = _wearablesCatalog[itemId]!.name;
+            }
 
-        return GestureDetector(
-          onTap: () => _selectInventoryItem(targetItemType, itemId),
-          child: Container(
-            decoration: BoxDecoration(
-              color: isSelected ? Colors.purpleAccent.withOpacity(0.2) : Colors.grey[900],
-              border: Border.all(color: isSelected ? Colors.purpleAccent : Colors.white12, width: 2),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(4.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    buildSafeItemThumbnail(assetPath: null, slotType: targetItemType, size: 28.0),
-                    const SizedBox(height: 8),
-                    Text(displayTitle, textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: isSelected ? Colors.white : Colors.white70, fontFamily: 'Courier')),
-                  ],
+            return SizedBox(
+              width: 90, // Fixed width for each horizontal card
+              child: GestureDetector(
+                onTap: () => _selectInventoryItem(targetItemType, itemId),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isSelected ? Colors.purpleAccent.withOpacity(0.2) : Colors.grey[900],
+                    border: Border.all(color: isSelected ? Colors.purpleAccent : Colors.white12, width: 1.5),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(4.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          buildSafeItemThumbnail(assetPath: null, slotType: targetItemType, size: 28.0),
+                          const SizedBox(height: 8),
+                          Text(
+                            displayTitle, 
+                            textAlign: TextAlign.center, 
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 9, 
+                              color: isSelected ? Colors.white : Colors.white70, 
+                              fontFamily: 'Courier',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-        );
-      },
+            );
+          },
+        ),
+      ),
     );
   }
 }
@@ -554,10 +644,10 @@ class MannequinGame extends FlameGame {
       }
 
       if (rig != null) {
-        final newMannequin = VoxelCharacterComponent(images: images, rigData: rig, hitboxSize: Vector2(160, 160));
+        // Scaled down hitbox from (160, 160) to (54, 54) to shrink preview model ~3x
+        final newMannequin = VoxelCharacterComponent(images: images, rigData: rig, hitboxSize: Vector2(54, 54));
         if (hasLayout) newMannequin.position = size / 2;
         
-        // Wipe old character ONLY after async tasks finish
         removeWhere((component) => component is VoxelCharacterComponent);
         mannequin = newMannequin;
         add(mannequin!);
@@ -578,7 +668,6 @@ class MannequinGame extends FlameGame {
       return;
     }
     try {
-      // Use the local FlameGame images cache instead of the global Flame class
       mannequin!.activeMaskImage = await images.load('${maskId}_mask.png');
     } catch (e) {
       debugPrint('Mask asset missing: $e');
