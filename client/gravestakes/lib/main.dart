@@ -1,6 +1,8 @@
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'game.dart';
 import 'login_screen.dart';
 import 'main_menu.dart';
@@ -20,6 +22,22 @@ Future<void> main() async {
   // 2. Initialize SoLoud and fire the music immediately during the splash phase
   await AudioManager.instance.init();
   AudioManager.instance.playMenuMusic();
+
+  // 2.1 Make game full screen
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Hide the navigation bar (Back/Home/Recents) and status bar automatically
+  await SystemChrome.setEnabledSystemUIMode(
+    SystemUiMode.immersiveSticky,
+  );
+
+  // Allow all device orientations (portrait, landscape, and inverted)
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
 
   // 3. Boot the visual app
   runApp(const GraveStakesApp());

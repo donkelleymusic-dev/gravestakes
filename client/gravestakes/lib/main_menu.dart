@@ -314,13 +314,13 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      floatingActionButton: FloatingActionButton(
+      /*floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.purpleAccent,
         onPressed: () {
           VesselOpenerOverlay.show(context, 'void_chrysalis');
         },
         child: const Icon(Icons.science, color: Colors.white),
-      ),
+      ),*/
       body: _isLoading 
         ? const Center(child: CircularProgressIndicator(color: Colors.red))
         : _errorMessage != null

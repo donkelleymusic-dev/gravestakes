@@ -1,4 +1,4 @@
-# gravestakes
+# Lumen Breach
 
 A new multiplayer social real time game from @don-music, created as a Flutter/supabase project.
 
