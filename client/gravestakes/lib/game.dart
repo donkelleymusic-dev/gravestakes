@@ -47,6 +47,7 @@ import 'map_button.dart';
 import 'fps_viewport_overlay.dart';
 import 'mode_toggle_button.dart';
 import 'fps_touch_controls.dart';
+import 'audio_manager.dart';
 
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
   String roomId;
@@ -477,6 +478,11 @@ await camera.viewport.add(MapButton());
     try {
       Supabase.instance.client.rpc('leave_match', params: {'p_match_id': roomId});
     } catch (e) {}
+
+    // --- Bulletproof Music Handoff ---
+    AudioManager.instance.stopMusic(); // Kills in-game tracks
+    AudioManager.instance.playMenuMusic(); // Resumes menu theme
+    
     super.onRemove();
   }
 
@@ -854,7 +860,8 @@ await camera.viewport.add(MapButton());
             remote.currentMaskId = maskId;
             remote.visualAttackCooldown = 0.6;
 
-            if (isAudioReady && scareSource != null) SoLoud.instance.play(scareSource!);
+            AudioManager.instance.playSpatialScare(maskId, remote.position);
+            //if (isAudioReady && scareSource != null) SoLoud.instance.play(scareSource!);
 
             if (maskId == 'flying') {
               scareManager.spawnBat(FlyingScareBlast(position: remote.position.clone(), angle: remote.facingAngle, ownerId: payload['id']));

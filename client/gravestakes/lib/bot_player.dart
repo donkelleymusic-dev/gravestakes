@@ -7,6 +7,7 @@ import 'game.dart';
 import 'scare_blast.dart';
 import 'voxel_character_component.dart';
 import 'floating_text.dart';
+import 'audio_manager.dart';
 
 enum BotState { wander, hunt, investigate, charmed, flee }
 
@@ -74,7 +75,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     if (_fallbackSprite != null) _fallbackSprite!.paint.color = Colors.white; 
   }
 
-  void _playSpatialFootstep() {
+  /* void _playSpatialFootstep() {
     if (!game.isAudioReady || game.footstepSource == null) return;
     final distance = (position - game.player.position).length;
     if (distance > 1000.0) return;
@@ -87,7 +88,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     SoLoud.instance.setRelativePlaySpeed(handle, randomPitch);
     SoLoud.instance.set3dSourceMinMaxDistance(handle, 2.0, 20.0);
     SoLoud.instance.set3dSourceAttenuation(handle, 1, 1.2);
-  }
+  } */
 
   BotPlayer({this.isHunter = false}) : super(size: Vector2.all(32.0), anchor: Anchor.center) {
     fakeUsername = _fakeNames[_random.nextInt(_fakeNames.length)];
@@ -466,6 +467,10 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         if (distance < 110 && attackCooldown <= 0) {
           if (game.gameMap.hasLineOfSight(position, currentTarget!.position)) {
             game.world.add(ScareBlast(position: position, angle: facingAngle - (pi / 2)));
+            
+            // --- Play spatial scare sound for bot attack ---
+            AudioManager.instance.playSpatialScare('standard', position);
+
             if (currentTarget == game.player) {
               game.jumpScareEffect.trigger(); 
               game.player.applyStun(2.0);   
@@ -494,7 +499,9 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
           dynamicInterval += (_random.nextDouble() * 0.1) - 0.05;
           _footstepTimer += dt;
           if (_footstepTimer >= dynamicInterval) {
-            _footstepTimer = 0.0; _playSpatialFootstep();
+            _footstepTimer = 0.0; 
+            //_playSpatialFootstep();
+            AudioManager.instance.playEntityFootstep(assignedCharacterId, position, isLocal: false);
           }
         } else { _footstepTimer = 0.0; }
       } else { _footstepTimer = 0.0; }

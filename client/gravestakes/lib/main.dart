@@ -4,7 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'game.dart';
 import 'login_screen.dart';
 import 'main_menu.dart';
-import 'splash_screen.dart'; 
+import 'splash_screen.dart';
+import 'audio_manager.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,7 +14,14 @@ Future<void> main() async {
     url: 'https://rbpmgzcafsykjbljgfvl.supabase.co', 
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJicG1nemNhZnN5a2pibGpnZnZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5MzEzMTgsImV4cCI6MjEwMjUwNzMxOH0.z-Th0EOWSqr4M7UcDrZUNO4U_ylhJ_nVB0VcUPWAYHA',
   );
-  
+  // 1. Ensure Flutter engine bindings are ready for async tasks before runApp
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // 2. Initialize SoLoud and fire the music immediately during the splash phase
+  await AudioManager.instance.init();
+  AudioManager.instance.playMenuMusic();
+
+  // 3. Boot the visual app
   runApp(const GraveStakesApp());
 }
 

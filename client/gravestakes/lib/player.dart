@@ -17,6 +17,7 @@ import 'flying_scare_blast.dart';
 import 'siren_blast.dart';
 import 'critter.dart';
 import 'voxel_character_component.dart';
+import 'audio_manager.dart';
 
 class Player extends PositionComponent with KeyboardHandler, HasGameReference<GraveStakesGame> {
   final JoystickComponent leftJoystick;
@@ -134,6 +135,47 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   bool isPhasing = false;
   double phaseTimer = 0.0;
   final double maxPhaseDuration = 0.5; // 0.5 seconds of invincibility
+
+  // --- Breath Holding & Exertion State ---
+bool isHoldingBreath = false;
+double breathHoldDuration = 4.0;       // Max 4 seconds hold
+double breathHoldTimer = 0.0;
+double breathHoldCooldown = 0.0;       // 8-second cooldown after holding breath
+double breathExertionLevel = 0.0;      // 0.0 (calm) -> 1.0 (panting heavily)
+
+SoundHandle? _breathingHandle;
+
+void startHoldBreath() {
+  if (breathHoldCooldown > 0 || isHoldingBreath || isStunned) return;
+  // Cannot hold breath if panting heavily after sprint
+  if (breathExertionLevel > 0.7) return; 
+
+  isHoldingBreath = true;
+  breathHoldTimer = breathHoldDuration;
+  
+  // Cut footstep sound radius to near zero
+  footstepReductionMult = 0.1;
+  
+  // Stop local breathing playback immediately
+  if (_breathingHandle != null) {
+    SoLoud.instance.stop(_breathingHandle!);
+    _breathingHandle = null;
+  }
+}
+
+void releaseHoldBreath({bool ranOutOfAir = false}) {
+  if (!isHoldingBreath) return;
+  isHoldingBreath = false;
+  breathHoldCooldown = 8.0;
+  footstepReductionMult = 1.0;
+
+  if (ranOutOfAir) {
+    // Sharp gasp SFX if forced to breathe
+    final gasp = AudioManager.instance.gaspBreathSource;
+    if (gasp != null) SoLoud.instance.play(gasp, volume: 0.8);
+    breathExertionLevel = 1.0; // Force heavy breathing
+  }
+}
 
   // Add the trigger method
   void triggerPhaseDash() {
@@ -272,12 +314,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     invisibilityTimer = 15.0; 
   }
 
-  void _playLocalFootstep() {
-    if (!game.isAudioReady || game.footstepSource == null) return;
-    final randomPitch = 0.85 + (_random.nextDouble() * 0.30);
-    final handle = SoLoud.instance.play(game.footstepSource!, volume: 0.5);
-    SoLoud.instance.setRelativePlaySpeed(handle, randomPitch);
-  }
+  
 
   void triggerPrivateHighlight() {
     highlightTimer = 1.0; 
@@ -591,6 +628,35 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     // Reveal 2 tiles in every direction around current foot position
     game.gameMap.revealRadius(position, radius: 2);
 
+    // Breath timers
+    if (breathHoldCooldown > 0) breathHoldCooldown -= dt;
+
+    if (isHoldingBreath) {
+      breathHoldTimer -= dt;
+      if (breathHoldTimer <= 0) {
+        releaseHoldBreath(ranOutOfAir: true);
+      }
+    } else {
+      // Exertion builds when running or when energy is low
+      if (isMoving) {
+        breathExertionLevel = (breathExertionLevel + (dt * 0.25)).clamp(0.0, 1.0);
+      } else {
+        breathExertionLevel = (breathExertionLevel - (dt * 0.15)).clamp(0.0, 1.0);
+      }
+
+      // Manage breathing loop volume dynamically based on exertion
+      if (breathExertionLevel > 0.4 && _breathingHandle == null && AudioManager.instance.heavyBreathingSource != null) {
+        _breathingHandle = SoLoud.instance.play(AudioManager.instance.heavyBreathingSource!, volume: breathExertionLevel * 0.6, looping: true);
+      } else if (_breathingHandle != null) {
+        if (breathExertionLevel <= 0.1) {
+          SoLoud.instance.stop(_breathingHandle!);
+          _breathingHandle = null;
+        } else {
+          SoLoud.instance.setVolume(_breathingHandle!, breathExertionLevel * 0.6);
+        }
+      }
+    }
+
     if (isPhasing) {
       phaseTimer -= dt;
       // Visual feedback: Drop opacity to look like an audio "ghost"
@@ -809,7 +875,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
            
            if (_footstepTimer >= dynamicInterval) {
              _footstepTimer = 0.0; 
-             _playLocalFootstep();
+            // _playLocalFootstep();
+             AudioManager.instance.playEntityFootstep(equippedCharacterId, position, isLocal: true);
              
              if (actualVelocity > 100) {
                 double timeRemaining = game.gameTimer.timeLeft;

@@ -5,6 +5,7 @@ import 'package:flutter_soloud/flutter_soloud.dart';
 
 import 'game.dart'; 
 import 'voxel_character_component.dart';
+import 'audio_manager.dart';
 
 class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
   String currentColorStr = 'red';
@@ -46,7 +47,7 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
   bool isInvisible = false;
   SpriteComponent? _bushSprite;
 
-  void _playSpatialFootstep() {
+  /* void _playSpatialFootstep() {
     if (!game.isAudioReady || game.footstepSource == null) return;
     final distance = (position - game.player.position).length;
     if (distance > 1000.0) return;
@@ -59,7 +60,7 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     SoLoud.instance.setRelativePlaySpeed(handle, randomPitch);
     SoLoud.instance.set3dSourceMinMaxDistance(handle, 2.0, 20.0);
     SoLoud.instance.set3dSourceAttenuation(handle, 1, 1.2);
-  }
+  } */
 
   RemotePlayer() : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
@@ -182,13 +183,34 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
 
     if (!isStunned && _distanceAccumulator >= 85.0) {
       _distanceAccumulator = 0.0; 
-      _playSpatialFootstep();
+      //_playSpatialFootstep();
+      AudioManager.instance.playEntityFootstep(equippedCharacterId, position, isLocal: false);
     }
 
     if (highlightTimer > 0) {
       highlightTimer -= dt;
       if (highlightTimer <= 0 && !isStunned && _fallbackSprite != null) {
         _fallbackSprite!.paint.color = _baseColor;
+      }
+    }
+
+    double _breathTick = 0.0;
+
+    // Inside update(double dt):
+    _breathTick += dt;
+    if (_breathTick >= 3.5 && !isInvisible && !isDisguised) {
+      _breathTick = 0.0;
+      if (AudioManager.instance.heavyBreathingSource != null) {
+        const double audioScale = 50.0;
+        final handle = SoLoud.instance.play3d(
+          AudioManager.instance.heavyBreathingSource!,
+          position.x / audioScale,
+          position.y / audioScale,
+          0.0,
+          volume: 0.7,
+        );
+        SoLoud.instance.set3dSourceMinMaxDistance(handle, 1.0, 12.0); // Only heard when very close
+        SoLoud.instance.set3dSourceAttenuation(handle, 1, 2.0);
       }
     }
 

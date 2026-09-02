@@ -15,6 +15,7 @@ import 'vessel_opener_overlay.dart';
 import 'level_up_overlay.dart';
 import 'guild_war_map_screen.dart';
 import 'guild_war_results_overlay.dart';
+import 'audio_manager.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -44,6 +45,12 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     super.initState();
     _loadSavedPreferences();
     _fetchPlayerData();
+    _initMenuAudio(); // Initialize and play menu music
+  }
+
+  Future<void> _initMenuAudio() async {
+    await AudioManager.instance.init();
+    AudioManager.instance.playMenuMusic();
   }
 
   Future<void> _loadSavedPreferences() async {
@@ -185,6 +192,9 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       );
       
       gameInstance.roomId = response as String;
+
+      // Stop menu music right before transitioning into the game
+      AudioManager.instance.stopMusic();
 
       if (!context.mounted) return;
 
