@@ -45,20 +45,24 @@ jobs:
           
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           security cms -D -i $PROVISION_PATH > $RUNNER_TEMP/profile.plist
+          
+          # Extract both the UUID and the Team ID natively from the profile
           UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" $RUNNER_TEMP/profile.plist)
+          TEAM_ID=$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" $RUNNER_TEMP/profile.plist)
+          
           cp $PROVISION_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
           
-          # Save the UUID to the GitHub environment variables so the next steps can access it
+          # Expose both variables to the runner environment
           echo "PROFILE_UUID=$UUID" >> $GITHUB_ENV
+          echo "TEAM_ID=$TEAM_ID" >> $GITHUB_ENV
 
       - name: Build iOS IPA
         run: |
           flutter pub get
           
-          # 1. Compile the Dart code and Flutter engine into native iOS assets, but skip signing
           flutter build ios --release --no-codesign
           
-          # 2. Generate the Export Options for the App Store
+          # Inject the Team ID into the export options
           cat <<EOF > ExportOptions.plist
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -68,6 +72,8 @@ jobs:
               <string>app-store</string>
               <key>signingStyle</key>
               <string>manual</string>
+              <key>teamID</key>
+              <string>$TEAM_ID</string>
               <key>provisioningProfiles</key>
               <dict>
                   <key>com.donkelleymusic.lumenbreach</key>
@@ -77,8 +83,8 @@ jobs:
           </plist>
           EOF
           
-          # 3. Archive the app using Xcode directly, forcing manual signing via CLI overrides
           cd ios
+          # Pass the extracted DEVELOPMENT_TEAM to sign the main app and all Swift packages
           xcodebuild -workspace Runner.xcworkspace \
                      -scheme Runner \
                      -configuration Release \
@@ -86,9 +92,9 @@ jobs:
                      archive \
                      CODE_SIGN_STYLE=Manual \
                      PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
-                     CODE_SIGN_IDENTITY="Apple Distribution"
+                     CODE_SIGN_IDENTITY="Apple Distribution" \
+                     DEVELOPMENT_TEAM="$TEAM_ID"
                      
-          # 4. Export the archive into the final .ipa file TestFlight needs
           xcodebuild -exportArchive \
                      -archivePath ../build/ios/archive/Runner.xcarchive \
                      -exportOptionsPlist ../ExportOptions.plist \
