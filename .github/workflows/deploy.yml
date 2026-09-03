@@ -1,6 +1,7 @@
 name: Build and Deploy
 
 on:
+  workflow_dispatch: # This adds the manual "Run workflow" button in GitHub
   push:
     tags:
       - 'v*' # Triggers when you push a version tag (e.g., git tag v1.0.0)
