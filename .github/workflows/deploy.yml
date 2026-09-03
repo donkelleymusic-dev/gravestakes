@@ -10,7 +10,6 @@ jobs:
   build_ios:
     runs-on: macos-latest
     
-    # Apply the working directory so Flutter commands run in the nested folder
     defaults:
       run:
         working-directory: ./client/gravestakes
@@ -44,23 +43,57 @@ jobs:
           PROVISION_PATH=$RUNNER_TEMP/build.mobileprovision
           echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o $PROVISION_PATH
           
-          # Extract the plist natively and use PlistBuddy to safely grab the UUID
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           security cms -D -i $PROVISION_PATH > $RUNNER_TEMP/profile.plist
           UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" $RUNNER_TEMP/profile.plist)
           cp $PROVISION_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
           
-          # Forcefully rewrite the Xcode project file to use Manual Distribution signing
-          sed -i '' 's/ProvisioningStyle = Automatic;/ProvisioningStyle = Manual;/g' ios/Runner.xcodeproj/project.pbxproj || true
-          sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' ios/Runner.xcodeproj/project.pbxproj || true
-          sed -i '' 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "Apple Distribution";/g' ios/Runner.xcodeproj/project.pbxproj || true
-          sed -i '' 's/"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]" = "iPhone Developer";/"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";/g' ios/Runner.xcodeproj/project.pbxproj || true
+          # Save the UUID to the GitHub environment variables so the next steps can access it
+          echo "PROFILE_UUID=$UUID" >> $GITHUB_ENV
+
+      - name: Configure Xcode for Manual Distribution Signing
+        run: |
+          # Use the built-in Xcodeproj ruby gem to structurally lock the project file into Distribution mode
+          gem install xcodeproj
+          cat <<EOF > update_signing.rb
+          require 'xcodeproj'
+          project = Xcodeproj::Project.open('ios/Runner.xcodeproj')
+          project.targets.each do |target|
+            target.build_configurations.each do |config|
+              config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
+              config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ENV['PROFILE_UUID']
+              config.build_settings['CODE_SIGN_IDENTITY'] = 'Apple Distribution'
+              config.build_settings['CODE_SIGN_IDENTITY[sdk=iphoneos*]'] = 'Apple Distribution'
+            end
+          end
+          project.save
+          EOF
+          ruby update_signing.rb
 
       - name: Build iOS IPA
         run: |
           flutter pub get
-          # The export-method flag forces Xcode to use your App Store distribution profile
-          flutter build ipa --release --export-method=app-store
+          
+          # Create a strict export options file to guarantee App Store signing during the export phase
+          cat <<EOF > ExportOptions.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>com.donkelleymusic.lumenbreach</key>
+                  <string>$PROFILE_UUID</string>
+              </dict>
+          </dict>
+          </plist>
+          EOF
+          
+          flutter build ipa --release --export-options-plist=ExportOptions.plist
 
       - name: Upload to TestFlight
         env:
@@ -68,8 +101,6 @@ jobs:
           API_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
           API_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
         run: |
-          # Use Xcode's altool to push the binary to Apple automatically. 
-          # Note: Apple has deprecated altool for notarization, but it remains fully supported for App Store submission.
           xcrun altool --upload-app -f build/ios/ipa/*.ipa -t ios --apiKey "$API_KEY_ID" --apiIssuer "$API_ISSUER_ID"
 
   build_android:
