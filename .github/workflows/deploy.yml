@@ -38,6 +38,10 @@ jobs:
           CERT_PATH=$RUNNER_TEMP/build_cert.p12
           echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERT_PATH
           security import $CERT_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          
+          # CRITICAL FIX: Grants the macOS codesign tool permission to read the private key
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          
           security list-keychain -d user -s $KEYCHAIN_PATH
           
           PROVISION_PATH=$RUNNER_TEMP/build.mobileprovision
@@ -48,8 +52,8 @@ jobs:
       - name: Build iOS IPA
         run: |
           flutter pub get
-          cd ios && pod install && cd ..
-          flutter build ipa --release
+          # The export-method flag forces Xcode to use your App Store distribution profile
+          flutter build ipa --release --export-method=app-store
 
       - name: Upload to TestFlight
         env:

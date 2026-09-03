@@ -3,7 +3,7 @@ import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'game.dart';
-import 'Floating_text.dart';
+import 'floating_text.dart';
 import 'audio_manager.dart';
 
 class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakesGame> {
