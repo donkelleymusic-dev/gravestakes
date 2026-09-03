@@ -51,30 +51,14 @@ jobs:
           # Save the UUID to the GitHub environment variables so the next steps can access it
           echo "PROFILE_UUID=$UUID" >> $GITHUB_ENV
 
-      - name: Configure Xcode for Manual Distribution Signing
-        run: |
-          # Use the built-in Xcodeproj ruby gem to structurally lock the project file into Distribution mode
-          gem install xcodeproj
-          cat <<EOF > update_signing.rb
-          require 'xcodeproj'
-          project = Xcodeproj::Project.open('ios/Runner.xcodeproj')
-          project.targets.each do |target|
-            target.build_configurations.each do |config|
-              config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
-              config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ENV['PROFILE_UUID']
-              config.build_settings['CODE_SIGN_IDENTITY'] = 'Apple Distribution'
-              config.build_settings['CODE_SIGN_IDENTITY[sdk=iphoneos*]'] = 'Apple Distribution'
-            end
-          end
-          project.save
-          EOF
-          ruby update_signing.rb
-
       - name: Build iOS IPA
         run: |
           flutter pub get
           
-          # Create a strict export options file to guarantee App Store signing during the export phase
+          # 1. Compile the Dart code and Flutter engine into native iOS assets, but skip signing
+          flutter build ios --release --no-codesign
+          
+          # 2. Generate the Export Options for the App Store
           cat <<EOF > ExportOptions.plist
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -93,7 +77,22 @@ jobs:
           </plist>
           EOF
           
-          flutter build ipa --release --export-options-plist=ExportOptions.plist
+          # 3. Archive the app using Xcode directly, forcing manual signing via CLI overrides
+          cd ios
+          xcodebuild -workspace Runner.xcworkspace \
+                     -scheme Runner \
+                     -configuration Release \
+                     -archivePath ../build/ios/archive/Runner.xcarchive \
+                     archive \
+                     CODE_SIGN_STYLE=Manual \
+                     PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
+                     CODE_SIGN_IDENTITY="Apple Distribution"
+                     
+          # 4. Export the archive into the final .ipa file TestFlight needs
+          xcodebuild -exportArchive \
+                     -archivePath ../build/ios/archive/Runner.xcarchive \
+                     -exportOptionsPlist ../ExportOptions.plist \
+                     -exportPath ../build/ios/ipa
 
       - name: Upload to TestFlight
         env:
