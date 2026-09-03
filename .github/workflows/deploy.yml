@@ -34,6 +34,10 @@ jobs:
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           
+          # CRITICAL FIX: Tell macOS to actively search this new keychain for certificates
+          security default-keychain -s $KEYCHAIN_PATH
+          security list-keychains -d user -s $KEYCHAIN_PATH
+          
           CERT_PATH=$RUNNER_TEMP/build_cert.p12
           echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERT_PATH
           security import $CERT_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
@@ -46,13 +50,11 @@ jobs:
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           security cms -D -i $PROVISION_PATH > $RUNNER_TEMP/profile.plist
           
-          # Extract both the UUID and the Team ID natively from the profile
           UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" $RUNNER_TEMP/profile.plist)
           TEAM_ID=$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" $RUNNER_TEMP/profile.plist)
           
           cp $PROVISION_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
           
-          # Expose both variables to the runner environment
           echo "PROFILE_UUID=$UUID" >> $GITHUB_ENV
           echo "TEAM_ID=$TEAM_ID" >> $GITHUB_ENV
 
@@ -60,9 +62,30 @@ jobs:
         run: |
           flutter pub get
           
+          # 1. Compile Flutter without signing. This allows Flutter to overwrite the project files without failing.
           flutter build ios --release --no-codesign
           
-          # Inject the Team ID into the export options
+          # 2. Surgically patch the Xcode project to sign ONLY the main app target (Runner) with your profile.
+          gem install xcodeproj
+          cat <<EOF > update_signing.rb
+          require 'xcodeproj'
+          project = Xcodeproj::Project.open('ios/Runner.xcodeproj')
+          project.targets.each do |target|
+            if target.name == 'Runner'
+              target.build_configurations.each do |config|
+                config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
+                config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ENV['PROFILE_UUID']
+                config.build_settings['CODE_SIGN_IDENTITY'] = 'Apple Distribution'
+                config.build_settings['CODE_SIGN_IDENTITY[sdk=iphoneos*]'] = 'Apple Distribution'
+                config.build_settings['DEVELOPMENT_TEAM'] = ENV['TEAM_ID']
+              end
+            end
+          end
+          project.save
+          EOF
+          ruby update_signing.rb
+          
+          # 3. Create the Export Options
           cat <<EOF > ExportOptions.plist
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -84,17 +107,14 @@ jobs:
           EOF
           
           cd ios
-          # Pass the extracted DEVELOPMENT_TEAM to sign the main app and all Swift packages
+          # 4. Archive using the clean Xcode command (no global overrides to crash the plugins)
           xcodebuild -workspace Runner.xcworkspace \
                      -scheme Runner \
                      -configuration Release \
                      -archivePath ../build/ios/archive/Runner.xcarchive \
-                     archive \
-                     CODE_SIGN_STYLE=Manual \
-                     PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
-                     CODE_SIGN_IDENTITY="Apple Distribution" \
-                     DEVELOPMENT_TEAM="$TEAM_ID"
+                     archive
                      
+          # 5. Export to IPA
           xcodebuild -exportArchive \
                      -archivePath ../build/ios/archive/Runner.xcarchive \
                      -exportOptionsPlist ../ExportOptions.plist \
