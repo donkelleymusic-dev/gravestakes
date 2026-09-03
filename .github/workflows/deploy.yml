@@ -126,6 +126,13 @@ jobs:
           API_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
           API_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
         run: |
+          # Create the directory altool expects to find the private key in
+          mkdir -p ~/.appstoreconnect/private_keys
+          
+          # Save the private key to the disk with the exact filename format Apple requires
+          echo "$API_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${API_KEY_ID}.p8
+          
+          # Upload the generated IPA to TestFlight
           xcrun altool --upload-app -f build/ios/ipa/*.ipa -t ios --apiKey "$API_KEY_ID" --apiIssuer "$API_ISSUER_ID"
 
   build_android:
