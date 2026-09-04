@@ -33,16 +33,17 @@ class _LoginScreenState extends State<LoginScreen> {
           data: {'username': _usernameController.text.trim()},
         );
         
-        // TELL THEM TO CHECK THEIR EMAIL
+        // Because email confirmation is off, Supabase auto-starts a session here.
+        // Your global auth listener will instantly navigate them to the game.
+        
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Account created! Please check your email for the confirmation link.'),
+              content: Text('Account created! Entering the darkness...'),
               backgroundColor: Colors.green,
-              duration: Duration(seconds: 6),
+              duration: Duration(seconds: 2),
             ),
           );
-          setState(() => _isSignUp = false); // Switch back to login view
         }
       } else {
         // LOGIN
