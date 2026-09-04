@@ -62,8 +62,8 @@ jobs:
         run: |
           flutter pub get
           
-          # 1. Compile Flutter without signing. This allows Flutter to overwrite the project files without failing.
-          flutter build ios --release --no-codesign
+          # 1. Compile Flutter without signing, using the auto-incrementing GitHub run number.
+          flutter build ios --release --no-codesign --build-number=${{ github.run_number }}
           
           # 2. Surgically patch the Xcode project to sign ONLY the main app target (Runner) with your profile.
           gem install xcodeproj
@@ -170,7 +170,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           flutter pub get
-          flutter build appbundle --release
+          flutter build appbundle --release --build-number=${{ github.run_number }}
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
