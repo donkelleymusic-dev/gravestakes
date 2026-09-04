@@ -18,6 +18,7 @@ import 'siren_blast.dart';
 import 'critter.dart';
 import 'voxel_character_component.dart';
 import 'audio_manager.dart';
+import 'game_map.dart';
 
 class Player extends PositionComponent with KeyboardHandler, HasGameReference<GraveStakesGame> {
   final JoystickComponent leftJoystick;
@@ -124,7 +125,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   bool isDisguised = false;
   bool hasExtendedRange = false;
   int coinsEarned = 0;
-  SpriteComponent? _bushSprite;
+  WallComponent? _disguiseWall;
 
   Vector2 charmerTarget = Vector2.zero();
 
@@ -349,10 +350,11 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
     } catch (e) {}
 
     try {
-      final sheet = game.images.fromCache('Base_BaseChip_pipo.png');
-      _bushSprite = SpriteComponent(
-        sprite: Sprite(sheet, srcPosition: Vector2(0, 160), srcSize: Vector2(32, 32)),
-        size: Vector2.all(32), anchor: Anchor.center,
+      // We set position to zero because it will be a child of the Player component,
+      // meaning it will naturally center on the player's world position.
+      _disguiseWall = WallComponent(
+        position: Vector2(-16, -16), // Offset by half the 32px hitbox to center it
+        tileSize: 32.0, // Match the player's 32x32 size, or use 64.0 if you want it full wall size
       );
     } catch (e) {}
 
@@ -693,11 +695,33 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
     double lowestTimer = 999.0;
     List<String> activeBuffs = [];
 
+    // --- VISIBILITY & CLOAK LOGIC ---
     if (isDisguised) {
-      disguiseTimer -= dt; isBuffActive = true;
-      if (disguiseTimer < lowestTimer) lowestTimer = disguiseTimer;
-      activeBuffs.add('BUSH: ${disguiseTimer.ceil()}s');
-      if (disguiseTimer <= 0) { isDisguised = false; disguiseTimer = 0.0; }
+      // 1. Hide the Voxel Rig completely
+      if (voxelComponent != null) {
+        voxelComponent!.isVisible = false;
+      }
+      // 2. Hide the Fallback Sprite completely
+      if (_fallbackSprite != null) {
+        _fallbackSprite!.paint.color = _fallbackSprite!.paint.color.withOpacity(0.0);
+      }
+    } else {
+      // 1. Restore Voxel Rig
+      if (voxelComponent != null) {
+        voxelComponent!.isVisible = true;
+        voxelComponent!.isInvisible = isInvisible; // Triggers the cloak in render()
+      }
+      // 2. Restore Fallback Sprite (with partial opacity if cloaked)
+      if (_fallbackSprite != null) {
+        _fallbackSprite!.paint.color = _fallbackSprite!.paint.color.withOpacity(isInvisible ? 0.3 : 1.0);
+      }
+    }
+
+    // --- DISGUISE WALL COMPONENT ATTACHMENT ---
+    if (isDisguised) {
+      if (_disguiseWall != null && _disguiseWall!.parent == null) add(_disguiseWall!);
+    } else {
+      if (_disguiseWall != null && _disguiseWall!.parent != null) _disguiseWall!.removeFromParent();
     }
 
     if (isInvisible) {
@@ -733,18 +757,45 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
       } else {
         voxelComponent!.isHighlighted = false;
       }
-      
-      if (isDisguised || isInvisible) {
+      // Only the disguise completely hides the voxel mesh now
+      if (isDisguised) {
+        if (voxelComponent != null) voxelComponent!.isVisible = false;
+        if (_fallbackSprite != null) _fallbackSprite!.paint.color = _fallbackSprite!.paint.color.withOpacity(0.0);
+      } else {
+        if (voxelComponent != null) {
+          voxelComponent!.isVisible = true;
+          voxelComponent!.isInvisible = isInvisible; // Tell the component to draw the cloak!
+        }
+        if (_fallbackSprite != null) {
+          _fallbackSprite!.paint.color = _fallbackSprite!.paint.color.withOpacity(isInvisible ? 0.3 : 1.0);
+        }
+      }
+      /* if (isDisguised) {
+        // Hide the character completely when inside a bush
         voxelComponent!.isVisible = false;
       } else {
         voxelComponent!.isVisible = true;
-      }
+        
+        // Apply the ethereal cloak effect
+        if (isInvisible) {
+          voxelComponent!.setOpacity(0.4); 
+          // Note: You will need to add a `setOpacity(double value)` method 
+          // inside your VoxelCharacterComponent to apply this to its internal Paint object!
+        } else {
+          voxelComponent!.setOpacity(1.0);
+        }
+      } */
     }
 
-    if (isDisguised) {
+    /* if (isDisguised) {
       if (_bushSprite != null && _bushSprite!.parent == null) add(_bushSprite!);
     } else {
       if (_bushSprite != null && _bushSprite!.parent != null) _bushSprite!.removeFromParent();
+    } */
+   if (isDisguised) {
+      if (_disguiseWall != null && _disguiseWall!.parent == null) add(_disguiseWall!);
+    } else {
+      if (_disguiseWall != null && _disguiseWall!.parent != null) _disguiseWall!.removeFromParent();
     }
 
     final worldComponents = game.world.children.toList();
@@ -901,8 +952,8 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
 
     double timeRemaining = game.gameTimer.timeLeft;
     double regenMultiplier = 0.4; 
-    if (timeRemaining <= 120 && timeRemaining > 60) regenMultiplier = 1.0; 
-    if (timeRemaining <= 60) regenMultiplier = 3.0; 
+    if (timeRemaining <= 120 && timeRemaining > 60) regenMultiplier = 0.7; 
+    if (timeRemaining <= 60) regenMultiplier = 1.3; 
     
     energy = (energy + (energyRegenRate * regenMultiplier * dt)).clamp(0.0, maxEnergy);
 

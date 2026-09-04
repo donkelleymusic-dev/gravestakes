@@ -12,6 +12,7 @@ class VoxelCharacterComponent extends PositionComponent {
   bool isHighlighted = false;
   bool isStunned = false;
   bool isVisible = true;
+  bool isInvisible = false;
   double stunTimer = 0.0;
 
   double attackCooldown = 0.0;
@@ -205,6 +206,27 @@ class VoxelCharacterComponent extends PositionComponent {
       drawExtrudedLimb('torso', 0, rootY, 0, 10, 1.0);
       drawExtrudedLimb('head', 0, shoulderY + 5, 0, 8, 1.0);
     }
+    
     canvas.restore();
+    
+    // --- THE INVISIBILITY CLOAK ---
+    if (isInvisible) {
+      // Create a shape slightly larger than the 32x32 hitbox to drape over the character
+      final rect = Rect.fromLTWH(-4, -6, size.x + 8, size.y + 10);
+      final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(8));
+
+      // 1. The dark, semi-transparent fabric (80% opacity so you can still see the voxel underneath)
+      canvas.drawRRect(rrect, Paint()..color = Colors.black.withOpacity(0.80));
+
+      // 2. The glowing cyan ethereal outline
+      canvas.drawRRect(
+        rrect,
+        Paint()
+          ..color = Colors.cyanAccent
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0
+          ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 3.0),
+      );
+    }
   }
 }

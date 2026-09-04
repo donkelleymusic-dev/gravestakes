@@ -31,6 +31,11 @@ class FlashlightHud extends PositionComponent with HasGameReference<GraveStakesG
     final battery = game.player.flashlightBattery;
     final isRecharging = game.player.isRecharging;
     final isDead = game.player.isFlashlightDead;
+    
+    // NEW: Check if battery is critically low (under 15%)
+    final isCriticallyLow = battery > 0 && battery < 15.0 && !isRecharging;
+    // NEW: Global blink state syncing the bar, border, and text
+    final blinkState = DateTime.now().millisecondsSinceEpoch % 500 < 250;
 
     final fillRatio = (battery / 100.0).clamp(0.0, 1.0);
     
@@ -40,16 +45,22 @@ class FlashlightHud extends PositionComponent with HasGameReference<GraveStakesG
       barColor = Colors.cyanAccent; // Powerbank charging state
     } else if (isDead) {
       // Flashing warning red if completely drained
-      barColor = (DateTime.now().millisecondsSinceEpoch % 500 < 250) ? Colors.redAccent : Colors.red.shade900;
+      barColor = blinkState ? Colors.redAccent : Colors.red.shade900;
+    } else if (isCriticallyLow) {
+      // Frantic flashing when about to die
+      barColor = blinkState ? Colors.redAccent : Colors.orangeAccent;
     } else if (battery < 25.0) {
       barColor = Colors.orangeAccent;
     }
 
     final bgPaint = Paint()..color = Colors.black87;
+    
+    // Thicken and turn the border red during critical flashes
     final borderPaint = Paint()
-      ..color = Colors.white70
+      ..color = (isDead || (isCriticallyLow && blinkState)) ? Colors.redAccent : Colors.white70
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
+      ..strokeWidth = (isDead || (isCriticallyLow && blinkState)) ? 2.5 : 1.5;
+      
     final fillPaint = Paint()..color = barColor;
 
     // Battery Shell Proportions (Main Body + Terminal Cap on right)
@@ -94,11 +105,14 @@ class FlashlightHud extends PositionComponent with HasGameReference<GraveStakesG
       hudText = 'CHARGING...';
     } else if (isDead) {
       hudText = 'TAP TO PLUG IN';
+    } else if (isCriticallyLow) {
+      // Flashes the text on and off when low
+      hudText = blinkState ? 'LOW BATTERY!' : null; 
     }
 
     if (hudText != null) {
       final textStyle = TextStyle(
-        color: isDead ? Colors.redAccent : Colors.cyanAccent, 
+        color: (isDead || isCriticallyLow) ? Colors.redAccent : Colors.cyanAccent, 
         fontSize: 9, 
         fontWeight: FontWeight.bold, 
         fontFamily: 'Courier',
