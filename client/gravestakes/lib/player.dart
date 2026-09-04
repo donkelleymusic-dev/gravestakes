@@ -350,12 +350,12 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
     } catch (e) {}
 
     try {
-      // We set position to zero because it will be a child of the Player component,
-      // meaning it will naturally center on the player's world position.
+      // Spawn it way off-screen by default so it is hidden
       _disguiseWall = WallComponent(
-        position: Vector2(-16, -16), // Offset by half the 32px hitbox to center it
-        tileSize: 32.0, // Match the player's 32x32 size, or use 64.0 if you want it full wall size
+        position: Vector2(-9999, -9999), 
+        tileSize: 32.0,
       );
+      add(_disguiseWall!);
     } catch (e) {}
 
     try {
@@ -695,6 +695,19 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
     double lowestTimer = 999.0;
     List<String> activeBuffs = [];
 
+    // --- RE-ADD THE MISSING DISGUISE TIMER ---
+    if (isDisguised) {
+      disguiseTimer -= dt; 
+      isBuffActive = true;
+      if (disguiseTimer < lowestTimer) lowestTimer = disguiseTimer;
+      activeBuffs.add('WALL: ${disguiseTimer.ceil()}s'); // Changed from 'BUSH' to 'WALL'
+      
+      if (disguiseTimer <= 0) { 
+        isDisguised = false; 
+        disguiseTimer = 0.0; 
+      }
+    }
+    
     // --- VISIBILITY & CLOAK LOGIC ---
     if (isDisguised) {
       // 1. Hide the Voxel Rig completely
@@ -719,9 +732,11 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
 
     // --- DISGUISE WALL COMPONENT ATTACHMENT ---
     if (isDisguised) {
-      if (_disguiseWall != null && _disguiseWall!.parent == null) add(_disguiseWall!);
+      // Move it perfectly over the player
+      if (_disguiseWall != null) _disguiseWall!.position = Vector2(-16, -16);
     } else {
-      if (_disguiseWall != null && _disguiseWall!.parent != null) _disguiseWall!.removeFromParent();
+      // Banish it off-screen when the disguise timer hits zero
+      if (_disguiseWall != null) _disguiseWall!.position = Vector2(-9999, -9999);
     }
 
     if (isInvisible) {

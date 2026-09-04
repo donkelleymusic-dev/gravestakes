@@ -206,21 +206,36 @@ class VoxelCharacterComponent extends PositionComponent {
       drawExtrudedLimb('torso', 0, rootY, 0, 10, 1.0);
       drawExtrudedLimb('head', 0, shoulderY + 5, 0, 8, 1.0);
     }
-    
+
     canvas.restore();
     
     // --- THE INVISIBILITY CLOAK ---
     if (isInvisible) {
-      // Create a shape slightly larger than the 32x32 hitbox to drape over the character
-      final rect = Rect.fromLTWH(-4, -6, size.x + 8, size.y + 10);
-      final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(8));
+      final path = Path();
+      
+      // Bottom left corner
+      path.moveTo(2, size.y + 6);
+      
+      // Left side tapering upwards and inwards
+      path.quadraticBezierTo(6, -2, size.x / 2 - 7, -10);
+      
+      // Rounded hood over the head
+      path.quadraticBezierTo(size.x / 2, -16, size.x / 2 + 7, -10);
+      
+      // Right side tapering downwards and outwards
+      path.quadraticBezierTo(size.x - 6, -2, size.x - 2, size.y + 6);
+      
+      // Slightly rounded bottom hem to give it depth
+      path.quadraticBezierTo(size.x / 2, size.y + 10, 2, size.y + 6);
+      
+      path.close();
 
-      // 1. The dark, semi-transparent fabric (80% opacity so you can still see the voxel underneath)
-      canvas.drawRRect(rrect, Paint()..color = Colors.black.withOpacity(0.80));
+      // 1. The dark, semi-transparent fabric (80% opacity)
+      canvas.drawPath(path, Paint()..color = Colors.black.withOpacity(0.80));
 
       // 2. The glowing cyan ethereal outline
-      canvas.drawRRect(
-        rrect,
+      canvas.drawPath(
+        path,
         Paint()
           ..color = Colors.cyanAccent
           ..style = PaintingStyle.stroke

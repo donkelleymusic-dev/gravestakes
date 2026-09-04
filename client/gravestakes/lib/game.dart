@@ -688,7 +688,7 @@ await camera.viewport.add(MapButton());
         ChestReward(type: ChestRewardType.points, label: '+250 SOULS', value: 250),
         ChestReward(type: ChestRewardType.currency, label: '+10 COINS', value: 10),
         ChestReward(type: ChestRewardType.invisibility, label: 'INVISIBILITY!'),
-        ChestReward(type: ChestRewardType.disguise, label: 'BUSH DISGUISE!'),
+        ChestReward(type: ChestRewardType.disguise, label: 'DISGUISE!'),
         ChestReward(type: ChestRewardType.rangeIncrease, label: 'RANGE EXTENDED!'),
         ChestReward(type: ChestRewardType.teleport, label: 'TELEPORTED!'),
       ];
