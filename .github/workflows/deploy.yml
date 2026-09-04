@@ -182,7 +182,7 @@ jobs:
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
-          packageName: com.example.myapp
-          releaseFiles: app/build/outputs/bundle/release/app-release.aab
+          packageName: com.donkelleymusic.lumenbreach
+          releaseFiles: client/gravestakes/build/app/outputs/bundle/release/app-release.aab
           track: internal
           status: completed
