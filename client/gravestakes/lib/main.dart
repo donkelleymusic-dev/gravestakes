@@ -2,6 +2,13 @@ import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
+
+// --- NEW IMPORTS FOR PAYMENTS ---
+import 'package:flutter/foundation.dart'; // For kIsWeb
+import 'dart:io' show Platform; // For Platform checks
+import 'package:purchases_flutter/purchases_flutter.dart';
+// --------------------------------
+
 import 'game.dart';
 import 'login_screen.dart';
 import 'main_menu.dart';
@@ -17,11 +24,24 @@ Future<void> main() async {
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJicG1nemNhZnN5a2pibGpnZnZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5MzEzMTgsImV4cCI6MjEwMjUwNzMxOH0.z-Th0EOWSqr4M7UcDrZUNO4U_ylhJ_nVB0VcUPWAYHA',
   );
 
-  // 2. Initialize SoLoud and fire the music immediately during the splash phase
+  // --- 2. REVENUECAT INITIALIZATION ---
+  // Guard against web builds since StoreKit/Google Play Billing don't exist in browsers
+  if (!kIsWeb) {
+    await Purchases.setLogLevel(LogLevel.debug);
+
+    if (Platform.isIOS) {
+      await Purchases.configure(PurchasesConfiguration("appl_aJcMjydRQhDoZUvQpUjQgNpLPyH")); 
+    } else if (Platform.isAndroid) {
+      await Purchases.configure(PurchasesConfiguration("test_BswqNrybFXkRHPHzjxEIYMBCGtu"));
+    }
+  }
+  // ------------------------------------
+
+  // 3. Initialize SoLoud and fire the music immediately during the splash phase
   await AudioManager.instance.init();
   AudioManager.instance.playMenuMusic();
 
-  // 3. Make game full screen
+  // 4. Make game full screen
   // Hide the navigation bar (Back/Home/Recents) and status bar automatically
   await SystemChrome.setEnabledSystemUIMode(
     SystemUiMode.immersiveSticky,
@@ -35,7 +55,7 @@ Future<void> main() async {
     DeviceOrientation.landscapeRight,
   ]);
 
-  // 4. Boot the visual app
+  // 5. Boot the visual app
   runApp(const GraveStakesApp());
 }
 
