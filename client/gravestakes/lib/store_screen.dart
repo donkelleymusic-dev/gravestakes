@@ -15,7 +15,7 @@ class _StoreScreenState extends State<StoreScreen> {
   
   List<Map<String, dynamic>> _characters = [];
   List<Map<String, dynamic>> _masks = [];
-  List<Map<String, dynamic>> _maps = [];
+  //List<Map<String, dynamic>> _maps = [];
   List<Map<String, dynamic>> _abilities = [];
   List<Map<String, dynamic>> _wearables = []; // <--- Wearables store list
 
@@ -46,9 +46,10 @@ class _StoreScreenState extends State<StoreScreen> {
       final responses = await Future.wait<dynamic>([
         supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(),
         supabase.from('user_inventory').select('item_type, item_id').eq('user_id', user.id),
-        supabase.from('characters').select('*').order('price'),
+        // Add .neq() to filter out the default character
+        supabase.from('characters').select('*').neq('id', 'default').order('price'),
         supabase.from('masks').select('*').order('price'),
-        supabase.from('maps').select('*').order('price'),
+        //supabase.from('maps').select('*').order('price'),
         supabase.from('abilities').select('*'),
         supabase.from('player_loadouts').select('ability_id').eq('player_id', user.id),
         supabase.from('wearables').select('*'), // <--- Fetch wearables catalog
@@ -64,7 +65,8 @@ class _StoreScreenState extends State<StoreScreen> {
         owned.putIfAbsent(type, () => []).add(id);
       }
 
-      final abilityLoadouts = List<Map<String, dynamic>>.from(responses[6]);
+      // Shifted from 6 to 5
+      final abilityLoadouts = List<Map<String, dynamic>>.from(responses[5]); 
       final ownedAbilities = abilityLoadouts
           .where((row) => row['ability_id'] != null)
           .map((row) => row['ability_id'].toString())
@@ -77,10 +79,15 @@ class _StoreScreenState extends State<StoreScreen> {
           _ownedItems = owned;
           _characters = List<Map<String, dynamic>>.from(responses[2]);
           _masks = List<Map<String, dynamic>>.from(responses[3]);
-          _maps = List<Map<String, dynamic>>.from(responses[4]);
-          _abilities = List<Map<String, dynamic>>.from(responses[5]);
+          //_maps = List<Map<String, dynamic>>.from(responses[4]); // Commented out
+          
+          // Shifted from 5 to 4
+          _abilities = List<Map<String, dynamic>>.from(responses[4]); 
+          
           _ownedAbilityIds = ownedAbilities;
-          _wearables = List<Map<String, dynamic>>.from(responses[7]);
+          
+          // Shifted from 7 to 6
+          _wearables = List<Map<String, dynamic>>.from(responses[6]); 
           _isLoading = false;
         });
       }
@@ -301,7 +308,7 @@ class _StoreScreenState extends State<StoreScreen> {
   Widget build(BuildContext context) {
     return ShowCaseWidget(
       builder: (context) => DefaultTabController(
-        length: 5, // <--- Expanded to 5 tabs
+        length: 4, // <--- Expanded to 5 tabs
         child: Scaffold(
           key: _scaffoldKey, // YOU MUST ADD THIS EXACT LINE!
           backgroundColor: Colors.black,
@@ -343,7 +350,7 @@ class _StoreScreenState extends State<StoreScreen> {
               Tab(text: 'MASKS'),
               Tab(text: 'WEARABLES'), // <--- Added WEARABLES tab
               Tab(text: 'CHARACTERS'),
-              Tab(text: 'MAPS'),
+              //Tab(text: 'MAPS'),
               Tab(text: 'PERKS'),
             ],
           ),
@@ -355,7 +362,7 @@ class _StoreScreenState extends State<StoreScreen> {
                   _buildItemList(_masks, 'mask'),
                   _buildItemList(_wearables, 'wearable'), // <--- Added WEARABLES tab view
                   _buildItemList(_characters, 'character'),
-                  _buildItemList(_maps, 'map'),
+                  //_buildItemList(_maps, 'map'),
                   _buildItemList(_abilities, 'ability'),
                 ],
               ),
