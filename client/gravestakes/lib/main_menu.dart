@@ -448,24 +448,37 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   const SizedBox(height: 16),
 
                   Showcase(
-  key: _startKey,
-  description: 'STEP 4: Select 1v1 Mode and Enter the Darkness!',
-  targetShapeBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-  disposeOnTap: true,
-  onTargetClick: () => _findMatchAndStart(context),
-  child:
-  ElevatedButton(
-                    onPressed: () => _findMatchAndStart(context),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red[800],
-                      padding: const EdgeInsets.symmetric(vertical: 20),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    key: _startKey,
+                    description: 'STEP 4: Select Casual Mode and Enter the Darkness!',
+                    targetShapeBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    disposeOnTap: true,
+                    onTargetClick: () async {
+                      // Update state before finding a match
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString('tutorial_phase', 'completed');
+                      
+                      if (mounted) _findMatchAndStart(context);
+                    },
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        // Also catch it for standard taps
+                        final prefs = await SharedPreferences.getInstance();
+                        if (prefs.getString('tutorial_phase') == 'match') {
+                          await prefs.setString('tutorial_phase', 'completed');
+                        }
+                        
+                        if (mounted) _findMatchAndStart(context);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red[800],
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: Text(
+                        _isSearchingForMatch ? 'SEARCHING...' : 'FIND MATCH',
+                        style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 2),
+                      ),
                     ),
-                    child: Text(
-                      _isSearchingForMatch ? 'SEARCHING...' : 'FIND MATCH',
-                      style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 2),
-                    ),
-                  ),
                   ),
                   const SizedBox(height: 12),
 
