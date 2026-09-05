@@ -141,14 +141,13 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
 
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getString('tutorial_phase') == 'loadout') {
-      // 500ms delay ensures the loading spinner is gone before highlighting starts
-      Future.delayed(const Duration(milliseconds: 500), () {
+      // Fires the exact frame the loading spinner disappears and the UI renders
+      WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _scaffoldKey.currentContext != null) {
-          // ONLY trigger step 1!
           ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_masksTabKey]);
         }
       });
-    }  
+    }
   }
 
   // --- DRAFT MECHANICS ---

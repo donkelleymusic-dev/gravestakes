@@ -55,8 +55,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
     final phase = prefs.getString('tutorial_phase') ?? 'market';
     
-    // Wait for screen transitions to finish
-    Future.delayed(const Duration(milliseconds: 500), () {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _scaffoldKey.currentContext == null) return;
       
       final showContext = _scaffoldKey.currentContext!;
@@ -428,7 +427,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                         isExpanded: true,
                         style: const TextStyle(color: Colors.purpleAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold),
                         items: const [
-                          DropdownMenuItem(value: 'casual', child: Text('MODE: CASUAL FFA')),
+                          DropdownMenuItem(value: 'casual', child: Text('MODE: CASUAL FREE FOR ALL')),
                           DropdownMenuItem(value: '1v1', child: Text('MODE: 1v1 COMPETITIVE')),
                           DropdownMenuItem(value: '2v2', child: Text('MODE: 2v2 SQUAD BRAWL')),
                         ],
@@ -450,7 +449,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
                   Showcase(
   key: _startKey,
-  description: 'STEP 4: Select Casual Mode and Enter the Darkness!',
+  description: 'STEP 4: Select 1v1 Mode and Enter the Darkness!',
   targetShapeBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
   disposeOnTap: true,
   onTargetClick: () => _findMatchAndStart(context),

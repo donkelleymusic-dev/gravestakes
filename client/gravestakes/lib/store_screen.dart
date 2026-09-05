@@ -94,7 +94,7 @@ class _StoreScreenState extends State<StoreScreen> {
     final currentPhase = prefs.getString('tutorial_phase') ?? 'market'; 
     
     if (currentPhase == 'market') {
-      Future.delayed(const Duration(milliseconds: 500), () {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _scaffoldKey.currentContext != null) {
           ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_buyMaskKey, _backKey]);
         }

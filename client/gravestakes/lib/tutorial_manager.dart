@@ -5,8 +5,8 @@ import 'game.dart';
 
 enum TutorialStep {
   movement,
-  aiming,
   attacking,
+  fps,
   powerUp,
   completed,
 }
@@ -17,8 +17,8 @@ class TutorialManager extends PositionComponent with HasGameReference<GraveStake
   
   double stepTimer = 0;
   bool hasMoved = false;
-  bool hasAimed = false;
   bool hasAttacked = false;
+  bool hasFPS = false;
   bool hasPickedUpPowerUp = false;
 
   Vector2? initialPosition;
@@ -45,17 +45,17 @@ class TutorialManager extends PositionComponent with HasGameReference<GraveStake
           _advanceStep();
         }
         break;
-
-      case TutorialStep.aiming:
-        if (!game.rightJoystick.delta.isZero() || player.angle != 0) {
-          hasAimed = true;
+        
+      case TutorialStep.attacking:
+        if (player.attackCooldown > 0) {
+          hasAttacked = true;
           _advanceStep();
         }
         break;
 
-      case TutorialStep.attacking:
-        if (player.attackCooldown > 0) {
-          hasAttacked = true;
+      case TutorialStep.fps:
+        if (game.isFpsMode) {
+          hasFPS = true;
           _advanceStep();
         }
         break;
@@ -75,12 +75,12 @@ class TutorialManager extends PositionComponent with HasGameReference<GraveStake
   void _advanceStep() {
     switch (currentStep) {
       case TutorialStep.movement:
-        currentStep = TutorialStep.aiming;
-        break;
-      case TutorialStep.aiming:
         currentStep = TutorialStep.attacking;
         break;
       case TutorialStep.attacking:
+        currentStep = TutorialStep.fps;
+        break;
+      case TutorialStep.fps:
         currentStep = TutorialStep.powerUp;
         break;
       case TutorialStep.powerUp:
@@ -116,11 +116,11 @@ class TutorialManager extends PositionComponent with HasGameReference<GraveStake
       case TutorialStep.movement:
         instruction = 'STEP 1/4: Use Left Joystick or WASD to Move';
         break;
-      case TutorialStep.aiming:
-        instruction = 'STEP 2/4: Use Right Joystick to Aim your Flashlight';
-        break;
       case TutorialStep.attacking:
-        instruction = 'STEP 3/4: Press Spacebar or Attack Button to Shine Light';
+        instruction = 'STEP 2/4: Use Right Mask Selector to Scare your opponents';
+        break;
+      case TutorialStep.fps:
+        instruction = 'STEP 3/4: Press 2D to experience this in person';
         break;
       case TutorialStep.powerUp:
         instruction = 'STEP 4/4: Walk over the glowing Ectoplasm Spark!';
