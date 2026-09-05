@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:archive/archive.dart';
+import 'package:http/http.dart' as http;
 
 import 'package:flame/components.dart';
 import 'package:flame/events.dart';
@@ -225,8 +226,18 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         if (charId == 'default') continue; 
 
         try {
-          final ByteData data = await rootBundle.load(zipPath);
-          final List<int> bytes = data.buffer.asUint8List();
+          List<int> bytes;
+          if (zipPath.startsWith('http')) {
+            final response = await http.get(Uri.parse(zipPath));
+            if (response.statusCode != 200) {
+              throw Exception('Failed to download character ZIP: ${response.statusCode}');
+            }
+            bytes = response.bodyBytes;
+          } else {
+            final ByteData data = await rootBundle.load(zipPath);
+            bytes = data.buffer.asUint8List();
+          }
+
           final archive = ZipDecoder().decodeBytes(bytes);
           
           Map<String, ui.Image> images = {};
@@ -257,7 +268,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       debugPrint('Failed to fetch dynamic character paths from DB: $e');
     }
   }
-
   
 
   @override
