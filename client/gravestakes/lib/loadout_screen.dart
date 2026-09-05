@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:archive/archive.dart';
+import 'package:http/http.dart' as http;
 
 import 'package:flutter/material.dart';
 import 'package:flame/game.dart';
@@ -273,6 +274,14 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     if (assetPath == null || assetPath.trim().isEmpty) {
       return Icon(fallbackIcon, size: size, color: iconColor);
     }
+    
+    if (assetPath.startsWith('http')) {
+      return Image.network(
+        assetPath, width: size, height: size, fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => Icon(fallbackIcon, size: size, color: iconColor),
+      );
+    }
+
     return Image.asset(
       assetPath, width: size, height: size, fit: BoxFit.contain,
       errorBuilder: (context, error, stackTrace) => Icon(fallbackIcon, size: size, color: iconColor),
@@ -629,7 +638,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     }
 
     if (items.isEmpty) return const Center(child: Text('No relics found in crypt.', style: TextStyle(color: Colors.white54)));
-
+    
     // Center vertically in the available Expanded space
     return Center(
       child: ConstrainedBox(
@@ -652,6 +661,11 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
               displayTitle = _wearablesCatalog[itemId]!.name;
             }
 
+            String? itemThumbnail;
+            if (targetItemType == 'character' && _charactersCatalog.containsKey(itemId)) {
+              itemThumbnail = _charactersCatalog[itemId]!['thumbnail_path'];
+            }
+
             Widget card = SizedBox(
               width: 90, // Fixed width for each horizontal card
               child: GestureDetector(
@@ -668,7 +682,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          buildSafeItemThumbnail(assetPath: null, slotType: targetItemType, size: 28.0),
+                          buildSafeItemThumbnail(assetPath: itemThumbnail, slotType: targetItemType, size: 28.0),
                           const SizedBox(height: 8),
                           Text(
                             displayTitle, 
@@ -739,8 +753,18 @@ class MannequinGame extends FlameGame {
         }
       }
 
-      final ByteData data = await rootBundle.load(zipPath);
-      final List<int> bytes = data.buffer.asUint8List();
+      List<int> bytes;
+      if (zipPath.startsWith('http')) {
+        final response = await http.get(Uri.parse(zipPath));
+        if (response.statusCode != 200) {
+          throw Exception('Failed to download character ZIP: ${response.statusCode}');
+        }
+        bytes = response.bodyBytes;
+      } else {
+        final ByteData data = await rootBundle.load(zipPath);
+        bytes = data.buffer.asUint8List();
+      }
+
       final archive = ZipDecoder().decodeBytes(bytes);
 
       for (final file in archive) {
@@ -756,7 +780,6 @@ class MannequinGame extends FlameGame {
       }
 
       if (rig != null) {
-        // Scaled down hitbox from (160, 160) to (54, 54) to shrink preview model ~3x
         final newMannequin = VoxelCharacterComponent(images: images, rigData: rig, hitboxSize: Vector2(54, 54));
         if (hasLayout) newMannequin.position = size / 2;
         

@@ -237,11 +237,17 @@ class _StoreScreenState extends State<StoreScreen> {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(6),
                   child: (imagePath != null && imagePath.toString().isNotEmpty)
-                      ? Image.asset(
-                          imagePath,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => const Icon(Icons.shield, color: Colors.purpleAccent, size: 32),
-                        )
+                      ? (imagePath.toString().startsWith('http')
+                          ? Image.network(
+                              imagePath,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) => const Icon(Icons.shield, color: Colors.purpleAccent, size: 32),
+                            )
+                          : Image.asset(
+                              imagePath,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) => const Icon(Icons.shield, color: Colors.purpleAccent, size: 32),
+                            ))
                       : Icon(
                           itemType == 'mask' ? Icons.masks : (itemType == 'character' ? Icons.person : Icons.shield),
                           color: Colors.grey[700],
