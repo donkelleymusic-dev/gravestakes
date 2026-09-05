@@ -32,7 +32,7 @@ Future<void> main() async {
     if (Platform.isIOS) {
       await Purchases.configure(PurchasesConfiguration("appl_aJcMjydRQhDoZUvQpUjQgNpLPyH")); 
     } else if (Platform.isAndroid) {
-      await Purchases.configure(PurchasesConfiguration("test_BswqNrybFXkRHPHzjxEIYMBCGtu"));
+      await Purchases.configure(PurchasesConfiguration("goog_NvbOeRUARSAPSunHAVZSjcKjoWE"));
     }
   }
   // ------------------------------------
