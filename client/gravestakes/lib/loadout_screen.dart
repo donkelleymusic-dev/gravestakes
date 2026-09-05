@@ -9,6 +9,9 @@ import 'package:flame/game.dart';
 import 'package:flame/components.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:showcaseview/showcaseview.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'voxel_character_component.dart';
 
 // --- DATA MODELS ---
@@ -48,6 +51,15 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
   String _committedCharacterId = 'default';
   Map<String, String> _committedLoadout = {};
   List<String> _committedMasks = ['', '', '', ''];
+
+  // tutorial:
+  final GlobalKey _maskSlotKey = GlobalKey();
+  final GlobalKey _sealKey = GlobalKey();
+  final GlobalKey _loadoutBackKey = GlobalKey();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  // tutorial:
+  final GlobalKey _masksTabKey = GlobalKey();
+  final GlobalKey _inventoryMaskKey = GlobalKey();
 
   // --- DRAFT STATE (UI) ---
   String _draftCharacterId = 'default';
@@ -123,9 +135,20 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
 
       if (mounted) setState(() => _isLoading = false);
     } catch (e) {
-      debugPrint('Loadout Fetch Error: $e');
+      debugPrint('Bag Fetch Error: $e');
       if (mounted) setState(() => _isLoading = false);
     }
+
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString('tutorial_phase') == 'loadout') {
+      // 500ms delay ensures the loading spinner is gone before highlighting starts
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted && _scaffoldKey.currentContext != null) {
+          // ONLY trigger step 1!
+          ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_masksTabKey]);
+        }
+      });
+    }  
   }
 
   // --- DRAFT MECHANICS ---
@@ -285,19 +308,27 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     double baseEnergy = (activeCharData['max_energy'] as num?)?.toDouble() ?? 10.0;
     double baseRegen = 0.5;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF111111),
-      appBar: AppBar(
-        title: const Text('VESSEL ATTUNEMENT', style: TextStyle(letterSpacing: 2.0, color: Colors.purpleAccent, fontSize: 16)),
-        backgroundColor: Colors.black,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
+    return ShowCaseWidget(
+      builder: (context) => Scaffold(
+        key: _scaffoldKey,
+        backgroundColor: const Color(0xFF111111),
+        appBar: AppBar(
+          title: const Text('BAG CONTENTS', style: TextStyle(letterSpacing: 2.0, color: Colors.purpleAccent, fontSize: 16)),
+          backgroundColor: Colors.black,
+          elevation: 0,
+          leading: Showcase(
+            key: _loadoutBackKey,
+            description: 'STEP 4: Return to the Main Menu.',
+            disposeOnTap: true,
+            onTargetClick: () => Navigator.of(context).pop(),
+            child: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ),
         ),
-      ),
-      body: Column(
-        children: [
+        body: Column(
+          children: [
           // ==========================================
           // ROW 1: CHARACTER STATS (75%) & 3D RIG (25%)
           // ==========================================
@@ -369,12 +400,26 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                     labelColor: Colors.purpleAccent,
                     unselectedLabelColor: Colors.white54,
                     labelPadding: const EdgeInsets.symmetric(horizontal: 10),
-                    tabs: const [
-                      Tab(icon: Icon(Icons.person, size: 18), text: 'Char'),
-                      Tab(icon: Icon(Icons.masks, size: 18), text: 'Masks'),
-                      Tab(icon: Icon(Icons.diamond, size: 18), text: 'Neck'),
-                      Tab(icon: Icon(Icons.back_hand, size: 18), text: 'Arms'),
-                      Tab(icon: Icon(Icons.accessibility, size: 18), text: 'Belt'),
+                    tabs: [
+                      const Tab(icon: Icon(Icons.person, size: 18), text: 'Char'),
+                      Showcase(
+                        key: _masksTabKey,
+                        description: 'STEP 1: Tap here to view your Masks.',
+                        disposeOnTap: true,
+                        onTargetClick: () {
+                          _tabController.animateTo(1); // Switch to Masks tab
+                          // Wait for slide animation, then highlight the mask in the bag
+                          Future.delayed(const Duration(milliseconds: 400), () {
+                            if (mounted && _scaffoldKey.currentContext != null) {
+                              ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_inventoryMaskKey]);
+                            }
+                          });
+                        },
+                        child: const Tab(icon: Icon(Icons.masks, size: 18), text: 'Masks'),
+                      ),
+                      const Tab(icon: Icon(Icons.diamond, size: 18), text: 'Neck'),
+                      const Tab(icon: Icon(Icons.back_hand, size: 18), text: 'Arms'),
+                      const Tab(icon: Icon(Icons.accessibility, size: 18), text: 'Belt'),
                     ],
                   ),
                   Expanded(
@@ -426,7 +471,8 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                   children: List.generate(4, (i) {
                     String mId = _draftMasks[i];
                     bool isSelected = _selectedItemType == 'mask';
-                    return GestureDetector(
+                    
+                    Widget slot = GestureDetector(
                       onTap: () => mId.isEmpty && isSelected ? _assignSelectedToSlot('mask_${i + 1}') : _clearSlot('mask_${i + 1}'),
                       child: Container(
                         width: 44, height: 44,
@@ -440,6 +486,31 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                           : const Icon(Icons.add, size: 18, color: Colors.white24),
                       ),
                     );
+
+                    // Only apply the Showcase to the first slot
+                    // Only apply the Showcase to the first slot
+                    if (i == 0) {
+                      return Showcase(
+                        key: _maskSlotKey,
+                        description: 'STEP 3: Tap this empty slot to bind your mask.',
+                        disposeOnTap: true,
+                        onTargetClick: () {
+                          if (mId.isEmpty && isSelected) {
+                            _assignSelectedToSlot('mask_${i + 1}');
+                          } else {
+                            _clearSlot('mask_${i + 1}');
+                          }
+                          // Wait for the Seal button to appear, then highlight it
+                          Future.delayed(const Duration(milliseconds: 300), () {
+                            if (mounted && _scaffoldKey.currentContext != null) {
+                              ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_sealKey]);
+                            }
+                          });
+                        },
+                        child: slot,
+                      );
+                    }
+                    return slot;
                   }),
                 ),
                 const SizedBox(height: 8),
@@ -472,20 +543,43 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                     onPressed: _revertDraft,
                     child: const Text('DISMISS', style: TextStyle(color: Colors.redAccent, letterSpacing: 1.5, fontSize: 13)),
                   ),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green[700],
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  Showcase(
+                    key: _sealKey,
+                    description: 'STEP 4: Seal your attunement to save changes.',
+                    disposeOnTap: true,
+                    onTargetClick: () async {
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString('tutorial_phase', 'match');
+                      _commitDraft();
+                      // Wait for the save to finish, then highlight the back button
+                      Future.delayed(const Duration(milliseconds: 500), () {
+                        if (mounted && _scaffoldKey.currentContext != null) {
+                          ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_loadoutBackKey]);
+                        }
+                      });
+                    },
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green[700],
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      ),
+                      onPressed: () async {
+                        final prefs = await SharedPreferences.getInstance();
+                        if (prefs.getString('tutorial_phase') == 'loadout') {
+                          await prefs.setString('tutorial_phase', 'match');
+                        }
+                        _commitDraft();
+                      },
+                      child: const Text('SEAL ATTUNEMENT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2, fontSize: 13)),
                     ),
-                    onPressed: _commitDraft,
-                    child: const Text('SEAL ATTUNEMENT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2, fontSize: 13)),
                   ),
                 ],
               ),
             ),
         ],
       ),
-    );
+    ), // Closes Scaffold
+    ); // Closes ShowCaseWidget
   }
 
   Widget _buildWearableSlot(String slotKey, String label, IconData icon, Color color) {
@@ -559,7 +653,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
               displayTitle = _wearablesCatalog[itemId]!.name;
             }
 
-            return SizedBox(
+            Widget card = SizedBox(
               width: 90, // Fixed width for each horizontal card
               child: GestureDetector(
                 onTap: () => _selectInventoryItem(targetItemType, itemId),
@@ -595,6 +689,25 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 ),
               ),
             );
+
+            // Trigger Step 3 when the Standard Mask is tapped
+            if (targetItemType == 'mask' && itemId == 'standard') {
+              return Showcase(
+                key: _inventoryMaskKey,
+                description: 'STEP 2: Tap the Standard Mask to select it.',
+                disposeOnTap: true,
+                onTargetClick: () {
+                  _selectInventoryItem(targetItemType, itemId);
+                  Future.delayed(const Duration(milliseconds: 300), () {
+                    if (mounted && _scaffoldKey.currentContext != null) {
+                      ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_maskSlotKey]);
+                    }
+                  });
+                },
+                child: card,
+              );
+            }
+            return card;
           },
         ),
       ),

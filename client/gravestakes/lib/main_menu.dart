@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:showcaseview/showcaseview.dart';
 import 'package:flame/game.dart';
 import 'game.dart';
 import 'store_screen.dart';
@@ -27,7 +28,10 @@ class MainMenuScreen extends StatefulWidget {
 
 class _MainMenuScreenState extends State<MainMenuScreen> {
   final supabase = Supabase.instance.client;
-  
+  // first run menu tutorial
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final GlobalKey _marketKey = GlobalKey();
+
   String _username = 'Loading...';
   int _level = 1;
   int _shadows = 0;
@@ -35,11 +39,37 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   bool _isLoading = true;
   bool _isSearchingForMatch = false;
   String? _errorMessage;
+
+  // first run menu tutorial
+  final GlobalKey _loadoutKey = GlobalKey();
+  final GlobalKey _startKey = GlobalKey();
   
   // Kept internally so backend RPC and game instances get a valid map key
   final String _selectedMapName = 'L1T1V1.0.0';
   
   String _selectedMatchMode = '1v1'; 
+
+  Future<void> _checkTutorialPhase() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_level > 1) return; 
+
+    final phase = prefs.getString('tutorial_phase') ?? 'market';
+    
+    // Wait for screen transitions to finish
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (!mounted || _scaffoldKey.currentContext == null) return;
+      
+      final showContext = _scaffoldKey.currentContext!;
+      
+      if (phase == 'market') {
+        ShowCaseWidget.of(showContext).startShowCase([_marketKey]);
+      } else if (phase == 'loadout') {
+        ShowCaseWidget.of(showContext).startShowCase([_loadoutKey]);
+      } else if (phase == 'match') {
+        ShowCaseWidget.of(showContext).startShowCase([_startKey]);
+      }
+    });
+  }
 
   Future<void> _checkPendingGuildWarRewards() async {
     final user = supabase.auth.currentUser;
@@ -157,6 +187,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             _shadows = responses[1]['shadows'] ?? 0;
             _coins = responses[1]['coins'] ?? 0; 
             _isLoading = false;
+            _checkTutorialPhase();
           });
         }
         
@@ -190,6 +221,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         return;
       }
     }
+
   }
 
   Future<void> _findMatchAndStart(BuildContext context) async {
@@ -312,16 +344,11 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      /*floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.purpleAccent,
-        onPressed: () {
-          VesselOpenerOverlay.show(context, 'void_chrysalis');
-        },
-        child: const Icon(Icons.science, color: Colors.white),
-      ),*/
-      body: _isLoading 
+    return ShowCaseWidget(
+      builder: (context) => Scaffold(
+        key: _scaffoldKey,
+        backgroundColor: Colors.black,
+        body: _isLoading
         ? const Center(child: CircularProgressIndicator(color: Colors.red))
         : _errorMessage != null
             ? Center(
@@ -421,7 +448,14 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   
                   const SizedBox(height: 16),
 
-                  ElevatedButton(
+                  Showcase(
+  key: _startKey,
+  description: 'STEP 4: Select Casual Mode and Enter the Darkness!',
+  targetShapeBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+  disposeOnTap: true,
+  onTargetClick: () => _findMatchAndStart(context),
+  child:
+  ElevatedButton(
                     onPressed: () => _findMatchAndStart(context),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red[800],
@@ -433,7 +467,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 2),
                     ),
                   ),
-                  
+                  ),
                   const SizedBox(height: 12),
 
                   OutlinedButton.icon(
@@ -481,7 +515,17 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                     },
                   ),
                   const SizedBox(height: 10),
-                  _buildMenuButton(
+                  Showcase(
+  key: _marketKey,
+  description: 'STEP 1: Enter the Black Market to acquire your first mask.',
+  disposeOnTap: true,
+  onTargetClick: () {
+    Navigator.of(context).push(MaterialPageRoute(builder: (context) => const StoreScreen())).then((_) {
+      _fetchPlayerData();
+      _checkTutorialPhase(); // Re-check phase when returning
+    });
+  },
+  child:_buildMenuButton(
                     icon: Icons.store,
                     label: 'THE BLACK MARKET',
                     onPressed: () {
@@ -490,15 +534,26 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       ).then((_) => _fetchPlayerData());
                     },
                   ),
+                  ),
                   const SizedBox(height: 10),
-                  _buildMenuButton(
+                  Showcase(
+  key: _loadoutKey,
+  description: 'STEP 3: Open your Bag Contents to equip your new mask.',
+  disposeOnTap: true,
+  onTargetClick: () {
+    Navigator.of(context).push(MaterialPageRoute(builder: (context) => const LoadoutScreen())).then((_) {
+      _checkTutorialPhase();
+    });
+  },
+  child:_buildMenuButton(
                     icon: Icons.backpack,
-                    label: 'LOADOUT',
+                    label: 'BAG CONTENTS',
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(builder: (context) => const LoadoutScreen()),
                       );
                     },
+                  ),
                   ),
                   const SizedBox(height: 10),
                   _buildMenuButton(
@@ -539,10 +594,11 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   ),
                   const SizedBox(height: 20),
                 ],
+                ),
               ),
-            ),
-          ),
-    );
+            ), // Closes Scaffold
+          ), // Closes Builder
+        ); // Closes ShowCaseWidget
   }
 
   Widget _buildMenuButton({required IconData icon, required String label, required VoidCallback onPressed}) {

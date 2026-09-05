@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:showcaseview/showcaseview.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class StoreScreen extends StatefulWidget {
   const StoreScreen({super.key});
@@ -16,6 +18,12 @@ class _StoreScreenState extends State<StoreScreen> {
   List<Map<String, dynamic>> _maps = [];
   List<Map<String, dynamic>> _abilities = [];
   List<Map<String, dynamic>> _wearables = []; // <--- Wearables store list
+
+  //tutorial:
+  //final GlobalKey _buyMaskKey = GlobalKey();
+  final GlobalKey _backKey = GlobalKey();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final GlobalKey _buyMaskKey = GlobalKey();
 
   Map<String, List<String>> _ownedItems = {};
   List<String> _ownedAbilityIds = []; 
@@ -79,6 +87,18 @@ class _StoreScreenState extends State<StoreScreen> {
     } catch (e) {
       debugPrint('Error loading store: $e');
       if (mounted) setState(() => _isLoading = false);
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    // Safely default to 'market' if the value doesn't exist yet!
+    final currentPhase = prefs.getString('tutorial_phase') ?? 'market'; 
+    
+    if (currentPhase == 'market') {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted && _scaffoldKey.currentContext != null) {
+          ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_buyMaskKey, _backKey]);
+        }
+      });
     }
   }
 
@@ -236,15 +256,40 @@ class _StoreScreenState extends State<StoreScreen> {
                 ),
               ),
               const SizedBox(width: 16),
-              isOwned
-                  ? const Chip(backgroundColor: Colors.green, label: Text('OWNED', style: TextStyle(color: Colors.white, fontSize: 12)))
-                  : ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: canAfford ? (currency == 'coins' ? Colors.amber[800] : Colors.red[800]) : Colors.grey[800]),
-                      onPressed: canAfford 
-                          ? () => itemType == 'ability' ? _buyAbility(id, price, currency) : _buyItem(targetSlot, id, price, currency)
-                          : null,
-                      child: const Text('BUY', style: TextStyle(color: Colors.white)),
-                    ),
+              if (isOwned)
+                const Chip(backgroundColor: Colors.green, label: Text('OWNED', style: TextStyle(color: Colors.white, fontSize: 12)))
+              else if (itemType == 'mask' && id == 'standard')
+                // TARGET THE EXACT ID ('standard') INSTEAD OF THE INDEX
+                Showcase(
+                  key: _buyMaskKey,
+                  description: 'Purchase your Standard Mask here.',
+                  disposeOnTap: true,
+                  onTargetClick: () async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setString('tutorial_phase', 'loadout');
+                    _buyItem(targetSlot, id, price, currency);
+                  },
+                  child: ElevatedButton(
+                    // Force the button to look active for the tutorial
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800]),
+                    onPressed: () async {
+                      // Save progress directly before buying so it never gets stuck
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString('tutorial_phase', 'loadout');
+                      _buyItem(targetSlot, id, price, currency);
+                    },
+                    child: const Text('BUY', style: TextStyle(color: Colors.white)),
+                  ),
+                )
+              else
+                // Standard button for everything else
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: canAfford ? (currency == 'coins' ? Colors.amber[800] : Colors.red[800]) : Colors.grey[800]),
+                  onPressed: canAfford ? () async {
+                    itemType == 'ability' ? _buyAbility(id, price, currency) : _buyItem(targetSlot, id, price, currency);
+                  } : null,
+                  child: const Text('BUY', style: TextStyle(color: Colors.white)),
+                ),
             ],
           ),
         );
@@ -254,11 +299,25 @@ class _StoreScreenState extends State<StoreScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 5, // <--- Expanded to 5 tabs
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        appBar: AppBar(
+    return ShowCaseWidget(
+      builder: (context) => DefaultTabController(
+        length: 5, // <--- Expanded to 5 tabs
+        child: Scaffold(
+          key: _scaffoldKey, // YOU MUST ADD THIS EXACT LINE!
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            // --- PASTE THIS NEW LEADING BLOCK HERE ---
+            leading: Showcase(
+            key: _backKey,
+            description: 'STEP 2: Return to the Main Menu.',
+            disposeOnTap: true,
+            onTargetClick: () => Navigator.of(context).pop(),
+            child: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ),
+          // ----------------------------------------
           backgroundColor: Colors.grey[900],
           title: const Text('THE BLACK MARKET', style: TextStyle(color: Colors.redAccent, letterSpacing: 1.5)),
           actions: [
@@ -300,7 +359,8 @@ class _StoreScreenState extends State<StoreScreen> {
                   _buildItemList(_abilities, 'ability'),
                 ],
               ),
-      ),
-    );
+        ), // Closes Scaffold
+      ), // Closes DefaultTabController
+    ); // Closes ShowCaseWidget
   }
 }
