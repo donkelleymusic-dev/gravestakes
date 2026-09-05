@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:flutter/services.dart';
 import 'vessel_opener_overlay.dart';
 
 class CryptPassScreen extends StatefulWidget {
@@ -146,13 +148,13 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
   }
 
   // Wraps VesselOpenerOverlay in a Future to create the sequential queue
-  Future<void> _showAndWaitForVessel(String vesselType) {
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
+  Future<void> _showAndWaitForVessel(String vesselId) {
     return showDialog(
       context: context,
       barrierDismissible: false,
       builder: (dialogCtx) {
-        return VesselOpenerOverlay(vesselType: vesselType);
+        // Pass the string to the correct 'vesselId' named parameter
+        return VesselOpenerOverlay(vesselId: vesselId); 
       },
     ).then((_) {});
   }
@@ -299,11 +301,66 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
                 backgroundColor: Colors.purple[800],
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               ),
-              onPressed: () {
-                // Hooked directly to RevenueCat entitlement purchase flow
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Redirecting to StoreKit / Google Play Billing...')),
-                );
+              onPressed: () async {
+                try {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Contacting store...')),
+                  );
+
+                  // 1. Fetch active offerings from RevenueCat
+                  Offerings offerings = await Purchases.getOfferings();
+                  
+                  if (offerings.current != null && offerings.current!.availablePackages.isNotEmpty) {
+                    
+                    // Grab the default monthly package 
+                    Package passPackage = offerings.current!.availablePackages.first;
+                    
+                    // 2. Prompt native Apple/Google Pay sheet and store the PurchaseResult
+                    final purchaseResult = await Purchases.purchasePackage(passPackage);
+                    
+                    // Extract the CustomerInfo from the result wrapper
+                    final customerInfo = purchaseResult.customerInfo;
+                    
+                    // 3. Check if the user successfully gained the entitlement
+                    // REPLACE 'premium_pass' WITH YOUR EXACT ENTITLEMENT ID FROM REVENUECAT
+                    if (customerInfo.entitlements.all["premium_pass"]?.isActive == true) {
+                      
+                      // 4. Update Supabase so the game knows they have the premium track
+                      final user = Supabase.instance.client.auth.currentUser;
+                      if (user != null) {
+                        await Supabase.instance.client
+                            .from('player_season_progress')
+                            .update({'has_premium_pass': true})
+                            .eq('user_id', user.id)
+                            .eq('season_id', _seasonId!);
+                      }
+
+                      // 5. Update UI to unlock premium tier buttons
+                      if (mounted) {
+                        setState(() {
+                          _hasPremiumPass = true;
+                        });
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Crypt Pass Activated!'), backgroundColor: Colors.green),
+                        );
+                      }
+                    }
+                  } else {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('No pass available in the store right now.'), backgroundColor: Colors.red),
+                      );
+                    }
+                  }
+                } on PlatformException catch (e) {
+                  // Ignore if the user manually closed the payment sheet
+                  var errorCode = PurchasesErrorHelper.getErrorCode(e);
+                  if (errorCode != PurchasesErrorCode.purchaseCancelledError && mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Purchase failed: ${e.message}'), backgroundColor: Colors.red),
+                    );
+                  }
+                }
               },
               child: const Text(
                 'UNLOCK PASS',

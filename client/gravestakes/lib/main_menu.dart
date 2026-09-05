@@ -18,6 +18,7 @@ import 'guild_war_map_screen.dart';
 import 'guild_war_results_overlay.dart';
 import 'audio_manager.dart';
 import 'guild_war_results_overlay.dart';
+import 'crypt_pass_screen.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -36,6 +37,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   int _level = 1;
   int _shadows = 0;
   int _coins = 0; 
+  int _unclaimedPassTiers = 0;
   bool _isLoading = true;
   bool _isSearchingForMatch = false;
   String? _errorMessage;
@@ -162,6 +164,26 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           });
         }
 
+        // --- CHECK FOR UNCLAIMED CRYPT PASS TIERS ---
+        final seasonRes = await supabase.from('season_config').select('id').eq('is_active', true).maybeSingle();
+        int unclaimedTiers = 0;
+        if (seasonRes != null) {
+          final progressRes = await supabase
+              .from('player_season_progress')
+              .select('current_tier, highest_claimed_tier')
+              .eq('user_id', user.id)
+              .eq('season_id', seasonRes['id'])
+              .maybeSingle();
+
+          if (progressRes != null) {
+            int currentTier = progressRes['current_tier'] ?? 0;
+            int highestClaimed = progressRes['highest_claimed_tier'] ?? 0;
+            if (currentTier > highestClaimed) {
+              unclaimedTiers = currentTier - highestClaimed;
+            }
+          }
+        }
+
         final serverLevel = responses[0]['level'] ?? 1;
 
         final prefs = await SharedPreferences.getInstance();
@@ -185,6 +207,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             _level = serverLevel;
             _shadows = responses[1]['shadows'] ?? 0;
             _coins = responses[1]['coins'] ?? 0; 
+            _unclaimedPassTiers = unclaimedTiers;
             _isLoading = false;
             _checkTutorialPhase();
           });
@@ -526,6 +549,18 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       );
                     },
                   ),
+                  
+                  const SizedBox(height: 10),
+                  _buildMenuButton(
+                    icon: Icons.card_membership,
+                    label: 'CRYPT PASS',
+                    badgeCount: _unclaimedPassTiers, // <--- ADD THIS
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const CryptPassScreen()),
+                      ).then((_) => _fetchPlayerData()); 
+                    },
+                  ),
                   const SizedBox(height: 10),
                   Showcase(
   key: _marketKey,
@@ -613,16 +648,34 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         ); // Closes ShowCaseWidget
   }
 
-  Widget _buildMenuButton({required IconData icon, required String label, required VoidCallback onPressed}) {
-    return OutlinedButton.icon(
+  Widget _buildMenuButton({required IconData icon, required String label, required VoidCallback onPressed, int badgeCount = 0}) {
+    return OutlinedButton(
       onPressed: onPressed,
-      icon: Icon(icon, color: Colors.white),
-      label: Text(label, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
       style: OutlinedButton.styleFrom(
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         side: const BorderSide(color: Colors.grey),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.white),
+          const SizedBox(width: 12),
+          Text(label, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          const Spacer(), // Pushes the badge to the far right
+          if (badgeCount > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.red[800],
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '$badgeCount',
+                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+            ),
+        ],
       ),
     );
   }
