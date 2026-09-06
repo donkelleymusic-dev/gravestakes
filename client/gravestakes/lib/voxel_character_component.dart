@@ -187,7 +187,8 @@ class VoxelCharacterComponent extends PositionComponent {
       if (partName == 'left_leg') index = 0;
       if (partName == 'right_leg') index = 1;
 
-      double phaseOffset = index * 0.8;
+      // Alternate phase by 180 degrees (pi) for even vs. odd indexed limbs
+      double phaseOffset = (index % 2 == 0) ? 0.0 : pi;
       double rawSwing = sin(_walkCycleTime + phaseOffset);
       
       double posX = 0.0;
