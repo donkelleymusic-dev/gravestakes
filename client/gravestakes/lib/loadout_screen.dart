@@ -315,6 +315,8 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     double baseSpeed = (activeCharData['base_speed'] as num?)?.toDouble() ?? 200.0;
     double baseEnergy = (activeCharData['max_energy'] as num?)?.toDouble() ?? 10.0;
     double baseRegen = 0.5;
+    double baseSwapSpeed = (activeCharData['swap_speed_modifier'] as num?)?.toDouble() ?? 1.0;
+    double baseFootprint = 1.0; // Base stealth footprint is always 100%
 
     return ShowCaseWidget(
       builder: (context) => Scaffold(
@@ -341,7 +343,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
           // ROW 1: CHARACTER STATS (75%) & 3D RIG (25%)
           // ==========================================
           Container(
-            height: 125,
+            height: 165,
             color: Colors.black54,
             padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
             child: Row(
@@ -367,6 +369,8 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                       _buildStatRow('Speed', baseSpeed, _getDraftStat('speed', baseSpeed), false),
                       _buildStatRow('Max Energy', baseEnergy, _getDraftStat('energy_max', baseEnergy), false),
                       _buildStatRow('Regen', baseRegen, _getDraftStat('regen', baseRegen), false),
+                      _buildStatRow('Swap Time', baseSwapSpeed, _getDraftStat('swap_speed_modifier', baseSwapSpeed), true),
+                      _buildStatRow('Footstep Noise', baseFootprint, _getDraftStat('footprint_reduction', baseFootprint), true),
                     ],
                   ),
                 ),

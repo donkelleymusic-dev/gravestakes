@@ -63,6 +63,59 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   late final String fakeUsername;
   int simulatedScore = 0; 
 
+  
+  void transformToHunter() {
+    if (isHunter) return;
+    isHunter = true;
+
+    // Check character cache for the Goliath ID
+    String goliathId = 'the_goliath';
+    if (!game.characterRigCache.containsKey(goliathId)) {
+      if (game.characterRigCache.containsKey('goliath')) {
+        goliathId = 'goliath';
+      }
+    }
+    assignedCharacterId = goliathId;
+
+    // Scale up size and speed
+    visualScale *= 1.4;
+    huntSpeed *= 1.35;
+    scale = Vector2.all(visualScale);
+
+    // Hot-swap the 3D Voxel Rig to The Goliath
+    if (voxelComponent != null) {
+      voxelComponent!.removeFromParent();
+    }
+
+    final rig = game.characterRigCache[assignedCharacterId] ?? game.loadedRigData;
+    if (rig != null) {
+      voxelComponent = VoxelCharacterComponent(
+        images: game.characterImagesCache[assignedCharacterId] ?? game.loadedAssetImages,
+        rigData: rig,
+        hitboxSize: size,
+      )
+        ..anchor = Anchor.bottomCenter
+        ..position = Vector2(size.x / 2, size.y);
+      add(voxelComponent!);
+    }
+
+    if (_fallbackSprite != null) {
+      _fallbackSprite!.paint.color = Colors.redAccent;
+    }
+
+    triggerPrivateHighlight();
+
+    // Floating indicator & Audio Cue
+    game.camera.viewport.add(FloatingText(
+      text: 'THE GOLIATH HAS AWOKEN!',
+      worldPosition: Vector2(position.x - 60, position.y - 80),
+    ));
+
+    if (AudioManager.instance.isInitialized && AudioManager.instance.powerupSource != null) {
+      SoLoud.instance.play(AudioManager.instance.powerupSource!, volume: 1.0);
+    }
+  }
+
   void hearLoudNoise(Vector2 noisePos) {
     if (isHunter) {
       acousticAggroTarget = noisePos.clone();
@@ -328,12 +381,13 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
     if (!game.isHost) return;
 
-    if (game.gameTimer.timeLeft <= 60.0 && game.gameTimer.timeLeft > 0 && !isHunter) {
+    /* if (game.gameTimer.timeLeft <= 60.0 && game.gameTimer.timeLeft > 0 && !isHunter) {
       isHunter = true;
       huntSpeed *= 1.35; 
       if (_fallbackSprite != null) _fallbackSprite!.paint.color = Colors.redAccent;
       if (voxelComponent != null) triggerPrivateHighlight(); 
-    }
+    } */
+
 
     if (!isStunned) {
       double currentSpeed = wanderSpeed;

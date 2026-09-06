@@ -187,8 +187,16 @@ class VoxelCharacterComponent extends PositionComponent {
       if (partName == 'left_leg') index = 0;
       if (partName == 'right_leg') index = 1;
 
-      // Alternate phase by 180 degrees (pi) for even vs. odd indexed limbs
-      double phaseOffset = (index % 2 == 0) ? 0.0 : pi;
+      // --- THE RIPPLE MATH ---
+      // 1. Base alternating phase for left vs right (Even = 0, Odd = 180 degrees)
+      double sideOffset = (index % 2 == 0) ? 0.0 : pi;
+      
+      // 2. Cascade offset based on the limb's row (Front-to-back delay)
+      int row = index ~/ 2;
+      double rippleDelay = row * (pi / 2.5); // Tweak 2.5 to change the wave's tightness
+      
+      // 3. Combine for the final staggered phase
+      double phaseOffset = sideOffset - rippleDelay;
       double rawSwing = sin(_walkCycleTime + phaseOffset);
       
       double posX = 0.0;
@@ -198,15 +206,26 @@ class VoxelCharacterComponent extends PositionComponent {
       int thickness = isArm ? 4 : 4;
 
       if (isLeg) {
-        int totalLegs = max(1, parts.keys.where((k) => k.startsWith('leg') || k.contains('_leg')).length - 1);
-        double legSpacing = (torsoW / 2) / totalLegs;
-        posX = -(torsoW / 4) + (index * legSpacing);
+        int totalLegs = parts.keys.where((k) => k.startsWith('leg') || k.contains('_leg')).length;
+        double yOffset = 0.0;
         
-        // Hardcode fallback offsets for bipedal rigs
+        if (totalLegs == 1) {
+          // Perfectly center the single leg directly under the body
+          posX = 0.0;
+          // Tuck the monoleg 30 pixels higher into the torso
+          yOffset = -30.0; 
+        } else {
+          // Spread multiple legs evenly across the bottom of the torso
+          double legSpacing = (torsoW / 2) / max(1, totalLegs - 1);
+          posX = -(torsoW / 4) + (index * legSpacing);
+        }
+        
+        // Hardcode fallback offsets for legacy bipedal rigs
         if (partName == 'left_leg') posX = -(torsoW / 4);
         if (partName == 'right_leg') posX = (torsoW / 4);
 
-        posY = hipY + (rawSwing * 8.0 * frontWeight * depthDir);
+        // Apply the yOffset to the final vertical position calculation
+        posY = hipY + yOffset + (rawSwing * 8.0 * frontWeight * depthDir);
         rot = rawSwing * 0.55 * sideWeight;
         scaleMod = 1.0 + (rawSwing * 0.15 * frontWeight * depthDir * (index.isEven ? 1 : -1));
       } else if (isArm) {

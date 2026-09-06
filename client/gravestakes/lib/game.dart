@@ -58,6 +58,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   final int targetPlayers;
   bool isWaitingInLobby = true;
 
+  bool matchHasHunter = false;
+  bool hunterHasSpawned = false;
+
   String matchPhase = 'searching'; 
   double lobbyTimer = 10.0;
   double countdownTimer = 3.0;
@@ -416,6 +419,28 @@ await camera.viewport.add(MapButton());
     if (matchPhase == 'searching') {
       if (isHost) {
         lobbyTimer -= dt;
+
+        // --- HOST-CONTROLLED HUNTER AWAKENING AT 60 SECONDS ---
+        if (isHost && gameStarted && matchHasHunter && !hunterHasSpawned) {
+          if (gameTimer.timeLeft <= 60.0 && gameTimer.timeLeft > 0) {
+            final eligibleBots = bots.where((b) => !b.isHunter).toList();
+            if (eligibleBots.isNotEmpty) {
+              hunterHasSpawned = true;
+              // Select exactly one regular bot to morph
+              final chosenBot = eligibleBots[Random().nextInt(eligibleBots.length)];
+              final botIndex = bots.indexOf(chosenBot);
+
+              chosenBot.transformToHunter();
+
+              // Broadcast to clients so they swap the voxel model to The Goliath
+              myChannel.sendBroadcastMessage(
+                event: 'hunter_emerge',
+                payload: {'bot_index': botIndex},
+              );
+            }
+          }
+        }
+        
         int totalHumans = 1 + networkPlayers.length;
         
         if (totalHumans >= targetPlayers || lobbyTimer <= 0) {
@@ -514,21 +539,29 @@ await camera.viewport.add(MapButton());
 
     if (matchMode == 'casual') {
       final config = LevelManager.getConfigForLevel(myPlayerLevel);
-      bool spawnHunter = Random().nextDouble() < 0.40;
-      int regularBotCount = spawnHunter ? config.botCount - 1 : config.botCount;
-        
-      for (int i = 0; i < regularBotCount; i++) {
-        Vector2 safeBotSpawn = gameMap.getSafeSpawnLocation(availableSpawns.isNotEmpty ? availableSpawns.removeAt(0) : Vector2(500, 500), Vector2.all(32.0));
-        bots.add(BotPlayer(isHunter: false)..position = safeBotSpawn..wanderSpeed = config.wanderSpeed..huntSpeed = config.huntSpeed);
-      }
-      if (spawnHunter && availableSpawns.isNotEmpty) {
-        Vector2 safeBotSpawn = gameMap.getSafeSpawnLocation(availableSpawns.removeAt(0), Vector2.all(32.0));
-        bots.add(BotPlayer(isHunter: true)..position = safeBotSpawn..wanderSpeed = config.wanderSpeed..huntSpeed = config.huntSpeed);
+  
+      // Decide once per match if a hunter will emerge in the final minute (40% chance)
+      matchHasHunter = Random().nextDouble() < 0.70;
+      hunterHasSpawned = false;
+
+      // ALWAYS spawn standard bots only at the beginning
+      for (int i = 0; i < config.botCount; i++) {
+        Vector2 safeBotSpawn = gameMap.getSafeSpawnLocation(
+          availableSpawns.isNotEmpty ? availableSpawns.removeAt(0) : Vector2(500, 500), 
+          Vector2.all(32.0),
+        );
+        bots.add(
+          BotPlayer(isHunter: false)
+            ..position = safeBotSpawn
+            ..wanderSpeed = config.wanderSpeed
+            ..huntSpeed = config.huntSpeed,
+        );
       }
       for (var b in bots) world.add(b);
-      
+
     } else {
       // --- COMPETITIVE TEAM ASSIGNMENT ---
+      matchHasHunter = false;
       playerTeams[mySessionId] = 1; 
       if (matchMode == '2v2') player.applyTeamColor(1);
 
@@ -859,6 +892,17 @@ await camera.viewport.add(MapButton());
           }
         });
       })
+      .onBroadcast(
+        event: 'hunter_emerge',
+        callback: (payload) {
+          if (!isHost) {
+            final index = payload['bot_index'] as int?;
+            if (index != null && index >= 0 && index < bots.length) {
+              bots[index].transformToHunter();
+            }
+          }
+        },
+      )
       .onBroadcast(
         event: 'move',
         callback: (payload) {
