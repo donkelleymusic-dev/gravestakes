@@ -323,7 +323,7 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
                     
                     // 3. Check if the user successfully gained the entitlement
                     // REPLACE 'premium_pass' WITH YOUR EXACT ENTITLEMENT ID FROM REVENUECAT
-                    if (customerInfo.entitlements.all["premium_pass"]?.isActive == true) {
+                    if (customerInfo.entitlements.all["lumen_breach_pro"]?.isActive == true) {
                       
                       // 4. Update Supabase so the game knows they have the premium track
                       final user = Supabase.instance.client.auth.currentUser;
@@ -414,6 +414,7 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
               isUnlocked: isUnlocked,
               isClaimed: isClaimed,
               accentColor: Colors.cyanAccent,
+              onTap: _claimAllAvailable,
             ),
           ),
 
@@ -455,6 +456,7 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
               isClaimed: isClaimed,
               isLockedByPass: !_hasPremiumPass,
               accentColor: Colors.purpleAccent,
+              onTap: _claimAllAvailable,
             ),
           ),
         ],
@@ -462,22 +464,25 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
     );
   }
 
-  Widget _buildRewardCard({
+ Widget _buildRewardCard({
     required String? vesselType,
     required bool isUnlocked,
     required bool isClaimed,
     bool isLockedByPass = false,
     required Color accentColor,
+    VoidCallback? onTap, // <-- Add this
   }) {
-    if (vesselType == null) {
-      return const SizedBox();
-    }
+    if (vesselType == null) return const SizedBox();
 
     final displayName = vesselType.replaceAll('_', ' ').toUpperCase();
+    final bool isReadyToOpen = isUnlocked && !isClaimed && !isLockedByPass; // <-- Add this
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+    return GestureDetector(
+      // Only allow tapping if the box is ready to be opened
+      onTap: isReadyToOpen && !_isClaiming ? onTap : null, 
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: isUnlocked ? Colors.grey[900] : Colors.grey[950],
         borderRadius: BorderRadius.circular(8),
@@ -490,15 +495,14 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
       ),
       child: Row(
         children: [
-          Icon(
-            isLockedByPass
-                ? Icons.lock
-                : (isClaimed ? Icons.check_circle : Icons.inventory_2),
-            color: isClaimed
-                ? Colors.greenAccent
-                : (isLockedByPass ? Colors.grey : accentColor),
-            size: 24,
+          // --- REPLACED GENERIC ICON WITH PROCEDURAL VESSEL ---
+          ProceduralVesselIcon(
+            isPremium: accentColor == Colors.purpleAccent,
+            isClaimed: isClaimed,
+            isLocked: isLockedByPass || !isUnlocked,
+            accentColor: accentColor,
           ),
+          // ----------------------------------------------------
           const SizedBox(width: 8),
           Expanded(
             child: Column(
@@ -521,7 +525,7 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
                       ? 'CLAIMED'
                       : (isLockedByPass
                           ? 'REQUIRES PASS'
-                          : (isUnlocked ? 'READY' : 'LOCKED')),
+                          : (isUnlocked ? 'TAP TO OPEN' : 'LOCKED')),
                   style: TextStyle(
                     color: isClaimed
                         ? Colors.grey
@@ -534,6 +538,7 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -590,6 +595,104 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class ProceduralVesselIcon extends StatelessWidget {
+  final bool isPremium;
+  final bool isClaimed;
+  final bool isLocked;
+  final Color accentColor;
+
+  const ProceduralVesselIcon({
+    super.key,
+    required this.isPremium,
+    required this.isClaimed,
+    required this.isLocked,
+    required this.accentColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Styling logic based on states
+    final Color baseColor = isPremium ? const Color(0xFF311B42) : const Color(0xFF1A1A1A);
+    final Color lineColor = isLocked 
+        ? Colors.white12 
+        : (isClaimed ? Colors.white24 : (isPremium ? Colors.amberAccent : accentColor));
+    
+    // Add a pulsing glow if it's unlocked but not yet claimed
+    final bool isReady = !isLocked && !isClaimed;
+    final List<BoxShadow> glow = isReady 
+        ? [BoxShadow(color: lineColor.withOpacity(0.6), blurRadius: 8, spreadRadius: 1)]
+        : [];
+
+    return SizedBox(
+      width: 36,
+      height: 36,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // --- THE BASE ---
+          Positioned(
+            bottom: 4,
+            child: Container(
+              width: 26,
+              height: 16,
+              decoration: BoxDecoration(
+                color: isLocked ? Colors.black54 : baseColor,
+                border: Border.all(color: lineColor, width: 1.5),
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(4)),
+                boxShadow: glow,
+              ),
+              child: Center(
+                child: Container(
+                  width: 8,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: lineColor.withOpacity(isLocked ? 0.2 : 0.8),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // --- THE LID (AJAR IF CLAIMED) ---
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 300),
+            bottom: isClaimed ? 20 : 19, // Pops up when claimed
+            child: Transform.rotate(
+              angle: isClaimed ? 0.25 : 0.0, // Tilts when claimed
+              child: Transform.translate(
+                offset: isClaimed ? const Offset(4, 0) : Offset.zero, // Shifts right when claimed
+                child: Container(
+                  width: 30,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: isLocked ? Colors.black87 : baseColor,
+                    border: Border.all(color: lineColor, width: 1.5),
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      Container(width: 4, height: 2, color: lineColor.withOpacity(0.5)),
+                      Container(width: 4, height: 2, color: lineColor.withOpacity(0.5)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // --- LOCK ICON OVERLAY ---
+          if (isLocked)
+            const Positioned(
+              child: Icon(Icons.lock, color: Colors.white38, size: 16),
+            ),
+        ],
       ),
     );
   }

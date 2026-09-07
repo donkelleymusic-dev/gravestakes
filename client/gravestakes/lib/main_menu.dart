@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:showcaseview/showcaseview.dart';
 import 'package:flame/game.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
 import 'game.dart';
 import 'store_screen.dart';
 import 'loadout_screen.dart';
@@ -132,6 +133,13 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       return; 
     }
 
+    // Bind the player's Supabase ID to their RevenueCat purchase history
+    try {
+      await Purchases.logIn(user.id);
+    } catch (e) {
+      debugPrint('RevenueCat login failed: $e');
+    }
+    
     if (mounted) setState(() {
       _isLoading = true;
       _errorMessage = null; 
