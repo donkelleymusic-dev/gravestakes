@@ -229,15 +229,20 @@ class VoxelCharacterComponent extends PositionComponent {
         rot = rawSwing * 0.55 * sideWeight;
         scaleMod = 1.0 + (rawSwing * 0.15 * frontWeight * depthDir * (index.isEven ? 1 : -1));
       } else if (isArm) {
-        int totalArms = max(1, parts.keys.where((k) => k.startsWith('arm') || k.contains('_arm')).length - 1);
-        double armSpacing = (torsoW / 2) / totalArms;
-        posX = -(torsoW / 2) + 10 + (index * armSpacing);
+        bool isLeftArm = index % 2 == 0;
 
-        // Hardcode fallback offsets for bipedal rigs
+        // 1. Pin arms strictly to the outer edges of the torso
+        posX = isLeftArm ? -(torsoW / 2) + 10 : (torsoW / 2) - 10;
+
+        // Hardcode fallback offsets for legacy bipeds
         if (partName == 'left_arm') posX = -(torsoW / 2) + 5;
         if (partName == 'right_arm') posX = (torsoW / 2) - 5;
 
-        posY = shoulderY + (-rawSwing * 5.0 * frontWeight * depthDir);
+        // 2. Cascade extra limbs vertically down the sides of the body
+        int row = index ~/ 2;
+        double verticalStackOffset = row * 35.0; // Push each extra pair down by 35 pixels
+
+        posY = shoulderY + verticalStackOffset + (-rawSwing * 5.0 * frontWeight * depthDir);
         rot = -rawSwing * 0.40 * sideWeight;
         scaleMod = 1.0 - (rawSwing * 0.10 * frontWeight * depthDir);
       }

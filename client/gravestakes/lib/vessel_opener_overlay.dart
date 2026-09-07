@@ -235,65 +235,75 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
                         ),
                         const SizedBox(height: 50),
                         ElevatedButton(
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.black, side: BorderSide(color: _explosionColor, width: 2)),
-                          onPressed: () async {
-                            // 1. Close the Vessel Opener dialog
-                            Navigator.of(context).pop(); 
+  style: ElevatedButton.styleFrom(backgroundColor: Colors.black, side: BorderSide(color: _explosionColor, width: 2)),
+  onPressed: () async {
+    // 1. Calculate totals from the rewards they just got
+    int totalCoins = 0;
+    int totalShadows = 0;
+    for (var reward in _rewards) {
+      if (reward['granted_reward_type'] == 'coins') totalCoins += (reward['granted_amount'] as int? ?? 0);
+      if (reward['granted_reward_type'] == 'shadows') totalShadows += (reward['granted_amount'] as int? ?? 0);
+    }
 
-                            // 2. Calculate totals from the rewards they just got
-                            int totalCoins = 0;
-                            int totalShadows = 0;
-                            for (var reward in _rewards) {
-                              if (reward['granted_reward_type'] == 'coins') totalCoins += (reward['granted_amount'] as int? ?? 0);
-                              if (reward['granted_reward_type'] == 'shadows') totalShadows += (reward['granted_amount'] as int? ?? 0);
-                            }
+    // Match completion base XP + loot bonus
+    int xpEarned = totalCoins + totalShadows + 150; 
 
-                            // 3. Fetch real user profile from Supabase
-                            final user = Supabase.instance.client.auth.currentUser;
-                            int currentLevel = 1;
-                            int xpPerLevel = 1000;
+    // 2. Send XP to Supabase to advance the Crypt Pass
+    try {
+      await Supabase.instance.client.rpc('add_season_xp', params: {
+        'p_xp_gained': xpEarned,
+      });
+    } catch (e) {
+      debugPrint('Error advancing Crypt Pass XP: $e');
+    }
 
-                            if (user != null) {
-                              try {
-                                final profile = await Supabase.instance.client
-                                    .from('profiles')
-                                    .select('level')
-                                    .eq('id', user.id)
-                                    .maybeSingle();
+    // 3. Fetch real user profile from Supabase for the Account XP vial
+    final user = Supabase.instance.client.auth.currentUser;
+    int currentLevel = 1;
+    int xpPerLevel = 1000;
 
-                                if (profile != null) {
-                                  currentLevel = profile['level'] ?? 1;
-                                }
-                              } catch (e) {
-                                debugPrint('Failed to load profile XP: $e');
-                              }
-                            }
+    if (user != null) {
+      try {
+        final profile = await Supabase.instance.client
+            .from('profiles')
+            .select('level')
+            .eq('id', user.id)
+            .maybeSingle();
 
-                            // Calculate real match XP based on rewards & score
-                            int xpEarned = totalCoins + totalShadows + 150; // Match completion base XP
-                            int oldXp = (currentLevel * 250) % xpPerLevel; // Real starting progress in level
-                            int newXp = oldXp + xpEarned;
+        if (profile != null) {
+          currentLevel = profile['level'] ?? 1;
+        }
+      } catch (e) {
+        debugPrint('Failed to load profile XP: $e');
+      }
+    }
 
-                            // 4. Push the Progression Screen with REAL data!
-                            if (context.mounted) {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => ProgressionScreen(
-                                    shadowsEarned: totalShadows,
-                                    coinsEarned: totalCoins,
-                                    oldXp: oldXp,
-                                    newXp: newXp,
-                                    xpRequired: xpPerLevel,
-                                  ),
-                                ),
-                              );
-                            }
-                          },
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
-                            child: Text('ACCEPT', style: TextStyle(color: Colors.white, letterSpacing: 2, fontWeight: FontWeight.bold)),
-                          ),
-                        )
+    int oldXp = (currentLevel * 250) % xpPerLevel;
+    int newXp = oldXp + xpEarned;
+
+    if (!context.mounted) return;
+
+    // 4. Close the Vessel Opener dialog
+    Navigator.of(context).pop(); 
+
+    // 5. Push the Progression Screen
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ProgressionScreen(
+          shadowsEarned: totalShadows,
+          coinsEarned: totalCoins,
+          oldXp: oldXp,
+          newXp: newXp,
+          xpRequired: xpPerLevel,
+        ),
+      ),
+    );
+  },
+  child: const Padding(
+    padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+    child: Text('ACCEPT', style: TextStyle(color: Colors.white, letterSpacing: 2, fontWeight: FontWeight.bold)),
+  ),
+)
                       ],
                     ),
               ),

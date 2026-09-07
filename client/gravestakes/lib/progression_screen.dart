@@ -83,10 +83,13 @@ class ProgressionScreen extends StatelessWidget {
               child: Column(
                 children: [
                   AnimatedStatTicker(label: 'SHADOWS EXTRACTED', beginVal: 0, endVal: shadowsEarned, color: Colors.redAccent),
-                  const SizedBox(height: 12),
-                  AnimatedStatTicker(label: 'COINS SALVAGED', beginVal: 0, endVal: coinsEarned, color: Colors.yellowAccent),
-                  const SizedBox(height: 12),
-                  AnimatedStatTicker(label: 'CURRENT XP', beginVal: oldXp, endVal: newXp, color: Colors.cyanAccent),
+const SizedBox(height: 12),
+AnimatedStatTicker(label: 'COINS SALVAGED', beginVal: 0, endVal: coinsEarned, color: Colors.yellowAccent),
+const SizedBox(height: 12),
+AnimatedStatTicker(label: 'ACCOUNT RESONANCE XP', beginVal: oldXp, endVal: newXp, color: Colors.cyanAccent),
+const SizedBox(height: 12),
+// Add feedback for season pass progress:
+AnimatedStatTicker(label: 'CRYPT PASS XP GAINED', beginVal: 0, endVal: newXp - oldXp, color: Colors.purpleAccent),
                 ],
               ),
             ),
