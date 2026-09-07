@@ -36,7 +36,7 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
   Future<void> _loadPassData() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
-
+    await Purchases.invalidateCustomerInfoCache();
     try {
       // 1. Fetch the active season
       final seasonRes = await supabase
@@ -68,6 +68,35 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
           .eq('season_id', _seasonId!)
           .maybeSingle();
 
+      // --- AREVENUECAT SYNC BLOCK IF WE PAID BUT LOST CONNECTION AFTER ---
+      final customerInfo = await Purchases.getCustomerInfo();
+      bool truePremiumStatus = progressRes?['has_premium_pass'] ?? false;
+      debugPrint('ACTIVE ENTITLEMENT KEYS: ${customerInfo.entitlements.all.keys.toList()}');
+      
+      if (customerInfo.entitlements.all["lumen_breach_pro"]?.isActive == true) {
+                      
+        final user = Supabase.instance.client.auth.currentUser;
+        if (user != null) {
+          // SWAPPED TO UPSERT
+          await Supabase.instance.client
+              .from('player_season_progress')
+              .upsert({
+                'user_id': user.id,
+                'season_id': _seasonId!,
+                'has_premium_pass': true
+              });
+        }
+
+        if (mounted) {
+          setState(() {
+            _hasPremiumPass = true;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Crypt Pass Activated!'), backgroundColor: Colors.green),
+          );
+        }
+      }
+
       // 4. Fetch wallet to display coin balance for skips
       final walletRes = await supabase
           .from('wallets')
@@ -82,7 +111,8 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
             _currentXp = progressRes['current_xp'] ?? 0;
             _currentTier = progressRes['current_tier'] ?? 0;
             _highestClaimedTier = progressRes['highest_claimed_tier'] ?? 0;
-            _hasPremiumPass = progressRes['has_premium_pass'] ?? false;
+           // _hasPremiumPass = progressRes['has_premium_pass'] ?? false;
+            _hasPremiumPass = truePremiumStatus;
           }
           _walletCoins = walletRes != null ? (walletRes['coins'] ?? 0) : 0;
           _isLoading = false;
@@ -323,7 +353,7 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
                     
                     // 3. Check if the user successfully gained the entitlement
                     // REPLACE 'premium_pass' WITH YOUR EXACT ENTITLEMENT ID FROM REVENUECAT
-                    if (customerInfo.entitlements.all["lumen_breach_pro"]?.isActive == true) {
+                    if (1 == 0 && customerInfo.entitlements.all["lumen_breach_pro"]?.isActive == true) {
                       
                       // 4. Update Supabase so the game knows they have the premium track
                       final user = Supabase.instance.client.auth.currentUser;
@@ -552,6 +582,7 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
         child: Row(
           children: [
             // Fast Track 1 Tier
+            if (_currentTier < _tiers.length) ...[
             Expanded(
               child: OutlinedButton(
                 style: OutlinedButton.styleFrom(
@@ -570,6 +601,7 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
                 ),
               ),
             ),
+            ],
             const SizedBox(width: 8),
 
             // Waterfall Claim Button

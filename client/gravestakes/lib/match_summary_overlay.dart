@@ -135,8 +135,10 @@ class MatchSummaryOverlay extends StatelessWidget {
                   // 1. Hide the competitive scoreboard
                   game.overlays.remove('summary');
                   
-                  // 2. Launch the personal rewards phase
-                  VesselOpenerOverlay.show(context, 'soul_casket');
+                  // 2. Launch the personal rewards phase WITH the match flag
+                  VesselOpenerOverlay.show(context, 'soul_casket', isFromMatch: true);
+                  // old 2. Launch the personal rewards phase
+                  //VesselOpenerOverlay.show(context, 'soul_casket');
                 },
                 child: const Text('CLAIM REWARDS', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
               ),
