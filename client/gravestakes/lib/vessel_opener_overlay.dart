@@ -6,14 +6,22 @@ import 'progression_screen.dart';
 
 class VesselOpenerOverlay extends StatefulWidget {
   final String vesselId;
-  const VesselOpenerOverlay({super.key, required this.vesselId});
+  final bool isFromMatch;
+  const VesselOpenerOverlay({
+    super.key, 
+    required this.vesselId,
+    this.isFromMatch = false,
+  });
 
-  static void show(BuildContext context, String vesselId) {
+  static void show(BuildContext context, String vesselId, {bool isFromMatch = false}) {
     showGeneralDialog(
       context: context,
       barrierColor: Colors.transparent, 
       transitionDuration: const Duration(milliseconds: 400),
-      pageBuilder: (context, anim1, anim2) => VesselOpenerOverlay(vesselId: vesselId),
+      pageBuilder: (context, anim1, anim2) => VesselOpenerOverlay(
+        vesselId: vesselId, 
+        isFromMatch: isFromMatch,
+      ),
     );
   }
 
@@ -237,67 +245,66 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
                         ElevatedButton(
   style: ElevatedButton.styleFrom(backgroundColor: Colors.black, side: BorderSide(color: _explosionColor, width: 2)),
   onPressed: () async {
-    // 1. Calculate totals from the rewards they just got
-    int totalCoins = 0;
-    int totalShadows = 0;
-    for (var reward in _rewards) {
-      if (reward['granted_reward_type'] == 'coins') totalCoins += (reward['granted_amount'] as int? ?? 0);
-      if (reward['granted_reward_type'] == 'shadows') totalShadows += (reward['granted_amount'] as int? ?? 0);
-    }
-
-    // Match completion base XP + loot bonus
-    int xpEarned = totalCoins + totalShadows + 150; 
-
-    // 2. Send XP to Supabase to advance the Crypt Pass
-    try {
-      await Supabase.instance.client.rpc('add_season_xp', params: {
-        'p_xp_gained': xpEarned,
-      });
-    } catch (e) {
-      debugPrint('Error advancing Crypt Pass XP: $e');
-    }
-
-    // 3. Fetch real user profile from Supabase for the Account XP vial
-    final user = Supabase.instance.client.auth.currentUser;
-    int currentLevel = 1;
-    int xpPerLevel = 1000;
-
-    if (user != null) {
-      try {
-        final profile = await Supabase.instance.client
-            .from('profiles')
-            .select('level')
-            .eq('id', user.id)
-            .maybeSingle();
-
-        if (profile != null) {
-          currentLevel = profile['level'] ?? 1;
-        }
-      } catch (e) {
-        debugPrint('Failed to load profile XP: $e');
-      }
-    }
-
-    int oldXp = (currentLevel * 250) % xpPerLevel;
-    int newXp = oldXp + xpEarned;
-
-    if (!context.mounted) return;
-
-    // 4. Close the Vessel Opener dialog
+    // 1. Close the Vessel Opener dialog immediately
     Navigator.of(context).pop(); 
 
-    // 5. Push the Progression Screen
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => ProgressionScreen(
-          shadowsEarned: totalShadows,
-          coinsEarned: totalCoins,
-          oldXp: oldXp,
-          newXp: newXp,
-          xpRequired: xpPerLevel,
+    // 2. ONLY run the post-match progression if this overlay was launched from a real match
+    if (widget.isFromMatch) {
+      int totalCoins = 0;
+      int totalShadows = 0;
+      for (var reward in _rewards) {
+        if (reward['granted_reward_type'] == 'coins') totalCoins += (reward['granted_amount'] as int? ?? 0);
+        if (reward['granted_reward_type'] == 'shadows') totalShadows += (reward['granted_amount'] as int? ?? 0);
+      }
+
+      int xpEarned = totalCoins + totalShadows + 150; 
+
+      try {
+        await Supabase.instance.client.rpc('add_season_xp', params: {
+          'p_xp_gained': xpEarned,
+        });
+      } catch (e) {
+        debugPrint('Error advancing Crypt Pass XP: $e');
+      }
+
+      final user = Supabase.instance.client.auth.currentUser;
+      int currentLevel = 1;
+      int xpPerLevel = 1000;
+
+      if (user != null) {
+        try {
+          final profile = await Supabase.instance.client
+              .from('profiles')
+              .select('level')
+              .eq('id', user.id)
+              .maybeSingle();
+
+          if (profile != null) {
+            currentLevel = profile['level'] ?? 1;
+          }
+        } catch (e) {
+          debugPrint('Failed to load profile XP: $e');
+        }
+      }
+
+      int oldXp = (currentLevel * 250) % xpPerLevel;
+      int newXp = oldXp + xpEarned;
+
+      if (!context.mounted) return;
+
+      // Push the Progression Screen
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => ProgressionScreen(
+            shadowsEarned: totalShadows,
+            coinsEarned: totalCoins,
+            oldXp: oldXp,
+            newXp: newXp,
+            xpRequired: xpPerLevel,
+          ),
         ),
-      ),
-    );
+      );
+    }
   },
   child: const Padding(
     padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
