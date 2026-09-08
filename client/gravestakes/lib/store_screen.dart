@@ -14,14 +14,10 @@ class StoreScreen extends StatefulWidget {
 class _StoreScreenState extends State<StoreScreen> {
   final supabase = Supabase.instance.client;
   
-  List<Map<String, dynamic>> _characters = [];
   List<Map<String, dynamic>> _masks = [];
-  //List<Map<String, dynamic>> _maps = [];
   List<Map<String, dynamic>> _abilities = [];
-  List<Map<String, dynamic>> _wearables = []; // <--- Wearables store list
+  List<Map<String, dynamic>> _wearables = [];
 
-  //tutorial:
-  //final GlobalKey _buyMaskKey = GlobalKey();
   final GlobalKey _backKey = GlobalKey();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final GlobalKey _buyMaskKey = GlobalKey();
@@ -45,15 +41,12 @@ class _StoreScreenState extends State<StoreScreen> {
 
     try {
       final responses = await Future.wait<dynamic>([
-        supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(),
-        supabase.from('user_inventory').select('item_type, item_id').eq('user_id', user.id),
-        // Add .neq() to filter out the default character
-        supabase.from('characters').select('*').neq('id', 'default').order('price'),
-        supabase.from('masks').select('*').order('price'),
-        //supabase.from('maps').select('*').order('price'),
-        supabase.from('abilities').select('*'),
-        supabase.from('player_loadouts').select('ability_id').eq('player_id', user.id),
-        supabase.from('wearables').select('*'), // <--- Fetch wearables catalog
+        supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(), // [0]
+        supabase.from('user_inventory').select('item_type, item_id').eq('user_id', user.id), // [1]
+        supabase.from('masks').select('*').order('price'), // [2]
+        supabase.from('abilities').select('*'), // [3]
+        supabase.from('player_loadouts').select('ability_id').eq('player_id', user.id), // [4]
+        supabase.from('wearables').select('*'), // [5]
       ]);
 
       final walletData = responses[0] as Map<String, dynamic>;
@@ -66,8 +59,7 @@ class _StoreScreenState extends State<StoreScreen> {
         owned.putIfAbsent(type, () => []).add(id);
       }
 
-      // Shifted from 6 to 5
-      final abilityLoadouts = List<Map<String, dynamic>>.from(responses[5]); 
+      final abilityLoadouts = List<Map<String, dynamic>>.from(responses[4]); 
       final ownedAbilities = abilityLoadouts
           .where((row) => row['ability_id'] != null)
           .map((row) => row['ability_id'].toString())
@@ -78,17 +70,10 @@ class _StoreScreenState extends State<StoreScreen> {
           _playerShadows = walletData['shadows'] ?? 0;
           _playerCoins = walletData['coins'] ?? 0;
           _ownedItems = owned;
-          _characters = List<Map<String, dynamic>>.from(responses[2]);
-          _masks = List<Map<String, dynamic>>.from(responses[3]);
-          //_maps = List<Map<String, dynamic>>.from(responses[4]); // Commented out
-          
-          // Shifted from 5 to 4
-          _abilities = List<Map<String, dynamic>>.from(responses[4]); 
-          
+          _masks = List<Map<String, dynamic>>.from(responses[2]);
+          _abilities = List<Map<String, dynamic>>.from(responses[3]); 
           _ownedAbilityIds = ownedAbilities;
-          
-          // Shifted from 7 to 6
-          _wearables = List<Map<String, dynamic>>.from(responses[6]); 
+          _wearables = List<Map<String, dynamic>>.from(responses[5]); 
           _isLoading = false;
         });
       }
@@ -98,7 +83,6 @@ class _StoreScreenState extends State<StoreScreen> {
     }
 
     final prefs = await SharedPreferences.getInstance();
-    // Safely default to 'market' if the value doesn't exist yet!
     final currentPhase = prefs.getString('tutorial_phase') ?? 'market'; 
     
     if (currentPhase == 'market') {
@@ -255,7 +239,7 @@ class _StoreScreenState extends State<StoreScreen> {
                               errorBuilder: (context, error, stackTrace) => const Icon(Icons.shield, color: Colors.purpleAccent, size: 32),
                             ))
                       : Icon(
-                          itemType == 'mask' ? Icons.masks : (itemType == 'character' ? Icons.person : Icons.shield),
+                          itemType == 'mask' ? Icons.masks : Icons.shield,
                           color: Colors.grey[700],
                           size: 32,
                         ),
@@ -278,7 +262,6 @@ class _StoreScreenState extends State<StoreScreen> {
               if (isOwned)
                 const Chip(backgroundColor: Colors.green, label: Text('OWNED', style: TextStyle(color: Colors.white, fontSize: 12)))
               else if (itemType == 'mask' && id == 'standard')
-                // TARGET THE EXACT ID ('standard') INSTEAD OF THE INDEX
                 Showcase(
                   key: _buyMaskKey,
                   description: 'Purchase your Standard Mask here.',
@@ -289,10 +272,8 @@ class _StoreScreenState extends State<StoreScreen> {
                     _buyItem(targetSlot, id, price, currency);
                   },
                   child: ElevatedButton(
-                    // Force the button to look active for the tutorial
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800]),
                     onPressed: () async {
-                      // Save progress directly before buying so it never gets stuck
                       final prefs = await SharedPreferences.getInstance();
                       await prefs.setString('tutorial_phase', 'loadout');
                       _buyItem(targetSlot, id, price, currency);
@@ -301,7 +282,6 @@ class _StoreScreenState extends State<StoreScreen> {
                   ),
                 )
               else
-                // Standard button for everything else
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: canAfford ? (currency == 'coins' ? Colors.amber[800] : Colors.red[800]) : Colors.grey[800]),
                   onPressed: canAfford ? () async {
@@ -320,66 +300,60 @@ class _StoreScreenState extends State<StoreScreen> {
   Widget build(BuildContext context) {
     return ShowCaseWidget(
       builder: (context) => DefaultTabController(
-        length: 4, // <--- Expanded to 5 tabs
+        length: 3, // Reduced from 4 to 3 tabs
         child: Scaffold(
-          key: _scaffoldKey, // YOU MUST ADD THIS EXACT LINE!
+          key: _scaffoldKey,
           backgroundColor: Colors.black,
           appBar: AppBar(
-            // --- PASTE THIS NEW LEADING BLOCK HERE ---
             leading: Showcase(
-            key: _backKey,
-            description: 'STEP 2: Return to the Main Menu.',
-            disposeOnTap: true,
-            onTargetClick: () => Navigator.of(context).pop(),
-            child: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => Navigator.of(context).pop(),
+              key: _backKey,
+              description: 'STEP 2: Return to the Main Menu.',
+              disposeOnTap: true,
+              onTargetClick: () => Navigator.of(context).pop(),
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
             ),
-          ),
-          // ----------------------------------------
-          backgroundColor: Colors.grey[900],
-          title: const Text('THE BLACK MARKET', style: TextStyle(color: Colors.redAccent, letterSpacing: 1.5)),
-          actions: [
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(right: 16.0),
-                child: Row(
-                  children: [
-                    Text('👻 $_playerShadows', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                    const SizedBox(width: 12),
-                    Text('🪙 $_playerCoins', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 14)),
-                  ],
+            backgroundColor: Colors.grey[900],
+            title: const Text('THE BLACK MARKET', style: TextStyle(color: Colors.redAccent, letterSpacing: 1.5)),
+            actions: [
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 16.0),
+                  child: Row(
+                    children: [
+                      Text('👻 $_playerShadows', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                      const SizedBox(width: 12),
+                      Text('🪙 $_playerCoins', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 14)),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
-          bottom: const TabBar(
-            indicatorColor: Colors.redAccent,
-            labelColor: Colors.redAccent,
-            unselectedLabelColor: Colors.grey,
-            isScrollable: true,
-            tabs: [
-              Tab(text: 'MASKS'),
-              Tab(text: 'WEARABLES'), // <--- Added WEARABLES tab
-              Tab(text: 'CHARACTERS'),
-              //Tab(text: 'MAPS'),
-              Tab(text: 'PERKS'),
             ],
+            bottom: const TabBar(
+              indicatorColor: Colors.redAccent,
+              labelColor: Colors.redAccent,
+              unselectedLabelColor: Colors.grey,
+              isScrollable: true,
+              tabs: [
+                Tab(text: 'MASKS'),
+                Tab(text: 'WEARABLES'),
+                Tab(text: 'PERKS'),
+              ],
+            ),
           ),
+          body: _isLoading
+              ? const Center(child: CircularProgressIndicator(color: Colors.red))
+              : TabBarView(
+                  children: [
+                    _buildItemList(_masks, 'mask'),
+                    _buildItemList(_wearables, 'wearable'),
+                    _buildItemList(_abilities, 'ability'),
+                  ],
+                ),
         ),
-        body: _isLoading
-            ? const Center(child: CircularProgressIndicator(color: Colors.red))
-            : TabBarView(
-                children: [
-                  _buildItemList(_masks, 'mask'),
-                  _buildItemList(_wearables, 'wearable'), // <--- Added WEARABLES tab view
-                  _buildItemList(_characters, 'character'),
-                  //_buildItemList(_maps, 'map'),
-                  _buildItemList(_abilities, 'ability'),
-                ],
-              ),
-        ), // Closes Scaffold
-      ), // Closes DefaultTabController
-    ); // Closes ShowCaseWidget
+      ),
+    );
   }
 }
