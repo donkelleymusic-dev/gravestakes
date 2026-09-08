@@ -9,12 +9,12 @@ import 'package:flutter/material.dart';
 import 'package:flame/game.dart';
 import 'package:flame/components.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'package:showcaseview/showcaseview.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'voxel_character_component.dart';
-
 import 'character_asset_manager.dart';
 
 // --- DATA MODELS ---
@@ -26,17 +26,23 @@ class WearableDef {
   final String buffStat;
   final double buffValue;
   final bool isActiveDefense;
-  final double energyCost; 
+  final double energyCost;
+  final int price;
+  final String currency;
+  final String? assetPath;
 
   WearableDef.fromJson(Map<String, dynamic> json)
       : id = json['id'] as String,
         name = json['name'] as String,
         slotType = json['slot_type'] as String,
-        counterTarget = json['counter_target'] as String,
-        buffStat = json['buff_stat'] as String,
-        buffValue = (json['buff_value'] as num).toDouble(),
+        counterTarget = json['counter_target'] as String? ?? '',
+        buffStat = json['buff_stat'] as String? ?? '',
+        buffValue = (json['buff_value'] as num?)?.toDouble() ?? 1.0,
         isActiveDefense = json['is_active_defense'] as bool? ?? false, 
-        energyCost = (json['energy_cost'] as num?)?.toDouble() ?? 0.0;
+        energyCost = (json['energy_cost'] as num?)?.toDouble() ?? 0.0,
+        price = (json['price'] as num?)?.toInt() ?? 0,
+        currency = json['currency'] as String? ?? 'shadows',
+        assetPath = json['asset_path'] ?? json['thumbnail_path'];
 }
 
 class LoadoutScreen extends StatefulWidget {
@@ -47,6 +53,8 @@ class LoadoutScreen extends StatefulWidget {
 }
 
 class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProviderStateMixin {
+  final supabase = Supabase.instance.client;
+
   late TabController _tabController;
   late MannequinGame _mannequinGame;
 
@@ -55,12 +63,11 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
   Map<String, String> _committedLoadout = {};
   List<String> _committedMasks = ['', '', '', ''];
 
-  // tutorial:
+  // tutorial keys:
   final GlobalKey _maskSlotKey = GlobalKey();
   final GlobalKey _sealKey = GlobalKey();
   final GlobalKey _loadoutBackKey = GlobalKey();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  // tutorial:
   final GlobalKey _masksTabKey = GlobalKey();
   final GlobalKey _inventoryMaskKey = GlobalKey();
 
@@ -71,14 +78,16 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
 
   // --- SELECTION STATE ---
   String? _selectedInventoryId;
-  String? _selectedItemType; // 'character', 'mask', 'wearable_neck', etc.
+  String? _selectedItemType;
 
   // --- DATA CACHES ---
-  Map<String, dynamic> _characterBaseStats = {};
   List<Map<String, dynamic>> _inventory = [];
   Map<String, WearableDef> _wearablesCatalog = {};
+  Map<String, Map<String, dynamic>> _masksCatalog = {};
   Map<String, Map<String, dynamic>> _charactersCatalog = {}; 
 
+  int _playerShadows = 0;
+  int _playerCoins = 0;
   bool _isLoading = true;
 
   bool get _hasUnsavedChanges => 
@@ -95,26 +104,47 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
   }
 
   Future<void> _fetchLoadoutData() async {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
+    final userId = supabase.auth.currentUser?.id;
     if (userId == null) return;
 
     try {
-      final wearablesRes = await Supabase.instance.client.from('wearables').select();
+      final responses = await Future.wait<dynamic>([
+        supabase.from('wallets').select('shadows, coins').eq('id', userId).single(), // [0]
+        supabase.from('wearables').select(),                                         // [1]
+        supabase.from('masks').select().order('price'),                             // [2]
+        supabase.from('characters').select(),                                       // [3]
+        supabase.from('user_loadouts').select('slot_type, item_value').eq('user_id', userId), // [4]
+        supabase.from('user_inventory').select('item_id, item_type').eq('user_id', userId),   // [5]
+      ]);
+
+      final walletData = responses[0] as Map<String, dynamic>;
+      _playerShadows = walletData['shadows'] ?? 0;
+      _playerCoins = walletData['coins'] ?? 0;
+
+      final wearablesRes = List<Map<String, dynamic>>.from(responses[1]);
+      _wearablesCatalog.clear();
       for (var row in wearablesRes) {
         final w = WearableDef.fromJson(row);
         _wearablesCatalog[w.id] = w;
       }
 
-      final charactersRes = await Supabase.instance.client.from('characters').select();
+      final masksRes = List<Map<String, dynamic>>.from(responses[2]);
+      _masksCatalog.clear();
+      for (var row in masksRes) {
+        _masksCatalog[row['id'].toString()] = row;
+      }
+
+      final charactersRes = List<Map<String, dynamic>>.from(responses[3]);
+      _charactersCatalog.clear();
       for (var row in charactersRes) {
         _charactersCatalog[row['id'].toString()] = row;
       }
 
-      final loadoutRes = await Supabase.instance.client
-          .from('user_loadouts')
-          .select('slot_type, item_value')
-          .eq('user_id', userId);
-          
+      final loadoutRes = List<Map<String, dynamic>>.from(responses[4]);
+      _committedCharacterId = 'default';
+      _committedLoadout.clear();
+      _committedMasks = ['', '', '', ''];
+
       for (var row in loadoutRes) {
         final slot = row['slot_type'] as String;
         final val = row['item_value'] as String;
@@ -129,28 +159,108 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         }
       }
 
-      _inventory = await Supabase.instance.client
-          .from('user_inventory')
-          .select('item_id, item_type')
-          .eq('user_id', userId);
+      _inventory = List<Map<String, dynamic>>.from(responses[5]);
 
       _revertDraft(); 
 
       if (mounted) setState(() => _isLoading = false);
     } catch (e) {
-      debugPrint('Crype Fetch Error: $e');
+      debugPrint('Crypt Fetch Error: $e');
       if (mounted) setState(() => _isLoading = false);
     }
 
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getString('tutorial_phase') == 'loadout') {
-      // Fires the exact frame the loading spinner disappears and the UI renders
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _scaffoldKey.currentContext != null) {
           ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_masksTabKey]);
         }
       });
     }
+  }
+
+  // --- STORE PURCHASING IN CRYPT ---
+  Future<void> _buyItem(String itemType, String itemId, int price, String currency) async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+
+    int currentBalance = currency == 'coins' ? _playerCoins : _playerShadows;
+    if (currentBalance < price) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Not enough ${currency.toUpperCase()}!'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    try {
+      await supabase.rpc('buy_item', params: {
+        'p_item_type': itemType,
+        'p_item_id': itemId,
+        'p_price': price,
+        'p_currency': currency,
+      });
+
+      Sentry.addBreadcrumb(Breadcrumb(
+        message: 'Purchased $itemId in Crypt for $price $currency',
+        category: 'crypt_purchase',
+      ));
+
+      setState(() {
+        if (currency == 'coins') {
+          _playerCoins -= price;
+        } else {
+          _playerShadows -= price;
+        }
+        _inventory.add({'item_id': itemId, 'item_type': itemType});
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$itemId acquired!'), backgroundColor: Colors.green),
+      );
+
+      _selectInventoryItem(itemType, itemId);
+    } catch (e) {
+      debugPrint('Crypt Purchase Error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Purchase failed: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  void _showPurchaseConfirm({
+    required String itemType,
+    required String itemId,
+    required String name,
+    required int price,
+    required String currency,
+  }) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: Text('Acquire $name?', style: const TextStyle(color: Colors.white)),
+        content: Text(
+          'Unlock this $itemType for $price ${currency.toUpperCase()}?',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('CANCEL', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: currency == 'coins' ? Colors.amber[800] : Colors.red[800],
+            ),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _buyItem(itemType, itemId, price, currency);
+            },
+            child: Text('BUY ($price ${currency.toUpperCase()})', style: const TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   // --- DRAFT MECHANICS ---
@@ -171,7 +281,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
   }
 
   Future<void> _commitDraft() async {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
+    final userId = supabase.auth.currentUser?.id;
     if (userId == null) return;
 
     setState(() => _isLoading = true);
@@ -189,13 +299,13 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         if (maskVal.isNotEmpty) {
           basePayloads.add({'user_id': userId, 'slot_type': 'mask_${i + 1}', 'item_value': maskVal});
         } else {
-          await Supabase.instance.client.from('user_loadouts')
+          await supabase.from('user_loadouts')
               .delete().eq('user_id', userId).eq('slot_type', 'mask_${i + 1}');
         }
       }
 
       for (var payload in basePayloads) {
-        await Supabase.instance.client.from('user_loadouts').upsert(payload, onConflict: 'user_id, slot_type');
+        await supabase.from('user_loadouts').upsert(payload, onConflict: 'user_id, slot_type');
       }
 
       setState(() {
@@ -318,7 +428,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     double baseEnergy = (activeCharData['max_energy'] as num?)?.toDouble() ?? 10.0;
     double baseRegen = 0.5;
     double baseSwapSpeed = (activeCharData['swap_speed_modifier'] as num?)?.toDouble() ?? 1.0;
-    double baseFootprint = 1.0; // Base stealth footprint is always 100%
+    double baseFootprint = 1.0;
 
     return ShowCaseWidget(
       builder: (context) => Scaffold(
@@ -338,19 +448,27 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
               onPressed: () => Navigator.of(context).pop(),
             ),
           ),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 16.0),
+              child: Row(
+                children: [
+                  Text('👻 $_playerShadows', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                  const SizedBox(width: 10),
+                  Text('🪙 $_playerCoins', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 13)),
+                ],
+              ),
+            ),
+          ],
         ),
         body: Column(
           children: [
-          // ==========================================
-          // ROW 1: CHARACTER STATS (75%) & 3D RIG (25%)
-          // ==========================================
           Container(
             height: 165,
             color: Colors.black54,
             padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
             child: Row(
               children: [
-                // LEFT: 75% Width Column
                 Expanded(
                   flex: 3,
                   child: Column(
@@ -377,7 +495,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                   ),
                 ),
                 const SizedBox(width: 8),
-                // RIGHT: 25% Width Column for Voxel Mannequin
                 Expanded(
                   flex: 1,
                   child: GestureDetector(
@@ -400,9 +517,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
             ),
           ),
 
-          // ==========================================
-          // ROW 2: INVENTORY DECK (FULL-WIDTH EXPANDED)
-          // ==========================================
           Expanded(
             child: Container(
               color: Colors.black87,
@@ -421,8 +535,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                         description: 'STEP 1: Tap here to view your Masks.',
                         disposeOnTap: true,
                         onTargetClick: () {
-                          _tabController.animateTo(1); // Switch to Masks tab
-                          // Wait for slide animation, then highlight the mask in the bag
+                          _tabController.animateTo(1);
                           Future.delayed(const Duration(milliseconds: 400), () {
                             if (mounted && _scaffoldKey.currentContext != null) {
                               ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_inventoryMaskKey]);
@@ -453,9 +566,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
             ),
           ),
 
-          // ==========================================
-          // ROW 3: ATTUNED WARDS & MASKS DOCK
-          // ==========================================
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
             decoration: const BoxDecoration(
@@ -479,7 +589,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 ),
                 const SizedBox(height: 6),
                 
-                // Mask Slots (4 Across)
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: List.generate(4, (i) {
@@ -501,8 +610,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                       ),
                     );
 
-                    // Only apply the Showcase to the first slot
-                    // Only apply the Showcase to the first slot
                     if (i == 0) {
                       return Showcase(
                         key: _maskSlotKey,
@@ -514,7 +621,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                           } else {
                             _clearSlot('mask_${i + 1}');
                           }
-                          // Wait for the Seal button to appear, then highlight it
                           Future.delayed(const Duration(milliseconds: 300), () {
                             if (mounted && _scaffoldKey.currentContext != null) {
                               ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_sealKey]);
@@ -529,7 +635,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 ),
                 const SizedBox(height: 8),
 
-                // Wearable Slots (3 Across)
                 Row(
                   children: [
                     Expanded(child: _buildWearableSlot('wearable_neck', 'Neck', Icons.diamond, Colors.cyanAccent)),
@@ -543,9 +648,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
             ),
           ),
 
-          // ==========================================
-          // BOTTOM CONFIRMATION / PURGE BAR
-          // ==========================================
           if (_hasUnsavedChanges)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
@@ -565,7 +667,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                       final prefs = await SharedPreferences.getInstance();
                       await prefs.setString('tutorial_phase', 'match');
                       _commitDraft();
-                      // Wait for the save to finish, then highlight the back button
                       Future.delayed(const Duration(milliseconds: 500), () {
                         if (mounted && _scaffoldKey.currentContext != null) {
                           ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_loadoutBackKey]);
@@ -592,8 +693,8 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
             ),
         ],
       ),
-    ), // Closes Scaffold
-    ); // Closes ShowCaseWidget
+    ),
+    );
   }
 
   Widget _buildWearableSlot(String slotKey, String label, IconData icon, Color color) {
@@ -638,41 +739,76 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
   }
 
   Widget _buildInventoryGrid(String targetItemType) {
-    // 1. ROUTE CHARACTERS TO THE NEW CRYPT GRID
     if (targetItemType == 'character') {
       return _buildCharacterCryptGrid();
     }
 
-    // 2. GEAR STAYS AS A HORIZONTAL DRAG-AND-DROP STRIP
-    List<Map<String, dynamic>> items = _inventory.where((i) => i['item_type'] == targetItemType).toList();
+    List<Map<String, dynamic>> allCatalogItems = [];
+    if (targetItemType == 'mask') {
+      allCatalogItems = _masksCatalog.values.toList();
+    } else {
+      allCatalogItems = _wearablesCatalog.values
+          .where((w) => w.slotType == targetItemType)
+          .map((w) => {
+                'id': w.id,
+                'name': w.name,
+                'slot_type': w.slotType,
+                'price': w.price,
+                'currency': w.currency,
+                'asset_path': w.assetPath,
+              })
+          .toList();
+    }
 
-    if (items.isEmpty) return const Center(child: Text('No relics found in crypt.', style: TextStyle(color: Colors.white54)));
+    if (allCatalogItems.isEmpty) {
+      return const Center(child: Text('No relics cataloged.', style: TextStyle(color: Colors.white54)));
+    }
     
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 110), 
+        constraints: const BoxConstraints(maxHeight: 125), 
         child: ListView.separated(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
           scrollDirection: Axis.horizontal, 
-          itemCount: items.length,
+          itemCount: allCatalogItems.length,
           separatorBuilder: (context, index) => const SizedBox(width: 12),
           itemBuilder: (context, index) {
-            final itemId = items[index]['item_id'] as String;
+            final item = allCatalogItems[index];
+            final itemId = item['id'].toString();
+            final name = item['name'] ?? itemId.replaceAll('_', ' ').toUpperCase();
+            final price = item['price'] ?? 0;
+            final currency = item['currency'] ?? 'shadows';
+            final assetPath = item['asset_path'] ?? item['thumbnail_path'];
+
+            bool isOwned = _inventory.any((i) => i['item_id'] == itemId && (i['item_type'] == targetItemType || targetItemType.startsWith('wearable')));
             bool isSelected = _selectedInventoryId == itemId;
-            
-            String displayTitle = itemId.replaceAll('_', ' ').toUpperCase();
-            if (_wearablesCatalog.containsKey(itemId)) {
-              displayTitle = _wearablesCatalog[itemId]!.name;
-            }
+
+            Color borderColor = Colors.white12;
+            if (isSelected) borderColor = Colors.purpleAccent;
+            else if (!isOwned) borderColor = (currency == 'coins' ? Colors.amber.withOpacity(0.4) : Colors.redAccent.withOpacity(0.4));
 
             Widget card = SizedBox(
-              width: 90, 
+              width: 95, 
               child: GestureDetector(
-                onTap: () => _selectInventoryItem(targetItemType, itemId),
+                onTap: () {
+                  if (isOwned) {
+                    _selectInventoryItem(targetItemType, itemId);
+                  } else {
+                    _showPurchaseConfirm(
+                      itemType: targetItemType,
+                      itemId: itemId,
+                      name: name,
+                      price: price,
+                      currency: currency,
+                    );
+                  }
+                },
                 child: Container(
                   decoration: BoxDecoration(
-                    color: isSelected ? Colors.purpleAccent.withOpacity(0.2) : Colors.grey[900],
-                    border: Border.all(color: isSelected ? Colors.purpleAccent : Colors.white12, width: 1.5),
+                    color: isSelected 
+                        ? Colors.purpleAccent.withOpacity(0.2) 
+                        : (isOwned ? Colors.grey[900] : Colors.black54),
+                    border: Border.all(color: borderColor, width: isSelected ? 2 : 1.2),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Center(
@@ -681,15 +817,32 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          buildSafeItemThumbnail(assetPath: null, slotType: targetItemType, size: 28.0),
-                          const SizedBox(height: 8),
+                          buildSafeItemThumbnail(assetPath: assetPath, slotType: targetItemType, size: 28.0),
+                          const SizedBox(height: 6),
                           Text(
-                            displayTitle, 
+                            name, 
                             textAlign: TextAlign.center, 
-                            maxLines: 2,
+                            maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 9, color: isSelected ? Colors.white : Colors.white70, fontFamily: 'Courier'),
+                            style: TextStyle(
+                              fontSize: 9, 
+                              color: isSelected ? Colors.white : (isOwned ? Colors.white70 : Colors.white38),
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              fontFamily: 'Courier',
+                            ),
                           ),
+                          const SizedBox(height: 4),
+                          if (!isOwned)
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(currency == 'coins' ? Icons.monetization_on : Icons.dark_mode, size: 9, color: currency == 'coins' ? Colors.amber : Colors.redAccent),
+                                const SizedBox(width: 2),
+                                Text('$price', style: TextStyle(color: currency == 'coins' ? Colors.amber : Colors.redAccent, fontSize: 8, fontWeight: FontWeight.bold)),
+                              ],
+                            )
+                          else
+                            const Text('OWNED', style: TextStyle(color: Colors.greenAccent, fontSize: 8, fontWeight: FontWeight.bold)),
                         ],
                       ),
                     ),
@@ -698,7 +851,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
               ),
             );
 
-            if (targetItemType == 'mask' && itemId == 'standard') {
+            if (targetItemType == 'mask' && itemId == 'standard' && isOwned) {
               return Showcase(
                 key: _inventoryMaskKey,
                 description: 'STEP 2: Tap the Standard Mask to select it.',
@@ -721,20 +874,15 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     );
   }
 
-  // --- THE NEW CHARACTER GRID INTERFACE ---
+  // --- THE CHARACTER GRID INTERFACE ---
   Widget _buildCharacterCryptGrid() {
-    // 1. Fetch player's unlocked characters and shard progress (You will need to add this to _fetchLoadoutData)
-    // Map<String, int> _playerShards = {}; (e.g., {'vampire': 15})
-    // List<String> _unlockedCharacters = []; (e.g., ['default', 'phantom'])
-
-    // 2. Group characters dynamically by their new 'species' column
     Map<String, List<Map<String, dynamic>>> groupedChars = {};
 
     _charactersCatalog.forEach((charId, charData) {
       String species = (charData['species'] ?? 'UNKNOWN').toString().toUpperCase();
       
-      bool isOwned = charId == 'default' || _inventory.any((i) => i['item_id'] == charId); // Swap to _unlockedCharacters list later
-      int currentShards = 0; // Swap to _playerShards[charId] later
+      bool isOwned = charId == 'default' || _inventory.any((i) => i['item_id'] == charId);
+      int currentShards = 0;
       int maxShards = charData['unlock_threshold'] ?? 50; 
       
       String state = isOwned ? 'owned' : (charData['currency'] != null ? 'store' : 'progression');
@@ -744,14 +892,13 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         'state': state, 
         'name': charData['name'] ?? charId,
         'thumbnail_path': charData['thumbnail_path'],
-        'price': charData['price'],
-        'currency': charData['currency'],
+        'price': charData['price'] ?? 0,
+        'currency': charData['currency'] ?? 'shadows',
         'current_shards': currentShards,
         'max_shards': maxShards,
       });
     });
 
-    // 3. Build a scrollable list of categorized Grids
     return ListView.builder(
       padding: const EdgeInsets.all(12),
       itemCount: groupedChars.keys.length,
@@ -762,7 +909,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // CATEGORY HEADER
             Padding(
               padding: const EdgeInsets.only(top: 8, bottom: 12, left: 4),
               child: Text(
@@ -771,15 +917,14 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
               ),
             ),
             
-            // THE GRID FOR THIS SPECIES
             GridView.builder(
-              shrinkWrap: true, // Prevents infinite height errors inside a ListView
-              physics: const NeverScrollableScrollPhysics(), // Let the parent ListView handle the scrolling
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3, 
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
-                childAspectRatio: 0.70, // Slightly taller to fit progression bars
+                childAspectRatio: 0.70,
               ),
               itemCount: charsInSpecies.length,
               itemBuilder: (context, index) {
@@ -799,7 +944,13 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                     if (state == 'owned') {
                       _selectInventoryItem('character', charId);
                     } else if (state == 'store') {
-                      // Trigger Buy Logic
+                      _showPurchaseConfirm(
+                        itemType: 'character',
+                        itemId: charId,
+                        name: char['name'] ?? charId,
+                        price: char['price'],
+                        currency: char['currency'],
+                      );
                     }
                   },
                   child: Container(
@@ -833,7 +984,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                               ),
                               const SizedBox(height: 4),
                               
-                              // DYNAMIC FOOTER BASED ON STATE
                               if (isEquipped)
                                 const Text('EQUIPPED', textAlign: TextAlign.center, style: TextStyle(color: Colors.greenAccent, fontSize: 8, fontWeight: FontWeight.bold))
                               
@@ -872,7 +1022,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 );
               },
             ),
-            const SizedBox(height: 16), // Spacing before the next species category
+            const SizedBox(height: 16),
           ],
         );
       },
