@@ -359,11 +359,11 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
     } catch (e) {}
 
     try {
-      final rig = game.characterRigCache[equippedCharacterId] ?? game.loadedRigData;
+      final rig = GraveStakesGame.characterRigCache[equippedCharacterId] ?? game.loadedRigData;
       if (rig == null) throw Exception('Rig data is entirely missing!');
 
       voxelComponent = VoxelCharacterComponent(
-        images: game.characterImagesCache[equippedCharacterId] ?? game.loadedAssetImages, 
+        images: GraveStakesGame.characterImagesCache[equippedCharacterId] ?? game.loadedAssetImages, 
         rigData: rig,
         hitboxSize: size, 
       ) ..anchor = Anchor.bottomCenter
@@ -707,7 +707,7 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
         disguiseTimer = 0.0; 
       }
     }
-    
+
     // --- VISIBILITY & CLOAK LOGIC ---
     if (isDisguised) {
       // 1. Hide the Voxel Rig completely

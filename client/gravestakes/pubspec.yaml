@@ -43,6 +43,7 @@ dependencies:
   shared_preferences: ^2.5.5
   purchases_flutter: ^10.11.0
   showcaseview: ^5.1.0
+  flutter_cache_manager: ^3.3.2
 
 dev_dependencies:
   flutter_test:

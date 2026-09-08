@@ -593,7 +593,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   const SizedBox(height: 10),
                   Showcase(
   key: _loadoutKey,
-  description: 'STEP 3: Open your Bag Contents to equip your new mask.',
+  description: 'STEP 3: Enter The Crypt to equip your new mask.',
   disposeOnTap: true,
   onTargetClick: () {
     Navigator.of(context).push(MaterialPageRoute(builder: (context) => const LoadoutScreen())).then((_) {
@@ -602,7 +602,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   },
   child:_buildMenuButton(
                     icon: Icons.backpack,
-                    label: 'BAG CONTENTS',
+                    label: 'THE CRYPT',
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(builder: (context) => const LoadoutScreen()),

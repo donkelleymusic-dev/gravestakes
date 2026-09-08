@@ -83,11 +83,11 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     if (voxelComponent != null) voxelComponent!.removeFromParent();
     
     try {
-      final rig = game.characterRigCache[equippedCharacterId] ?? game.loadedRigData;
+      final rig = GraveStakesGame.characterRigCache[equippedCharacterId] ?? game.loadedRigData;
       if (rig == null) throw Exception('Remote rig data is entirely missing!');
 
       voxelComponent = VoxelCharacterComponent(
-        images: game.characterImagesCache[equippedCharacterId] ?? game.loadedAssetImages,
+        images: GraveStakesGame.characterImagesCache[equippedCharacterId] ?? game.loadedAssetImages,
         rigData: rig,
         hitboxSize: size,
       )..position = size / 2;

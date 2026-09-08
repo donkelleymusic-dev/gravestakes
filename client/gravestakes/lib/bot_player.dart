@@ -70,8 +70,8 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
     // Check character cache for the Goliath ID
     String goliathId = 'the_goliath';
-    if (!game.characterRigCache.containsKey(goliathId)) {
-      if (game.characterRigCache.containsKey('goliath')) {
+    if (!GraveStakesGame.characterRigCache.containsKey(goliathId)) {
+      if (GraveStakesGame.characterRigCache.containsKey('goliath')) {
         goliathId = 'goliath';
       }
     }
@@ -87,10 +87,10 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       voxelComponent!.removeFromParent();
     }
 
-    final rig = game.characterRigCache[assignedCharacterId] ?? game.loadedRigData;
+    final rig = GraveStakesGame.characterRigCache[assignedCharacterId] ?? game.loadedRigData;
     if (rig != null) {
       voxelComponent = VoxelCharacterComponent(
-        images: game.characterImagesCache[assignedCharacterId] ?? game.loadedAssetImages,
+        images: GraveStakesGame.characterImagesCache[assignedCharacterId] ?? game.loadedAssetImages,
         rigData: rig,
         hitboxSize: size,
       )
@@ -189,11 +189,11 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     } catch (e) {}
 
     try {
-      final rig = game.characterRigCache[assignedCharacterId] ?? game.loadedRigData;
+      final rig = GraveStakesGame.characterRigCache[assignedCharacterId] ?? game.loadedRigData;
       if (rig == null) throw Exception('Bot rig data is entirely missing!');
 
       voxelComponent = VoxelCharacterComponent(
-        images: game.characterImagesCache[assignedCharacterId] ?? game.loadedAssetImages,
+        images: GraveStakesGame.characterImagesCache[assignedCharacterId] ?? game.loadedAssetImages,
         rigData: rig,
         hitboxSize: size,
       ) ..anchor = Anchor.bottomCenter 

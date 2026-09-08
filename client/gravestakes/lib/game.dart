@@ -49,6 +49,7 @@ import 'fps_viewport_overlay.dart';
 import 'mode_toggle_button.dart';
 import 'fps_touch_controls.dart';
 import 'audio_manager.dart';
+import 'character_asset_manager.dart';
 
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
   String roomId;
@@ -75,8 +76,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
   bool isAudioReady = false; */
 
-  Map<String, Map<String, ui.Image>> characterImagesCache = {};
-  Map<String, Map<String, dynamic>> characterRigCache = {};
+  static Map<String, Map<String, ui.Image>> characterImagesCache = {};
+  static Map<String, Map<String, dynamic>> characterRigCache = {};
   
   Map<String, ui.Image> loadedAssetImages = {};
   Map<String, dynamic>? loadedRigData;
@@ -228,18 +229,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         
         if (charId == 'default') continue; 
 
+        if (characterImagesCache.containsKey(charId)) continue;
+
         try {
-          List<int> bytes;
-          if (zipPath.startsWith('http')) {
-            final response = await http.get(Uri.parse(zipPath));
-            if (response.statusCode != 200) {
-              throw Exception('Failed to download character ZIP: ${response.statusCode}');
-            }
-            bytes = response.bodyBytes;
-          } else {
-            final ByteData data = await rootBundle.load(zipPath);
-            bytes = data.buffer.asUint8List();
-          }
+          List<int> bytes = await CharacterAssetManager.getZipBytes(zipPath);
 
           final archive = ZipDecoder().decodeBytes(bytes);
           

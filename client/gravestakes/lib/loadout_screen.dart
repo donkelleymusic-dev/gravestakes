@@ -15,6 +15,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'voxel_character_component.dart';
 
+import 'character_asset_manager.dart';
+
 // --- DATA MODELS ---
 class WearableDef {
   final String id;
@@ -136,7 +138,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
 
       if (mounted) setState(() => _isLoading = false);
     } catch (e) {
-      debugPrint('Bag Fetch Error: $e');
+      debugPrint('Crype Fetch Error: $e');
       if (mounted) setState(() => _isLoading = false);
     }
 
@@ -323,7 +325,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         key: _scaffoldKey,
         backgroundColor: const Color(0xFF111111),
         appBar: AppBar(
-          title: const Text('BAG CONTENTS', style: TextStyle(letterSpacing: 2.0, color: Colors.purpleAccent, fontSize: 16)),
+          title: const Text('THE CRYPT', style: TextStyle(letterSpacing: 2.0, color: Colors.purpleAccent, fontSize: 16)),
           backgroundColor: Colors.black,
           elevation: 0,
           leading: Showcase(
@@ -636,42 +638,35 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
   }
 
   Widget _buildInventoryGrid(String targetItemType) {
-    List<Map<String, dynamic>> items = _inventory.where((i) => i['item_type'] == targetItemType).toList();
-    if (targetItemType == 'character' && !items.any((i) => i['item_id'] == 'default')) {
-      items.insert(0, {'item_type': 'character', 'item_id': 'default'});
+    // 1. ROUTE CHARACTERS TO THE NEW CRYPT GRID
+    if (targetItemType == 'character') {
+      return _buildCharacterCryptGrid();
     }
+
+    // 2. GEAR STAYS AS A HORIZONTAL DRAG-AND-DROP STRIP
+    List<Map<String, dynamic>> items = _inventory.where((i) => i['item_type'] == targetItemType).toList();
 
     if (items.isEmpty) return const Center(child: Text('No relics found in crypt.', style: TextStyle(color: Colors.white54)));
     
-    // Center vertically in the available Expanded space
     return Center(
       child: ConstrainedBox(
-        // Enforce a strict max height so cards never cause vertical overflow
         constraints: const BoxConstraints(maxHeight: 110), 
         child: ListView.separated(
           padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          // Force horizontal scrolling ONLY
           scrollDirection: Axis.horizontal, 
           itemCount: items.length,
           separatorBuilder: (context, index) => const SizedBox(width: 12),
           itemBuilder: (context, index) {
             final itemId = items[index]['item_id'] as String;
             bool isSelected = _selectedInventoryId == itemId;
-            String displayTitle = itemId.replaceAll('_', ' ').toUpperCase();
             
-            if (targetItemType == 'character' && _charactersCatalog.containsKey(itemId)) {
-              displayTitle = _charactersCatalog[itemId]!['name'] ?? displayTitle;
-            } else if (targetItemType != 'character' && targetItemType != 'mask' && _wearablesCatalog.containsKey(itemId)) {
+            String displayTitle = itemId.replaceAll('_', ' ').toUpperCase();
+            if (_wearablesCatalog.containsKey(itemId)) {
               displayTitle = _wearablesCatalog[itemId]!.name;
             }
 
-            String? itemThumbnail;
-            if (targetItemType == 'character' && _charactersCatalog.containsKey(itemId)) {
-              itemThumbnail = _charactersCatalog[itemId]!['thumbnail_path'];
-            }
-
             Widget card = SizedBox(
-              width: 90, // Fixed width for each horizontal card
+              width: 90, 
               child: GestureDetector(
                 onTap: () => _selectInventoryItem(targetItemType, itemId),
                 child: Container(
@@ -686,18 +681,14 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          buildSafeItemThumbnail(assetPath: itemThumbnail, slotType: targetItemType, size: 28.0),
+                          buildSafeItemThumbnail(assetPath: null, slotType: targetItemType, size: 28.0),
                           const SizedBox(height: 8),
                           Text(
                             displayTitle, 
                             textAlign: TextAlign.center, 
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 9, 
-                              color: isSelected ? Colors.white : Colors.white70, 
-                              fontFamily: 'Courier',
-                            ),
+                            style: TextStyle(fontSize: 9, color: isSelected ? Colors.white : Colors.white70, fontFamily: 'Courier'),
                           ),
                         ],
                       ),
@@ -707,7 +698,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
               ),
             );
 
-            // Trigger Step 3 when the Standard Mask is tapped
             if (targetItemType == 'mask' && itemId == 'standard') {
               return Showcase(
                 key: _inventoryMaskKey,
@@ -728,6 +718,164 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
           },
         ),
       ),
+    );
+  }
+
+  // --- THE NEW CHARACTER GRID INTERFACE ---
+  Widget _buildCharacterCryptGrid() {
+    // 1. Fetch player's unlocked characters and shard progress (You will need to add this to _fetchLoadoutData)
+    // Map<String, int> _playerShards = {}; (e.g., {'vampire': 15})
+    // List<String> _unlockedCharacters = []; (e.g., ['default', 'phantom'])
+
+    // 2. Group characters dynamically by their new 'species' column
+    Map<String, List<Map<String, dynamic>>> groupedChars = {};
+
+    _charactersCatalog.forEach((charId, charData) {
+      String species = (charData['species'] ?? 'UNKNOWN').toString().toUpperCase();
+      
+      bool isOwned = charId == 'default' || _inventory.any((i) => i['item_id'] == charId); // Swap to _unlockedCharacters list later
+      int currentShards = 0; // Swap to _playerShards[charId] later
+      int maxShards = charData['unlock_threshold'] ?? 50; 
+      
+      String state = isOwned ? 'owned' : (charData['currency'] != null ? 'store' : 'progression');
+
+      groupedChars.putIfAbsent(species, () => []).add({
+        'id': charId,
+        'state': state, 
+        'name': charData['name'] ?? charId,
+        'thumbnail_path': charData['thumbnail_path'],
+        'price': charData['price'],
+        'currency': charData['currency'],
+        'current_shards': currentShards,
+        'max_shards': maxShards,
+      });
+    });
+
+    // 3. Build a scrollable list of categorized Grids
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: groupedChars.keys.length,
+      itemBuilder: (context, sectionIndex) {
+        String speciesName = groupedChars.keys.elementAt(sectionIndex);
+        List<Map<String, dynamic>> charsInSpecies = groupedChars[speciesName]!;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // CATEGORY HEADER
+            Padding(
+              padding: const EdgeInsets.only(top: 8, bottom: 12, left: 4),
+              child: Text(
+                '$speciesName OPERATIVES', 
+                style: const TextStyle(color: Colors.purpleAccent, fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 2.0)
+              ),
+            ),
+            
+            // THE GRID FOR THIS SPECIES
+            GridView.builder(
+              shrinkWrap: true, // Prevents infinite height errors inside a ListView
+              physics: const NeverScrollableScrollPhysics(), // Let the parent ListView handle the scrolling
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3, 
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+                childAspectRatio: 0.70, // Slightly taller to fit progression bars
+              ),
+              itemCount: charsInSpecies.length,
+              itemBuilder: (context, index) {
+                final char = charsInSpecies[index];
+                final charId = char['id'];
+                final state = char['state'];
+                
+                bool isEquipped = _draftCharacterId == charId;
+                
+                Color borderColor = Colors.white12;
+                if (isEquipped) borderColor = Colors.greenAccent;
+                else if (state == 'store') borderColor = Colors.amber.withOpacity(0.5);
+                else if (state == 'progression') borderColor = Colors.purpleAccent.withOpacity(0.5);
+
+                return GestureDetector(
+                  onTap: () {
+                    if (state == 'owned') {
+                      _selectInventoryItem('character', charId);
+                    } else if (state == 'store') {
+                      // Trigger Buy Logic
+                    }
+                  },
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: isEquipped ? Colors.greenAccent.withOpacity(0.1) : Colors.black45,
+                      border: Border.all(color: borderColor, width: isEquipped ? 2 : 1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: Center(
+                            child: buildSafeItemThumbnail(assetPath: char['thumbnail_path'], slotType: 'character', size: 36.0),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                          decoration: const BoxDecoration(
+                            color: Colors.black87,
+                            borderRadius: BorderRadius.vertical(bottom: Radius.circular(5)),
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                char['name'].toString().toUpperCase(),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 4),
+                              
+                              // DYNAMIC FOOTER BASED ON STATE
+                              if (isEquipped)
+                                const Text('EQUIPPED', textAlign: TextAlign.center, style: TextStyle(color: Colors.greenAccent, fontSize: 8, fontWeight: FontWeight.bold))
+                              
+                              else if (state == 'owned')
+                                const Text('TAP TO BIND', textAlign: TextAlign.center, style: TextStyle(color: Colors.white54, fontSize: 8))
+                              
+                              else if (state == 'store')
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(char['currency'] == 'coins' ? Icons.monetization_on : Icons.dark_mode, size: 10, color: char['currency'] == 'coins' ? Colors.amber : Colors.redAccent),
+                                    const SizedBox(width: 2),
+                                    Text('${char['price']}', style: TextStyle(color: char['currency'] == 'coins' ? Colors.amber : Colors.redAccent, fontSize: 9, fontWeight: FontWeight.bold)),
+                                  ],
+                                )
+                              
+                              else if (state == 'progression')
+                                Column(
+                                  children: [
+                                    Text('${char['current_shards']} / ${char['max_shards']}', style: const TextStyle(color: Colors.grey, fontSize: 8)),
+                                    const SizedBox(height: 2),
+                                    LinearProgressIndicator(
+                                      value: char['current_shards'] / char['max_shards'],
+                                      backgroundColor: Colors.black,
+                                      color: Colors.purpleAccent,
+                                      minHeight: 2,
+                                    ),
+                                  ],
+                                )
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 16), // Spacing before the next species category
+          ],
+        );
+      },
     );
   }
 }
@@ -757,17 +905,7 @@ class MannequinGame extends FlameGame {
         }
       }
 
-      List<int> bytes;
-      if (zipPath.startsWith('http')) {
-        final response = await http.get(Uri.parse(zipPath));
-        if (response.statusCode != 200) {
-          throw Exception('Failed to download character ZIP: ${response.statusCode}');
-        }
-        bytes = response.bodyBytes;
-      } else {
-        final ByteData data = await rootBundle.load(zipPath);
-        bytes = data.buffer.asUint8List();
-      }
+      List<int> bytes = await CharacterAssetManager.getZipBytes(zipPath);
 
       final archive = ZipDecoder().decodeBytes(bytes);
 
