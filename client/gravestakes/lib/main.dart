@@ -2,6 +2,8 @@ import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 // --- NEW IMPORTS FOR PAYMENTS ---
 import 'package:flutter/foundation.dart'; // For kIsWeb
@@ -16,6 +18,13 @@ import 'splash_screen.dart';
 import 'audio_manager.dart';
 
 Future<void> main() async {
+  // 1. Initialize Sentry FIRST to wrap the entire app lifecycle
+  await SentryFlutter.init(
+    (options) {
+      options.dsn = 'https://5c13105a06c0c151b3fab20c9ad12475@o4511748451729408.ingest.us.sentry.io/4512048891428864'; // Paste your DSN from sentry.io
+      options.tracesSampleRate = 1.0; 
+    },
+    appRunner: () async {
   // 1. Ensure Flutter engine bindings are ready for async tasks before runApp
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -57,6 +66,8 @@ Future<void> main() async {
 
   // 5. Boot the visual app
   runApp(const GraveStakesApp());
+  },
+  );
 }
 
 // Convert GraveStakesApp to a StatefulWidget to hold the lifecycle listener
@@ -91,6 +102,9 @@ class _GraveStakesAppState extends State<GraveStakesApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorObservers: [
+        SentryNavigatorObserver(),
+      ],
       title: 'Lumen Breach', 
       theme: ThemeData.dark(),
       home: const SplashScreen(), 

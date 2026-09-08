@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:showcaseview/showcaseview.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 class StoreScreen extends StatefulWidget {
   const StoreScreen({super.key});
@@ -126,6 +127,11 @@ class _StoreScreenState extends State<StoreScreen> {
         'p_price': price,
         'p_currency': currency,
       });
+
+      Sentry.addBreadcrumb(Breadcrumb(
+        message: 'Purchased $itemId for $price $currency',
+        category: 'store_purchase',
+      ));
 
       setState(() {
         if (currency == 'coins') {

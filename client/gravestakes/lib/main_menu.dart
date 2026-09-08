@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:showcaseview/showcaseview.dart';
 import 'package:flame/game.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'game.dart';
 import 'store_screen.dart';
 import 'loadout_screen.dart';
@@ -219,6 +220,12 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             _isLoading = false;
             _checkTutorialPhase();
           });
+          Sentry.configureScope((scope) {
+            scope.setUser(SentryUser(
+              id: user.id,
+              username: _username, 
+            ));
+          });
         }
         
         return; 
@@ -272,6 +279,11 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         matchMode: _selectedMatchMode,
         targetPlayers: targetPlayers,
       );
+
+      Sentry.configureScope((scope) {
+        scope.setTag('match_mode', _selectedMatchMode);
+        scope.setTag('map_name', _selectedMapName);
+      });
       
       //await gameInstance.initAudioEngine();
 
@@ -351,6 +363,11 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         _logout();
         return; 
       }
+
+      Sentry.captureMessage(
+        'Matchmaking failed: $e',
+        level: SentryLevel.warning,
+      );
       
       debugPrint('Matchmaking failed: $e');
       if (context.mounted) {
