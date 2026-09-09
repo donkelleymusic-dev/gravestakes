@@ -51,6 +51,24 @@ import 'fps_touch_controls.dart';
 import 'audio_manager.dart';
 import 'character_asset_manager.dart';
 
+class ScareSnapshot {
+  final String attackerName;
+  final String attackerCharId;
+  final String attackerMaskId;
+  final String victimName;
+  final String victimCharId;
+  final int timestamp; // To show "Scare occurred at 2:14"
+
+  ScareSnapshot({
+    required this.attackerName,
+    required this.attackerCharId,
+    required this.attackerMaskId,
+    required this.victimName,
+    required this.victimCharId,
+    required this.timestamp,
+  });
+}
+
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
   String roomId;
   final bool isGunner;
@@ -136,6 +154,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   int myPlayerLevel = 1; 
   
   final List<BotPlayer> bots = [];
+  final List<ScareSnapshot> matchPhotos = [];
 
   double hostBotSyncTick = 0;
   final double hostBotSyncRate = 0.12;
@@ -756,6 +775,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               bot.triggerPrivateHighlight(); 
               hitCount++;
 
+              // --- TAKE THE POLAROID (BOT VICTIM) ---
+              matchPhotos.add(ScareSnapshot(
+                attackerName: player.score > 0 ? 'You' : 'Attacker', 
+                attackerCharId: player.equippedCharacterId,
+                attackerMaskId: maskId,
+                victimName: bot.fakeUsername,
+                victimCharId: bot.assignedCharacterId,
+                timestamp: gameTimer.timeLeft.toInt(),
+              ));
+              // -------------------------------------------
+
               // SPAWN SCORE OVER BOT'S HEAD
               camera.viewport.add(FloatingText(
                 text: '+100 SOULS',
@@ -803,6 +833,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               'attacker_x': attackerPos.x, // Send your position so they can recoil too!
               'attacker_y': attackerPos.y
             });
+
+            // --- TAKE THE POLAROID (PLAYER VICTIM) ---
+            matchPhotos.add(ScareSnapshot(
+              attackerName: 'You',
+              attackerCharId: player.equippedCharacterId,
+              attackerMaskId: maskId,
+              victimName: remoteId.substring(0, 4), // Fallback if no username
+              victimCharId: remotePlayer.equippedCharacterId,
+              timestamp: gameTimer.timeLeft.toInt(),
+            ));
+            // ----------------------------------------------
 
             // SPAWN SCORE OVER REMOTE PLAYER'S HEAD
             camera.viewport.add(FloatingText(

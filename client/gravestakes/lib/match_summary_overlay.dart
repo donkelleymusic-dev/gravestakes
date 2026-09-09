@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'game.dart';
 import 'vessel_opener_overlay.dart';
+import 'match_summary_screen.dart';
 
 class MatchSummaryOverlay extends StatelessWidget {
   final GraveStakesGame game;
@@ -126,6 +127,25 @@ class MatchSummaryOverlay extends StatelessWidget {
               }),
               
               const SizedBox(height: 32),
+              // --- NEW: THE HIGHLIGHT REEL BUTTON ---
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.white54, width: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                ),
+                icon: const Icon(Icons.camera_alt, color: Colors.white),
+                label: const Text('VIEW HIGHLIGHTS', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => MatchSummaryScreen(photos: game.matchPhotos),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 16),
+              // --------------------------------------
+
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.purpleAccent,
@@ -137,8 +157,6 @@ class MatchSummaryOverlay extends StatelessWidget {
                   
                   // 2. Launch the personal rewards phase WITH the match flag
                   VesselOpenerOverlay.show(context, 'soul_casket', isFromMatch: true);
-                  // old 2. Launch the personal rewards phase
-                  //VesselOpenerOverlay.show(context, 'soul_casket');
                 },
                 child: const Text('CLAIM REWARDS', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
               ),
