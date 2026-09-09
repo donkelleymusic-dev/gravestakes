@@ -725,6 +725,16 @@ class SearchingOverlay extends StatelessWidget {
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 2),
             ),
+            const SizedBox(height: 32),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Colors.redAccent),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+              onPressed: () => Navigator.of(context).pop(), // This triggers onRemove() and leaves the match safely
+              icon: const Icon(Icons.close, color: Colors.redAccent),
+              label: const Text('CANCEL MATCHMAKING', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+            ),
           ],
         ),
       ),

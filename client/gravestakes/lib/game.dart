@@ -57,6 +57,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   final String matchMode; 
   final String mapName;
   final int targetPlayers;
+  final bool isGuildScrimmage;
+  final String? scrimmageMessageId;
+
   bool isWaitingInLobby = true;
 
   bool matchHasHunter = false;
@@ -67,15 +70,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   double countdownTimer = 3.0;
   int _lastTick = 3;
   
-  /* AudioSource? scareSource;
-  AudioSource? footstepSource;
-  AudioSource? powerupSource;
-  AudioSource? tickSource;
-  AudioSource? batScreechSource;
-  AudioSource? ratScurrySource;
-
-  bool isAudioReady = false; */
-
   static Map<String, Map<String, ui.Image>> characterImagesCache = {};
   static Map<String, Map<String, dynamic>> characterRigCache = {};
   
@@ -83,11 +77,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   Map<String, dynamic>? loadedRigData;
   bool isFpsMode = false;
 
-  // --- NEW: Global Team Registry ---
   Map<String, int> playerTeams = {};
 
   int getEntityTeam(dynamic entity) {
-    if (matchMode != '2v2') return 0; // 0 means Free-For-All
+    if (matchMode != '2v2') return 0; 
     
     if (entity is Player) return playerTeams[mySessionId] ?? 1;
     if (entity is BotPlayer) return entity.teamId;
@@ -107,6 +100,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     this.mapName = 'L1T1V1.0.0',
     this.matchMode = 'casual',
     this.targetPlayers = 8,
+    this.isGuildScrimmage = false,
+    this.scrimmageMessageId,
   });
 
   late final JoystickComponent leftJoystick;
@@ -176,25 +171,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     Vector2(1770, 960),    
   ];
 
-  /* Future<void> initAudioEngine() async {
-    if (isAudioReady) return;
-    try {
-      if (!SoLoud.instance.isInitialized) {
-        await SoLoud.instance.init();      
-      }    
-      scareSource = await SoLoud.instance.loadAsset('assets/audio/ElevenLabs_Impact.mp3');
-      footstepSource = await SoLoud.instance.loadAsset('assets/audio/footstep.mp3'); 
-      powerupSource = await SoLoud.instance.loadAsset('assets/audio/ElevenLabs_Scary_stinger.mp3');
-      tickSource = await SoLoud.instance.loadAsset('assets/audio/tick.mp3');
-      batScreechSource = await SoLoud.instance.loadAsset('assets/audio/bat.mp3'); 
-      ratScurrySource = await SoLoud.instance.loadAsset('assets/audio/bugs.mp3');     
-      isAudioReady = true; 
-    } catch (e) {
-      debugPrint('AUDIO INIT FAILED: $e');
-      isAudioReady = false;
-    }
-  } */
-
   Future<void> _loadVoxelAssets() async {
     try {
       final ByteData data = await rootBundle.load('assets/character_assets.zip');
@@ -213,7 +189,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           }
         }
       }
-      debugPrint('Base Voxel Assets Loaded Safely!');
     } catch (e) {
       debugPrint('CRITICAL: Default zip failed to load: $e');
     }
@@ -228,12 +203,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         final zipPath = char['zip_asset_path'] as String;
         
         if (charId == 'default') continue; 
-
         if (characterImagesCache.containsKey(charId)) continue;
 
         try {
           List<int> bytes = await CharacterAssetManager.getZipBytes(zipPath);
-
           final archive = ZipDecoder().decodeBytes(bytes);
           
           Map<String, ui.Image> images = {};
@@ -254,7 +227,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           if (rig != null) {
             characterImagesCache[charId] = images;
             characterRigCache[charId] = rig;
-            debugPrint('Dynamically loaded $charId from $zipPath');
           }
         } catch (e) {
           debugPrint('Failed to load dynamic zip for $charId at $zipPath: $e');
@@ -269,8 +241,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   @override
   Future<void> onLoad() async {
     await images.load('Base_BaseChip_pipo.png');
-
-    // ADD THIS PRELOADER BLOCK:
     await images.loadAll([
       'standard_mask.png', 
       'flying_mask.png', 
@@ -341,7 +311,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     camera.follow(player);
 
     camera.viewport.add(jumpScareEffect);
-
     camera.viewport.add(DarknessOverlay(player));
 
     if (isGunner) {
@@ -352,20 +321,13 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     camera.viewport.add(ScoreHud());
     camera.viewport.add(gameTimer = GameTimer());
-
-    // 1. Add Raycaster Overlay to viewport
     await camera.viewport.add(FpsViewportOverlay());
-
     await camera.viewport.add(FpsTouchControls());
-
-    // 2. Add 2D/3D Mode Toggle Button
     await camera.viewport.add(ModeToggleButton());
 
     mapOverlay = MapOverlay();
     await camera.viewport.add(mapOverlay);
-
-// Add the touch button to the HUD
-await camera.viewport.add(MapButton());
+    await camera.viewport.add(MapButton());
 
     try {
       final logoSprite = await Sprite.load('lumen_breach_small.jpg');
@@ -400,9 +362,6 @@ await camera.viewport.add(MapButton());
 
     camera.viewport.add(SpecialButton());
     _setupSupabaseListener();
-
-    mapOverlay = MapOverlay();
-    camera.viewport.add(mapOverlay);
   }
 
   @override
@@ -413,19 +372,15 @@ await camera.viewport.add(MapButton());
       if (isHost) {
         lobbyTimer -= dt;
 
-        // --- HOST-CONTROLLED HUNTER AWAKENING AT 60 SECONDS ---
         if (isHost && gameStarted && matchHasHunter && !hunterHasSpawned) {
           if (gameTimer.timeLeft <= 60.0 && gameTimer.timeLeft > 0) {
             final eligibleBots = bots.where((b) => !b.isHunter).toList();
             if (eligibleBots.isNotEmpty) {
               hunterHasSpawned = true;
-              // Select exactly one regular bot to morph
               final chosenBot = eligibleBots[Random().nextInt(eligibleBots.length)];
               final botIndex = bots.indexOf(chosenBot);
 
               chosenBot.transformToHunter();
-
-              // Broadcast to clients so they swap the voxel model to The Goliath
               myChannel.sendBroadcastMessage(
                 event: 'hunter_emerge',
                 payload: {'bot_index': botIndex},
@@ -436,12 +391,15 @@ await camera.viewport.add(MapButton());
         
         int totalHumans = 1 + networkPlayers.length;
         
-        if (totalHumans >= targetPlayers || lobbyTimer <= 0) {
+        // THE FIX: If it's a guild scrimmage, ignore the timer and wait infinitely.
+        // If it's a public match, use the timer to auto-fill with bots.
+        bool shouldStart = totalHumans >= targetPlayers || (!isGuildScrimmage && lobbyTimer <= 0);
+        
+        if (shouldStart) {
           _spawnWorldEntities(); 
           matchPhase = 'countdown';
           overlays.remove('searching');
           overlays.add('countdown');
-          // NEW: Send the team layout to the client
           myChannel.sendBroadcastMessage(
             event: 'start_countdown', 
             payload: {'teams': playerTeams}
@@ -457,7 +415,6 @@ await camera.viewport.add(MapButton());
       
       if (currentTick < _lastTick && currentTick > 0) {
         _lastTick = currentTick;
-        // Replaced footstepSource with tickSource for the countdown
         if (AudioManager.instance.isInitialized && AudioManager.instance.tickSource != null) {
           SoLoud.instance.play(AudioManager.instance.tickSource!);
         }
@@ -471,7 +428,6 @@ await camera.viewport.add(MapButton());
         gameStarted = true;
         overlays.remove('countdown');
         gameTimer.start(); 
-        // Play the heavy impact sound for "GO!"
         if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
           SoLoud.instance.play(AudioManager.instance.impactSource!);
         }
@@ -513,9 +469,8 @@ await camera.viewport.add(MapButton());
       Supabase.instance.client.rpc('leave_match', params: {'p_match_id': roomId});
     } catch (e) {}
 
-    // --- Bulletproof Music Handoff ---
-    AudioManager.instance.stopMusic(); // Kills in-game tracks
-    AudioManager.instance.playMenuMusic(); // Resumes menu theme
+    AudioManager.instance.stopMusic(); 
+    AudioManager.instance.playMenuMusic(); 
 
     super.onRemove();
   }
@@ -532,12 +487,9 @@ await camera.viewport.add(MapButton());
 
     if (matchMode == 'casual') {
       final config = LevelManager.getConfigForLevel(myPlayerLevel);
-  
-      // Decide once per match if a hunter will emerge in the final minute (40% chance)
       matchHasHunter = Random().nextDouble() < 0.70;
       hunterHasSpawned = false;
 
-      // ALWAYS spawn standard bots only at the beginning
       for (int i = 0; i < config.botCount; i++) {
         Vector2 safeBotSpawn = gameMap.getSafeSpawnLocation(
           availableSpawns.isNotEmpty ? availableSpawns.removeAt(0) : Vector2(500, 500), 
@@ -553,7 +505,6 @@ await camera.viewport.add(MapButton());
       for (var b in bots) world.add(b);
 
     } else {
-      // --- COMPETITIVE TEAM ASSIGNMENT ---
       matchHasHunter = false;
       playerTeams[mySessionId] = 1; 
       if (matchMode == '2v2') player.applyTeamColor(1);
@@ -596,7 +547,8 @@ await camera.viewport.add(MapButton());
       }
     }
 
-    if (gameMap.potentialBoxSpawns.isNotEmpty) {
+    // --- NEW: DISABLE LOOT BOXES IN GUILD SCRIMMAGES ---
+    if (!isGuildScrimmage && gameMap.potentialBoxSpawns.isNotEmpty) {
       List<Vector2> boxNodes = gameMap.potentialBoxSpawns.isNotEmpty 
           ? List.from(gameMap.potentialBoxSpawns)
           : [Vector2(400, 400), Vector2(800, 800), Vector2(1200, 1200), Vector2(1600, 1600)];
@@ -619,7 +571,6 @@ await camera.viewport.add(MapButton());
   Future<void> endGame() async {
     gameStarted = false; 
     
-    // --- TEAM SCORING LOGIC ---
     int myTeamScore = player.score;
     int enemyTeamScore = 0;
     
@@ -644,23 +595,30 @@ await camera.viewport.add(MapButton());
       }
     }
 
-    final xpEarned = (player.score * 0.1).toInt();
-    final shadowsEarned = (player.score * 0.05).toInt();
+    // --- REWARDS PROCESSING ---
+    if (!isGuildScrimmage) {
+      final xpEarned = (player.score * 0.1).toInt();
+      final shadowsEarned = (player.score * 0.05).toInt();
 
-    // Since victory bonus is applied locally to player.score before calling RPC,
-    // the database records the exact same schema and accurately scales your rewards!
-    if (player.score > 0 || player.coinsEarned > 0) {
+      if (player.score > 0 || player.coinsEarned > 0) {
+        try {
+          await Supabase.instance.client.rpc(
+            'process_match_rewards',
+            params: {
+              'xp_earned': xpEarned, 
+              'shadows_earned': shadowsEarned, 
+              'coins_earned': player.coinsEarned
+            },
+          );
+        } catch (e) {
+          debugPrint('Reward error: $e');
+        }
+      }
+    }
+
+    // Always attempt to award territorial IP, even during sparring!
+    if (player.score > 0) {
       try {
-        await Supabase.instance.client.rpc(
-          'process_match_rewards',
-          params: {
-            'xp_earned': xpEarned, 
-            'shadows_earned': shadowsEarned, 
-            'coins_earned': player.coinsEarned
-          },
-        );
-
-        // Fetch user guild and award IP to an active resonator node
         final userId = Supabase.instance.client.auth.currentUser?.id;
         if (userId != null) {
           final member = await Supabase.instance.client
@@ -687,18 +645,53 @@ await camera.viewport.add(MapButton());
           }
         }
       } catch (e) {
-        debugPrint('Reward error: $e');
+        debugPrint('Guild IP award error: $e');
       }
     }
 
+    // --- HOST-ONLY MATCH CONCLUSION DUTIES ---
     if (isHost) {
       try {
         await Supabase.instance.client.from('active_matches').update({'status': 'ended'}).eq('id', roomId);
       } catch (e) {}
+      
       myChannel.sendBroadcastMessage(event: 'match_control', payload: {'action': 'end'});
+
+      // Post final scores directly into the chat bubble if this was a scrimmage
+      if (isGuildScrimmage && scrimmageMessageId != null) {
+        try {
+          String _short(String id) => id.length >= 4 ? id.substring(0, 4) : id;
+          
+          Map<String, int> finalResults = {
+            'Player ${_short(mySessionId)}': player.score,
+          };
+          networkPlayers.forEach((id, rp) {
+            finalResults['Player ${_short(id)}'] = rp.score;
+          });
+
+          final msgRes = await Supabase.instance.client
+              .from('guild_messages')
+              .select('metadata')
+              .eq('id', scrimmageMessageId!)
+              .maybeSingle();
+
+          if (msgRes != null) {
+            Map<String, dynamic> meta = Map<String, dynamic>.from(msgRes['metadata'] ?? {});
+            meta['status'] = 'finished';
+            meta['results'] = finalResults;
+
+            await Supabase.instance.client
+                .from('guild_messages')
+                .update({'metadata': meta})
+                .eq('id', scrimmageMessageId!);
+          }
+        } catch (e) {
+          debugPrint('Failed to post scrimmage results to chat: $e');
+        }
+      }
     }
 
-    if (buildContext != null) {
+    if (!isGuildScrimmage && buildContext != null) {
       VesselOpenerOverlay.show(buildContext!, 'shadow_reliquary');
     }
   }
@@ -746,9 +739,8 @@ await camera.viewport.add(MapButton());
       }
     }
 
-    // 1. Bot Logic
     for (var bot in bots) {
-      if (matchMode == '2v2' && getEntityTeam(player) == getEntityTeam(bot)) continue; // SKIP ALLIES
+      if (matchMode == '2v2' && getEntityTeam(player) == getEntityTeam(bot)) continue; 
       if (bot.localImmunityToMe > 0) continue; 
       
       final toBot = bot.position - attackerPos;
@@ -795,9 +787,8 @@ await camera.viewport.add(MapButton());
       }
     }
 
-    // 2. Remote Player Logic
     for (var remoteId in networkPlayers.keys) {
-      if (matchMode == '2v2' && getEntityTeam(player) == getEntityTeam(remoteId)) continue; // SKIP ALLIES
+      if (matchMode == '2v2' && getEntityTeam(player) == getEntityTeam(remoteId)) continue; 
       
       var remotePlayer = networkPlayers[remoteId]!;
       if (remotePlayer.localImmunityToMe > 0) continue; 
@@ -868,7 +859,6 @@ await camera.viewport.add(MapButton());
         for (var user in allUsers) {
           final id = user['id'] as String;
           if (id != mySessionId && !networkPlayers.containsKey(id)) {
-            // NEW: Do not accept late joiners if the match has already started!
             if (matchPhase != 'searching') continue; 
             
             final newPlayer = RemotePlayer()..position = Vector2(-100, -100);
@@ -914,7 +904,6 @@ await camera.viewport.add(MapButton());
             final maskId = payload['mask_id'] as String? ?? 'standard';
 
             if (!networkPlayers.containsKey(id)) {
-              // NEW: If the lobby is closed, ignore this ghost completely.
               if (matchPhase != 'searching') return; 
               
               final newPlayer = RemotePlayer()..position = Vector2(x, y);
@@ -949,7 +938,6 @@ await camera.viewport.add(MapButton());
             remote.visualAttackCooldown = 0.6;
 
             AudioManager.instance.playSpatialScare(maskId, remote.position);
-            //if (isAudioReady && scareSource != null) SoLoud.instance.play(scareSource!);
 
             if (maskId == 'flying') {
               scareManager.spawnBat(FlyingScareBlast(position: remote.position.clone(), angle: remote.facingAngle, ownerId: payload['id']));
@@ -969,7 +957,7 @@ await camera.viewport.add(MapButton());
             if (isHost && maskId != 'flying' && maskId != 'vermin') {
               final forward = Vector2(sin(remote.facingAngle), -cos(remote.facingAngle));
               for (var bot in bots) {
-                if (matchMode == '2v2' && getEntityTeam(id) == getEntityTeam(bot)) continue; // SKIP ALLIES
+                if (matchMode == '2v2' && getEntityTeam(id) == getEntityTeam(bot)) continue; 
                 if (bot.localImmunityToMe > 0) continue; 
                 
                 final toBot = bot.position - remote.position;
@@ -1012,7 +1000,6 @@ await camera.viewport.add(MapButton());
             player.applyStun(duration);
             player.triggerPrivateHighlight();
             
-            // Replaced legacy scareSource with the new manager's impactSource
             if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
               SoLoud.instance.play(AudioManager.instance.impactSource!);
             }
@@ -1040,15 +1027,12 @@ await camera.viewport.add(MapButton());
         event: 'start_countdown',
         callback: (payload) {
           if (!isHost && matchPhase == 'searching') {
-            
-            // 1. Sync the teams from the host
             if (payload.containsKey('teams')) {
               final teamsData = payload['teams'] as Map<String, dynamic>;
               teamsData.forEach((key, value) {
                 playerTeams[key] = value as int;
               });
 
-              // 2. Visually apply team colors if playing 2v2
               if (matchMode == '2v2') {
                 int myTeam = playerTeams[mySessionId] ?? 1;
                 player.applyTeamColor(myTeam);
@@ -1060,7 +1044,6 @@ await camera.viewport.add(MapButton());
               }
             }
             
-            // 3. Break out of the infinite timer trap!
             matchPhase = 'countdown';
             overlays.remove('searching');
             overlays.add('countdown');
@@ -1132,5 +1115,4 @@ await camera.viewport.add(MapButton());
         }
       });
   }
-  
 }

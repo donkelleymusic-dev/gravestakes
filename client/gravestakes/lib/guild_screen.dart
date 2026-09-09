@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flame/game.dart';
+import 'game.dart';
+import 'spectator_mode.dart';
+import 'match_summary_overlay.dart';
 
 class GuildScreen extends StatefulWidget {
   const GuildScreen({super.key});
@@ -94,9 +98,10 @@ class _GuildScreenState extends State<GuildScreen> {
   }
 
   Future<void> _fetchMessages(String guildId) async {
+    // UPDATED: Now selects the new 'metadata' column
     final messagesRes = await supabase
         .from('guild_messages')
-        .select('id, message, sender_id, created_at, profiles(username)')
+        .select('id, message, sender_id, created_at, metadata, profiles(username)')
         .eq('guild_id', guildId)
         .order('created_at', ascending: true)
         .limit(50);
@@ -113,7 +118,7 @@ class _GuildScreenState extends State<GuildScreen> {
     
     _chatChannel = supabase.channel('guild_chat_$guildId')
       .onPostgresChanges(
-        event: PostgresChangeEvent.insert,
+        event: PostgresChangeEvent.all,
         schema: 'public',
         table: 'guild_messages',
         filter: PostgresChangeFilter(
@@ -196,7 +201,6 @@ class _GuildScreenState extends State<GuildScreen> {
     }
   }
 
-  // CONTEXT-SENSITIVE LEAVE / DISBAND DIALOG
   Future<void> _promptLeaveOrDisband() async {
     final user = supabase.auth.currentUser;
     if (user == null || _myGuild == null) return;
@@ -205,16 +209,12 @@ class _GuildScreenState extends State<GuildScreen> {
     final otherMembers = _members.where((m) => m['user_id'] != user.id).toList();
 
     if (!isFounder) {
-      // SCENARIO 1: Regular Member
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           backgroundColor: Colors.grey[900],
           title: const Text('Leave Guild?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          content: const Text(
-            'Are you sure you want to leave this guild? You will lose access to guild chat and perks.',
-            style: TextStyle(color: Colors.grey),
-          ),
+          content: const Text('Are you sure you want to leave this guild?', style: TextStyle(color: Colors.grey)),
           actions: [
             TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('CANCEL', style: TextStyle(color: Colors.grey))),
             TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('LEAVE', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold))),
@@ -223,19 +223,20 @@ class _GuildScreenState extends State<GuildScreen> {
       );
 
       if (confirmed == true) {
-        _executeRegularLeave(user.id);
+        try {
+          _chatChannel?.unsubscribe();
+          await supabase.from('guild_members').delete().eq('user_id', user.id);
+          setState(() { _myGuild = null; _isLoading = true; });
+          _loadGuildData();
+        } catch (e) { debugPrint('Error leaving guild: $e'); }
       }
     } else if (otherMembers.isEmpty) {
-      // SCENARIO 2: Founder, but solo (no other members)
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           backgroundColor: Colors.grey[900],
           title: const Text('Disband Guild?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          content: const Text(
-            'You are the last member in this guild. Leaving will permanently disband and delete the guild.',
-            style: TextStyle(color: Colors.grey),
-          ),
+          content: const Text('You are the last member in this guild. Leaving will permanently disband it.', style: TextStyle(color: Colors.grey)),
           actions: [
             TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('CANCEL', style: TextStyle(color: Colors.grey))),
             TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('DISBAND', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold))),
@@ -244,12 +245,15 @@ class _GuildScreenState extends State<GuildScreen> {
       );
 
       if (confirmed == true) {
-        _executeDisband();
+        try {
+          _chatChannel?.unsubscribe();
+          await supabase.from('guilds').delete().eq('id', _myGuild!['id']);
+          setState(() { _myGuild = null; _isLoading = true; });
+          _loadGuildData();
+        } catch (e) { debugPrint('Error disbanding guild: $e'); }
       }
     } else {
-      // SCENARIO 3: Founder with active members -> Choose a successor!
       String? selectedSuccessorId = otherMembers.first['user_id'];
-
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) {
@@ -257,42 +261,29 @@ class _GuildScreenState extends State<GuildScreen> {
             builder: (context, setStateDialog) {
               return AlertDialog(
                 backgroundColor: Colors.grey[900],
-                title: const Text('Appoint Successor & Leave', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                title: const Text('Appoint Successor', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 content: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'You are the guild leader and other members are still in the guild. You must appoint a new leader before you can leave.',
-                      style: TextStyle(color: Colors.grey),
-                    ),
+                    const Text('You must appoint a new leader before leaving.', style: TextStyle(color: Colors.grey)),
                     const SizedBox(height: 16),
-                    const Text('Select New Leader:', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
                       dropdownColor: Colors.grey[850],
                       value: selectedSuccessorId,
                       items: otherMembers.map((m) {
-                        final profile = m['profiles'] ?? {};
                         return DropdownMenuItem<String>(
                           value: m['user_id'] as String,
-                          child: Text(profile['username'] ?? 'Ghost', style: const TextStyle(color: Colors.white)),
+                          child: Text(m['profiles']?['username'] ?? 'Ghost', style: const TextStyle(color: Colors.white)),
                         );
                       }).toList(),
-                      onChanged: (val) {
-                        setStateDialog(() {
-                          selectedSuccessorId = val;
-                        });
-                      },
+                      onChanged: (val) { setStateDialog(() { selectedSuccessorId = val; }); },
                     ),
                   ],
                 ),
                 actions: [
                   TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('CANCEL', style: TextStyle(color: Colors.grey))),
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(true),
-                    child: const Text('PROMOTE & LEAVE', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-                  ),
+                  TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('PROMOTE & LEAVE', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold))),
                 ],
               );
             },
@@ -301,66 +292,15 @@ class _GuildScreenState extends State<GuildScreen> {
       );
 
       if (confirmed == true && selectedSuccessorId != null) {
-        _executeTransferAndLeave(user.id, selectedSuccessorId!);
+        try {
+          _chatChannel?.unsubscribe();
+          await supabase.from('guild_members').update({'role': 'founder'}).eq('guild_id', _myGuild!['id']).eq('user_id', selectedSuccessorId!);
+          await supabase.from('guilds').update({'founder_id': selectedSuccessorId}).eq('id', _myGuild!['id']);
+          await supabase.from('guild_members').delete().eq('user_id', user.id);
+          setState(() { _myGuild = null; _isLoading = true; });
+          _loadGuildData();
+        } catch (e) { debugPrint('Error transferring leadership: $e'); }
       }
-    }
-  }
-
-  Future<void> _executeRegularLeave(String userId) async {
-    try {
-      _chatChannel?.unsubscribe();
-      await supabase.from('guild_members').delete().eq('user_id', userId);
-      setState(() {
-        _myGuild = null;
-        _isLoading = true;
-      });
-      _loadGuildData();
-    } catch (e) {
-      debugPrint('Error leaving guild: $e');
-    }
-  }
-
-  Future<void> _executeDisband() async {
-    try {
-      _chatChannel?.unsubscribe();
-      await supabase.from('guilds').delete().eq('id', _myGuild!['id']);
-      setState(() {
-        _myGuild = null;
-        _isLoading = true;
-      });
-      _loadGuildData();
-    } catch (e) {
-      debugPrint('Error disbanding guild: $e');
-    }
-  }
-
-  Future<void> _executeTransferAndLeave(String currentUserId, String newLeaderId) async {
-    try {
-      _chatChannel?.unsubscribe();
-
-      // 1. Promote new leader in members table
-      await supabase.from('guild_members')
-          .update({'role': 'founder'})
-          .eq('guild_id', _myGuild!['id'])
-          .eq('user_id', newLeaderId);
-
-      // 2. Update the founder reference on the guild record
-      await supabase.from('guilds')
-          .update({'founder_id': newLeaderId})
-          .eq('id', _myGuild!['id']);
-
-      // 3. Remove current user from the guild
-      await supabase.from('guild_members')
-          .delete()
-          .eq('user_id', currentUserId);
-
-      setState(() {
-        _myGuild = null;
-        _isLoading = true;
-      });
-      _loadGuildData();
-    } catch (e) {
-      debugPrint('Error transferring leadership: $e');
     }
   }
 
@@ -372,8 +312,6 @@ class _GuildScreenState extends State<GuildScreen> {
     if (user == null) return;
 
     final moderatedText = _bleepText(text);
-
-    // Clear the text field immediately so it feels snappy
     _chatController.clear();
 
     try {
@@ -381,15 +319,225 @@ class _GuildScreenState extends State<GuildScreen> {
         'guild_id': _myGuild!['id'],
         'sender_id': user.id,
         'message': moderatedText,
+        'metadata': {},
       });
-
-      // INSTANT LOCAL REFRESH: Don't wait for the realtime broadcast to tell us 
-      // about our own message. Fetch it immediately!
       await _fetchMessages(_myGuild!['id']);
-      
     } catch (e) {
       debugPrint('Error sending message: $e');
     }
+  }
+
+  Future<void> _sendScrimmageInvite(String mode) async {
+    final user = supabase.auth.currentUser;
+    if (user == null || _myGuild == null) return;
+
+    final String customRoomId = 'scrimmage_${DateTime.now().millisecondsSinceEpoch}_${user.id.substring(0, 5)}';
+    final int targetPlayers = mode == '1v1' ? 2 : 4;
+
+    final metadata = {
+      'type': 'scrimmage_invite',
+      'room_id': customRoomId,
+      'mode': mode, 
+      'status': 'waiting',
+      'players': [user.id], 
+      'results': {},
+    };
+
+    try {
+      final response = await supabase.from('guild_messages').insert({
+        'guild_id': _myGuild!['id'],
+        'sender_id': user.id,
+        'message': 'issued a $mode sparring challenge!',
+        'metadata': metadata,
+      }).select('id').single();
+
+      await _fetchMessages(_myGuild!['id']);
+      
+      _launchScrimmage(
+        roomId: customRoomId, 
+        mode: mode, 
+        targetPlayers: targetPlayers, 
+        messageId: response['id'].toString(), 
+      );
+      
+    } catch (e) {
+      debugPrint('Error sending scrimmage invite: $e');
+    }
+  }
+
+  Future<void> _joinScrimmage(String messageId, Map<String, dynamic> metadata) async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+
+    final String mode = metadata['mode'];
+    final int targetPlayers = mode == '1v1' ? 2 : 4;
+    final String customRoomId = metadata['room_id'];
+    List<String> players = List<String>.from(metadata['players'] ?? []);
+
+    if (!players.contains(user.id)) {
+      players.add(user.id);
+      
+      String newStatus = players.length >= targetPlayers ? 'playing' : 'waiting';
+      Map<String, dynamic> newMetadata = Map.from(metadata);
+      newMetadata['players'] = players;
+      newMetadata['status'] = newStatus;
+
+      await supabase.from('guild_messages').update({
+        'metadata': newMetadata
+      }).eq('id', messageId);
+    }
+
+    _launchScrimmage(
+      roomId: customRoomId, 
+      mode: mode, 
+      targetPlayers: targetPlayers, 
+      messageId: messageId, 
+    );
+  }
+
+  Future<void> _cancelScrimmage(String messageId, Map<String, dynamic> metadata) async {
+    Map<String, dynamic> newMetadata = Map.from(metadata);
+    newMetadata['status'] = 'cancelled';
+
+    // 1. Optimistic local update (makes the UI feel instantly responsive)
+    setState(() {
+      final index = _messages.indexWhere((m) => m['id'].toString() == messageId);
+      if (index != -1) {
+        _messages[index]['metadata'] = newMetadata;
+      }
+    });
+
+    try {
+      // 2. Fire the database update
+      await supabase.from('guild_messages').update({
+        'metadata': newMetadata
+      }).eq('id', messageId);
+      
+    } catch (e) {
+      // 3. Surface the error so we aren't flying blind
+      debugPrint('Error cancelling scrimmage: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to cancel (RLS issue?): $e'), backgroundColor: Colors.red),
+        );
+      }
+      // Revert the optimistic update if it failed
+      _fetchMessages(_myGuild!['id']); 
+    }
+  }
+
+  void _launchScrimmage({required String roomId, required String mode, required int targetPlayers, required String messageId}) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          body: GameWidget<GraveStakesGame>(
+            game: GraveStakesGame(
+              roomId: roomId,
+              matchMode: mode,
+              targetPlayers: targetPlayers,
+              isGuildScrimmage: true,
+              scrimmageMessageId: messageId,
+            ),
+            // THE FIX: Add the loadingBuilder to show UI during asset extraction
+            loadingBuilder: (context) => Container(
+              color: Colors.black,
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: Colors.purpleAccent),
+                    SizedBox(height: 20),
+                    Text(
+                      'PREPARING MATCH...',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2.0,
+                        fontFamily: 'Courier',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            overlayBuilderMap: {
+              'summary': (BuildContext context, GraveStakesGame game) => MatchSummaryOverlay(game: game),
+              'searching': (BuildContext context, GraveStakesGame game) => SearchingOverlay(game: game),
+              'countdown': (BuildContext context, GraveStakesGame game) => CountdownOverlay(game: game),
+            },
+          ),
+        ),
+      ),
+    ).then((_) {
+      _fetchMessages(_myGuild!['id']);
+    });
+  }
+
+  void _spectateScrimmage(String roomId) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          body: Stack(
+            children: [
+              GameWidget<SpectatorGame>(
+                game: SpectatorGame(roomId: roomId, mapName: 'L1T1V1.0.0'),
+                overlayBuilderMap: {
+                  'spectator_summary': (context, SpectatorGame game) => SpectatorSummaryOverlay(game: game),
+                },
+              ),
+              Positioned(
+                top: 40,
+                left: 20,
+                child: Container(
+                  decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back, color: Colors.white, size: 30),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showChallengeMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('ISSUE CHALLENGE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+            const Divider(color: Colors.grey),
+            ListTile(
+              leading: const Icon(Icons.person, color: Colors.orangeAccent),
+              title: const Text('1v1 Sparring Match', style: TextStyle(color: Colors.white)),
+              subtitle: const Text('No cost, no loot. Just glory.', style: TextStyle(color: Colors.white54, fontSize: 12)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _sendScrimmageInvite('1v1');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.people, color: Colors.orangeAccent),
+              title: const Text('2v2 Squad Scrimmage', style: TextStyle(color: Colors.white)),
+              subtitle: const Text('Team training session.', style: TextStyle(color: Colors.white54, fontSize: 12)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _sendScrimmageInvite('2v2');
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -493,6 +641,106 @@ class _GuildScreenState extends State<GuildScreen> {
     );
   }
 
+  Widget _buildScrimmageBubble(Map<String, dynamic> msg, Map<String, dynamic> metadata) {
+    final profile = msg['profiles'] ?? {};
+    final senderName = profile['username'] ?? 'Ghost';
+    final status = metadata['status'] as String? ?? 'waiting';
+    final mode = metadata['mode'] as String? ?? '1v1';
+    final roomId = metadata['room_id'] as String;
+    final targetPlayers = mode == '1v1' ? 2 : 4;
+    final players = List<String>.from(metadata['players'] ?? []);
+    final results = metadata['results'] as Map<String, dynamic>? ?? {};
+
+    final myId = supabase.auth.currentUser?.id;
+    final alreadyJoined = myId != null && players.contains(myId);
+    final isHost = msg['sender_id'] == myId; // Check if I created the invite
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12.0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey[900],
+        border: Border.all(
+          color: status == 'cancelled' ? Colors.grey.withOpacity(0.5) : Colors.orangeAccent.withOpacity(0.5)
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.sports_martial_arts, color: status == 'cancelled' ? Colors.grey : Colors.orangeAccent, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '$senderName issued a $mode Sparring Challenge!', 
+                  style: TextStyle(color: status == 'cancelled' ? Colors.grey : Colors.white, fontWeight: FontWeight.bold)
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          
+          if (status == 'waiting') ...[
+            Text('Waiting for fighters (${players.length}/$targetPlayers)...', style: const TextStyle(color: Colors.white54)),
+            const SizedBox(height: 8),
+            
+            if (alreadyJoined)
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey[700]),
+                      onPressed: () => _joinScrimmage(msg['id'].toString(), metadata),
+                      child: const Text('RETURN', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  if (isHost) ...[
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.redAccent)),
+                        onPressed: () => _cancelScrimmage(msg['id'].toString(), metadata),
+                        child: const Text('CANCEL', style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ],
+              )
+            else
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[800]),
+                  onPressed: () => _joinScrimmage(msg['id'].toString(), metadata),
+                  child: const Text('JOIN MATCH', style: TextStyle(color: Colors.white)),
+                ),
+              ),
+          ] else if (status == 'playing') ...[
+            const Text('Match in progress...', style: TextStyle(color: Colors.amber)),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.amber)),
+                onPressed: () => _spectateScrimmage(roomId),
+                icon: const Icon(Icons.remove_red_eye, color: Colors.amber),
+                label: const Text('SPECTATE', style: TextStyle(color: Colors.amber)),
+              ),
+            ),
+          ] else if (status == 'finished') ...[
+            const Text('Match Concluded', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            ...results.entries.map((e) => Text('${e.key}: ${e.value} Souls', style: const TextStyle(color: Colors.white70))),
+          ] else if (status == 'cancelled') ...[
+            const Text('Challenge Withdrawn', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+          ]
+        ],
+      ),
+    );
+  }
+
   Widget _buildGuildDashboard() {
     final vaultCoins = _myGuild?['vault_coins'] ?? 0;
     final vaultShadows = _myGuild?['vault_shadows'] ?? 0;
@@ -500,7 +748,6 @@ class _GuildScreenState extends State<GuildScreen> {
 
     return Column(
       children: [
-        // --- NEW: Guild War Treasury & Level Banner ---
         Container(
           padding: const EdgeInsets.all(12),
           color: Colors.grey[900],
@@ -541,6 +788,12 @@ class _GuildScreenState extends State<GuildScreen> {
             itemCount: _messages.length,
             itemBuilder: (context, index) {
               final msg = _messages[index];
+              final metadata = msg['metadata'] as Map<String, dynamic>? ?? {};
+
+              if (metadata['type'] == 'scrimmage_invite') {
+                return _buildScrimmageBubble(msg, metadata);
+              }
+
               final profile = msg['profiles'] ?? {};
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8.0),
@@ -558,6 +811,10 @@ class _GuildScreenState extends State<GuildScreen> {
           color: Colors.grey[900],
           child: Row(
             children: [
+              IconButton(
+                icon: const Icon(Icons.sports_martial_arts, color: Colors.orangeAccent),
+                onPressed: _showChallengeMenu,
+              ),
               Expanded(
                 child: TextField(
                   controller: _chatController,
@@ -577,6 +834,68 @@ class _GuildScreenState extends State<GuildScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ==========================================
+// OVERLAYS FOR SCRIMMAGES
+// ==========================================
+class SearchingOverlay extends StatelessWidget {
+  final GraveStakesGame game;
+  const SearchingOverlay({super.key, required this.game});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black87,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(color: Colors.purpleAccent),
+            const SizedBox(height: 24),
+            Text(
+              'WAITING FOR CHALLENGERS...\n(${game.matchMode.toUpperCase()})',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 2),
+            ),
+            const SizedBox(height: 32),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Colors.redAccent),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+              onPressed: () => Navigator.of(context).pop(), 
+              icon: const Icon(Icons.exit_to_app, color: Colors.redAccent),
+              label: const Text('LEAVE LOBBY', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CountdownOverlay extends StatelessWidget {
+  final GraveStakesGame game;
+  const CountdownOverlay({super.key, required this.game});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black45,
+      child: Center(
+        child: Text(
+          game.countdownTimer.ceil().toString(),
+          style: const TextStyle(
+            color: Colors.redAccent, 
+            fontSize: 120, 
+            fontWeight: FontWeight.bold,
+            shadows: [Shadow(color: Colors.black, blurRadius: 10)]
+          ),
+        ),
+      ),
     );
   }
 }
