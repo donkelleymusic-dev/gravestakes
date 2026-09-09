@@ -17,8 +17,8 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   double huntSpeed = 130.0; 
   double visualScale = 1.0;
   String assignedCharacterId = 'default';
+  String species = 'humanoid';
   
-  // --- NEW: Internal Team Awareness ---
   int teamId = 0;
   
   double _footstepTimer = 0.0;
@@ -68,7 +68,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     if (isHunter) return;
     isHunter = true;
 
-    // Check character cache for the Goliath ID
     String goliathId = 'the_goliath';
     if (!GraveStakesGame.characterRigCache.containsKey(goliathId)) {
       if (GraveStakesGame.characterRigCache.containsKey('goliath')) {
@@ -76,13 +75,29 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       }
     }
     assignedCharacterId = goliathId;
+    species = 'alien';
 
-    // Scale up size and speed
     visualScale *= 1.4;
     huntSpeed *= 1.35;
     scale = Vector2.all(visualScale);
 
-    // Hot-swap the 3D Voxel Rig to The Goliath
+    // Async load Goliath so it doesn't stutter the game!
+    GraveStakesGame.ensureCharacterLoaded(assignedCharacterId).then((_) {
+      if (voxelComponent != null) voxelComponent!.removeFromParent();
+
+      final rig = GraveStakesGame.characterRigCache[assignedCharacterId] ?? game.loadedRigData;
+      if (rig != null) {
+        voxelComponent = VoxelCharacterComponent(
+          images: GraveStakesGame.characterImagesCache[assignedCharacterId] ?? game.loadedAssetImages,
+          rigData: rig,
+          hitboxSize: size,
+        )
+          ..anchor = Anchor.bottomCenter
+          ..position = Vector2(size.x / 2, size.y);
+        add(voxelComponent!);
+      }
+    });
+
     if (voxelComponent != null) {
       voxelComponent!.removeFromParent();
     }
@@ -105,7 +120,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
     triggerPrivateHighlight();
 
-    // Floating indicator & Audio Cue
     game.camera.viewport.add(FloatingText(
       text: 'THE GOLIATH HAS AWOKEN!',
       worldPosition: Vector2(position.x - 60, position.y - 80),
@@ -127,21 +141,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     highlightTimer = 1.0; 
     if (_fallbackSprite != null) _fallbackSprite!.paint.color = Colors.white; 
   }
-
-  /* void _playSpatialFootstep() {
-    if (!game.isAudioReady || game.footstepSource == null) return;
-    final distance = (position - game.player.position).length;
-    if (distance > 1000.0) return;
-
-    final posX = position.x / _audioScale;
-    final randomPitch = 0.85 + (_random.nextDouble() * 0.30);
-    final posY = position.y / _audioScale;
-
-    final handle = SoLoud.instance.play3d(game.footstepSource!, posX, posY, 0.0, volume: 0.85);
-    SoLoud.instance.setRelativePlaySpeed(handle, randomPitch);
-    SoLoud.instance.set3dSourceMinMaxDistance(handle, 2.0, 20.0);
-    SoLoud.instance.set3dSourceAttenuation(handle, 1, 1.2);
-  } */
 
   BotPlayer({this.isHunter = false}) : super(size: Vector2.all(32.0), anchor: Anchor.center) {
     fakeUsername = _fakeNames[_random.nextInt(_fakeNames.length)];
@@ -171,6 +170,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         final randomChar = chars[_random.nextInt(chars.length)];
         
         assignedCharacterId = randomChar['id'] ?? 'default';
+        species = randomChar['species'] as String? ?? 'humanoid';
         final baseSpeed = (randomChar['base_speed'] as num?)?.toDouble() ?? 200.0;
         
         wanderSpeed = baseSpeed * 0.40;  
@@ -188,6 +188,9 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       }
     } catch (e) {}
 
+    // Ensure this bot's random character is loaded!
+    await GraveStakesGame.ensureCharacterLoaded(assignedCharacterId);
+
     try {
       final rig = GraveStakesGame.characterRigCache[assignedCharacterId] ?? game.loadedRigData;
       if (rig == null) throw Exception('Bot rig data is entirely missing!');
@@ -204,13 +207,9 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       add(_fallbackSprite!);
     }
     
-    // --- NEW: Paint Bot according to its dynamically assigned team! ---
-    // --- NEW: Paint Bot according to its dynamically assigned team! ---
     if (game.matchMode == '2v2' && teamId != 0) {
-      // Team 1 = Accessible Blue, Team 2 = Accessible Orange
       final teamColor = teamId == 1 ? const Color(0xFF0072B2) : const Color(0xFFE69F00);
       
-      // Draw the permanent ring under their feet
       add(CircleComponent(
         radius: 20.0,
         paint: Paint()
@@ -267,7 +266,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     double minDistance = 350.0; 
 
     if (!game.player.isStunned) {
-      // --- NEW: Bot skips targeting its own teammates! ---
       if (game.matchMode == '2v2' && game.getEntityTeam(this) == game.getEntityTeam(game.player)) {
         // Skip
       } else {
@@ -305,7 +303,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       if (game.matchMode == '2v2' && game.getEntityTeam(this) == game.getEntityTeam(game.player)) {
         // Skip
       } else {
-        // --- Add stealth check to Hunter radar ---
         bool isStealthing = game.player.isInvisible || (game.player.isDisguised && !game.player.isMoving);
         if (!isStealthing) {
           double dist = position.distanceTo(game.player.position);
@@ -316,7 +313,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     for (var entry in game.networkPlayers.entries) {
       if (game.matchMode == '2v2' && game.getEntityTeam(this) == game.getEntityTeam(entry.key)) continue; // SKIP
       var remote = entry.value;
-      // Add stealth check to Hunter radar ---
       bool isStealthing = remote.isInvisible || (remote.isDisguised && !remote.isMoving);
       if (!isStealthing) {
         double dist = position.distanceTo(remote.position);
@@ -381,14 +377,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
     if (!game.isHost) return;
 
-    /* if (game.gameTimer.timeLeft <= 60.0 && game.gameTimer.timeLeft > 0 && !isHunter) {
-      isHunter = true;
-      huntSpeed *= 1.35; 
-      if (_fallbackSprite != null) _fallbackSprite!.paint.color = Colors.redAccent;
-      if (voxelComponent != null) triggerPrivateHighlight(); 
-    } */
-
-
     if (!isStunned) {
       double currentSpeed = wanderSpeed;
       bool hitWall = false;
@@ -438,7 +426,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
               _pathRecalcTimer = 0.5; 
             }
           } else {
-            // --- If radar loses lock (everyone invisible), clear path and wander ---
             _hunterPath.clear();
             directionTimer -= dt;
             if (directionTimer <= 0) _chooseNewDirection();
@@ -535,7 +522,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
           if (game.gameMap.hasLineOfSight(position, currentTarget!.position)) {
             game.world.add(ScareBlast(position: position, angle: facingAngle - (pi / 2)));
             
-            // --- Play spatial scare sound for bot attack ---
             AudioManager.instance.playSpatialScare('standard', position);
 
             if (currentTarget == game.player) {
@@ -567,7 +553,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
           _footstepTimer += dt;
           if (_footstepTimer >= dynamicInterval) {
             _footstepTimer = 0.0; 
-            //_playSpatialFootstep();
             AudioManager.instance.playEntityFootstep(assignedCharacterId, position, isLocal: false);
           }
         } else { _footstepTimer = 0.0; }

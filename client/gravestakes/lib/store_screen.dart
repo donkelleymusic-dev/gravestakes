@@ -133,13 +133,19 @@ class _StoreScreenState extends State<StoreScreen> {
     final user = supabase.auth.currentUser;
     if (user == null || !_canClaimFreeDrop) return;
 
-    // Simulate backend shard generation (to be replaced with RPC later)
     final rewardCoins = 50;
     
     try {
       await supabase.from('wallets').update({
         'coins': _playerCoins + rewardCoins
       }).eq('id', user.id);
+
+      // THE FIX: Add the onConflict parameter so it silently overwrites/ignores existing masks
+      await supabase.from('user_inventory').upsert({
+        'user_id': user.id,
+        'item_id': 'standard',
+        'item_type': 'mask'
+      }, onConflict: 'user_id, item_type, item_id');
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('last_free_drop_${user.id}', DateTime.now().toIso8601String());
@@ -156,7 +162,7 @@ class _StoreScreenState extends State<StoreScreen> {
         category: 'store_freebie',
       ));
 
-      _showSuccess('Smuggler\'s Drop opened! +$rewardCoins Coins');
+      _showSuccess('Smuggler\'s Drop opened! +$rewardCoins Coins & Standard Mask!');
     } catch (e) {
       _showError('Failed to claim drop: $e');
     }
@@ -277,7 +283,7 @@ class _StoreScreenState extends State<StoreScreen> {
             ),
             Showcase(
               key: _freeDropKey,
-              description: 'Claim your free daily supplies here.',
+              description: 'STEP 2: Claim your Smuggler\'s Drop for coins and a mask.',
               disposeOnTap: true,
               onTargetClick: () async {
                 final prefs = await SharedPreferences.getInstance();
@@ -456,7 +462,7 @@ class _StoreScreenState extends State<StoreScreen> {
         appBar: AppBar(
           leading: Showcase(
             key: _backKey,
-            description: 'STEP 2: Return to the Main Menu.',
+            description: 'STEP 3: Great! Now return to the Main Menu.',
             disposeOnTap: true,
             onTargetClick: () => Navigator.of(context).pop(),
             child: IconButton(

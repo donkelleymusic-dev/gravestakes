@@ -31,7 +31,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   int selectedMaskIndex = 0; 
   List<MaskData?> equippedMasks = List.filled(4, null);
 
-  // ADD THIS GETTER:
   String get currentMaskId {
     if (selectedMaskIndex >= 0 && selectedMaskIndex < equippedMasks.length) {
       return equippedMasks[selectedMaskIndex]?.id ?? 'standard';
@@ -63,31 +62,26 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     return 1.0; 
   }
 
-  // --- DEFENSIVE WEARABLES STATE ---
   final Map<String, dynamic> equippedWearables = {};
-
-  // --- NEW: Active Defense State ---
   bool hasActiveDefense = false;
   double activeDefenseCooldown = 0.0;
 
-  // --- NEW: Mask Swap Animation State ---
   double maskSwapAnimationTimer = 0.0;
   String? pendingMaskId;
   
-  // Passive Multipliers (Loaded from DB buff_stat & buff_value)
-  double footstepReductionMult = 1.0; // footprint_reduction
-  double maxEnergyMult = 1.0;         // energy_max
-  double speedMult = 1.0;             // speed
-  double energyRegenMult = 1.0;       // regen
+  double footstepReductionMult = 1.0; 
+  double maxEnergyMult = 1.0;         
+  double speedMult = 1.0;             
+  double energyRegenMult = 1.0;       
 
-  // Hard Counters
-  final Set<String> activeCounters = {}; // e.g. {'siren', 'flying', 'vermin', 'standard'}
+  final Set<String> activeCounters = {}; 
   
   double energy = 1.0; 
   double maxEnergy = 10.0;
   double energyRegenRate = 0.5;
 
   String equippedCharacterId = 'default';
+  String species = 'humanoid';
   double swapSpeedModifier = 1.0;
   double visualScale = 1.0;
 
@@ -132,69 +126,58 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   List<Vector2> _charmPath = [];
   double _pathRecalcTimer = 0.0;
 
-  // Add these variables near the top of Player class
   bool isPhasing = false;
   double phaseTimer = 0.0;
-  final double maxPhaseDuration = 0.5; // 0.5 seconds of invincibility
+  final double maxPhaseDuration = 0.5; 
 
-  // --- Breath Holding & Exertion State ---
-bool isHoldingBreath = false;
-double breathHoldDuration = 4.0;       // Max 4 seconds hold
-double breathHoldTimer = 0.0;
-double breathHoldCooldown = 0.0;       // 8-second cooldown after holding breath
-double breathExertionLevel = 0.0;      // 0.0 (calm) -> 1.0 (panting heavily)
+  bool isHoldingBreath = false;
+  double breathHoldDuration = 4.0;       
+  double breathHoldTimer = 0.0;
+  double breathHoldCooldown = 0.0;       
+  double breathExertionLevel = 0.0;      
 
-SoundHandle? _breathingHandle;
+  SoundHandle? _breathingHandle;
 
-void startHoldBreath() {
-  if (breathHoldCooldown > 0 || isHoldingBreath || isStunned) return;
-  // Cannot hold breath if panting heavily after sprint
-  if (breathExertionLevel > 0.7) return; 
+  void startHoldBreath() {
+    if (breathHoldCooldown > 0 || isHoldingBreath || isStunned) return;
+    if (breathExertionLevel > 0.7) return; 
 
-  isHoldingBreath = true;
-  breathHoldTimer = breathHoldDuration;
-  
-  // Cut footstep sound radius to near zero
-  footstepReductionMult = 0.1;
-  
-  // Stop local breathing playback immediately
-  if (_breathingHandle != null) {
-    SoLoud.instance.stop(_breathingHandle!);
-    _breathingHandle = null;
+    isHoldingBreath = true;
+    breathHoldTimer = breathHoldDuration;
+    
+    footstepReductionMult = 0.1;
+    
+    if (_breathingHandle != null) {
+      SoLoud.instance.stop(_breathingHandle!);
+      _breathingHandle = null;
+    }
   }
-}
 
-void releaseHoldBreath({bool ranOutOfAir = false}) {
-  if (!isHoldingBreath) return;
-  isHoldingBreath = false;
-  breathHoldCooldown = 8.0;
-  footstepReductionMult = 1.0;
+  void releaseHoldBreath({bool ranOutOfAir = false}) {
+    if (!isHoldingBreath) return;
+    isHoldingBreath = false;
+    breathHoldCooldown = 8.0;
+    footstepReductionMult = 1.0;
 
-  if (ranOutOfAir) {
-    // Sharp gasp SFX if forced to breathe
-    final gasp = AudioManager.instance.gaspBreathSource;
-    if (gasp != null) SoLoud.instance.play(gasp, volume: 0.8);
-    breathExertionLevel = 1.0; // Force heavy breathing
+    if (ranOutOfAir) {
+      final gasp = AudioManager.instance.gaspBreathSource;
+      if (gasp != null) SoLoud.instance.play(gasp, volume: 0.8);
+      breathExertionLevel = 1.0; 
+    }
   }
-}
 
-  // Add the trigger method
   void triggerPhaseDash() {
     isPhasing = true;
     phaseTimer = maxPhaseDuration;
-    // Broadcast the phase so remote players see the visual dodge
     channel.sendBroadcastMessage(event: 'move', payload: {
       'id': game.mySessionId, 'x': position.x, 'y': position.y, 
-      'a': facingAngle, 'm': isMoving, 'i': true // Briefly flag as invisible to network
+      'a': facingAngle, 'm': isMoving, 'i': true, 'sp': species 
     });
   }
   
-  // --- NEW: Helper method to paint team colors ---
  void applyTeamColor(int teamId) {
-    // Team 1 = Accessible Deep Blue (0xFF0072B2), Team 2 = Accessible Warm Orange (0xFFE69F00)
     final teamColor = teamId == 1 ? const Color(0xFF0072B2) : const Color(0xFFE69F00);
     
-    // Add a glowing base ring under the player's feet
     add(CircleComponent(
       radius: 20.0,
       paint: Paint()
@@ -213,14 +196,12 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
   void applyCharm(double duration, Vector2 charmerPos, {String? charmerId}) {
     if (isPhasing) return;
 
-    // Tuning Fork: Invert charm back to the caster
     if (activeCounters.contains('siren') && charmerId != null) {
       game.camera.viewport.add(FloatingText(
         text: 'PHASE INVERTED!', 
         worldPosition: Vector2(position.x - 20, position.y - 40),
       ));
 
-      // Broadcast charm reflection back at the attacker
       game.myChannel.sendBroadcastMessage(
         event: 'charm',
         payload: {
@@ -233,7 +214,6 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
       return;
     }
 
-    // Standard charm handling
     isCharmed = true;
     charmTimer = duration;
     charmTargetPos = charmerPos;
@@ -248,7 +228,6 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
       return;
     }
 
-    // High-Pass Talisman: Ignore vermin swarm stuns completely
     if (isVermin && activeCounters.contains('vermin')) {
       game.camera.viewport.add(FloatingText(
         text: 'SWARM FILTERED!', 
@@ -257,7 +236,6 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
       return;
     }
 
-    // Signal Clipper: Standard stuns truncated to 0.5s
     double finalDuration = duration;
     if (!isVermin && activeCounters.contains('standard') && duration > 0.5) {
       finalDuration = 0.5;
@@ -315,8 +293,6 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
     invisibilityTimer = 15.0; 
   }
 
-  
-
   void triggerPrivateHighlight() {
     highlightTimer = 1.0; 
     if (_fallbackSprite != null) _fallbackSprite!.paint.color = Colors.white; 
@@ -330,6 +306,10 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
     priority = ((position.y + 16) * 10).toInt();
     await _fetchEquippedCosmetics();
     await fetchEquippedWearables();
+    
+    // Ensure my specific character zip is loaded!
+    await GraveStakesGame.ensureCharacterLoaded(equippedCharacterId);
+
     add(RectangleHitbox(size: Vector2(32, 32), anchor: Anchor.center));
 
     _buffTimerText = TextComponent(
@@ -350,7 +330,6 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
     } catch (e) {}
 
     try {
-      // Spawn it way off-screen by default so it is hidden
       _disguiseWall = WallComponent(
         position: Vector2(-9999, -9999), 
         tileSize: 32.0,
@@ -392,7 +371,7 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
         speedMult = 1.0;
         energyRegenMult = 1.0;
         activeCounters.clear();
-        hasActiveDefense = false; // Reset
+        hasActiveDefense = false; 
 
         for (final item in res) {
           final wearable = item['wearables'] as Map<String, dynamic>?;
@@ -456,6 +435,7 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
           energyRegenRate = (charRes['energy_regen'] as num?)?.toDouble() ?? 0.5;
           swapSpeedModifier = (charRes['swap_speed_modifier'] as num?)?.toDouble() ?? 1.0;
           visualScale = (charRes['visual_scale'] as num?)?.toDouble() ?? 1.0;
+          species = charRes['species'] as String? ?? 'humanoid';
           
           energy = 1.0;
           scale = Vector2.all(visualScale);
@@ -482,13 +462,11 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
       return;
     }
 
-    // --- NEW: Mask Swap Animation Logic ---
     if (currentMask.id != currentMaskId) {
       pendingMaskId = currentMask.id;
-      maskSwapAnimationTimer = 0.15; // 150ms lightning-fast swap effect
+      maskSwapAnimationTimer = 0.15; 
       selectedMaskIndex = targetIndex;
       
-      // Play swap visual on voxel rig immediately
       if (voxelComponent != null) {
         voxelComponent!.triggerSwapAnimation();
       }
@@ -568,7 +546,6 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
     if (game.isFpsMode) {
       const double rotationSpeed = 2.2; 
 
-      // 1. GRADUAL TURNING (A / D)
       if (keysPressed.contains(LogicalKeyboardKey.keyA) || keysPressed.contains(LogicalKeyboardKey.arrowLeft)) {
         facingAngle -= rotationSpeed * 0.016; 
       }
@@ -576,25 +553,22 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
         facingAngle += rotationSpeed * 0.016; 
       }
 
-      // 2. INSTANT 90° SNAP TURNS (Z & C - KeyDown Only)
       if (event is KeyDownEvent) {
         if (event.logicalKey == LogicalKeyboardKey.keyZ) {
-          facingAngle -= (pi / 2); // 90 degrees Left
+          facingAngle -= (pi / 2); 
         } else if (event.logicalKey == LogicalKeyboardKey.keyC) {
-          facingAngle += (pi / 2); // 90 degrees Right
+          facingAngle += (pi / 2); 
         }
       }
 
-      // 3. GLANCE / PEEK (Q & E - Hold to Peek)
       if (keysPressed.contains(LogicalKeyboardKey.keyQ)) {
-        glanceOffset = -pi / 4; // Peek 45 degrees Left
+        glanceOffset = -pi / 4; 
       } else if (keysPressed.contains(LogicalKeyboardKey.keyE)) {
-        glanceOffset = pi / 4;  // Peek 45 degrees Right
+        glanceOffset = pi / 4;  
       } else {
-        glanceOffset = 0.0;     // Return to center
+        glanceOffset = 0.0;     
       }
 
-      // 4. FORWARD / REVERSE
       bool isMovingForward = keysPressed.contains(LogicalKeyboardKey.keyW) || keysPressed.contains(LogicalKeyboardKey.arrowUp);
       bool isMovingBackward = keysPressed.contains(LogicalKeyboardKey.keyS) || keysPressed.contains(LogicalKeyboardKey.arrowDown);
 
@@ -617,7 +591,6 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
     if (keysPressed.contains(LogicalKeyboardKey.keyF) || keysPressed.contains(LogicalKeyboardKey.keyR)) {
       rechargeFlashlight();
     }
-    // Toggle Map on 'M' key press (KeyDown only so it doesn't flutter on hold)
   if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.keyM) {
     game.mapOverlay.toggle();
   }
@@ -630,10 +603,8 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
     if (!game.gameStarted) return; 
     super.update(dt);
 
-    // Reveal 2 tiles in every direction around current foot position
     game.gameMap.revealRadius(position, radius: 2);
 
-    // Breath timers
     if (breathHoldCooldown > 0) breathHoldCooldown -= dt;
 
     if (isHoldingBreath) {
@@ -642,14 +613,12 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
         releaseHoldBreath(ranOutOfAir: true);
       }
     } else {
-      // Exertion builds when running or when energy is low
       if (isMoving) {
         breathExertionLevel = (breathExertionLevel + (dt * 0.25)).clamp(0.0, 1.0);
       } else {
         breathExertionLevel = (breathExertionLevel - (dt * 0.15)).clamp(0.0, 1.0);
       }
 
-      // Manage breathing loop volume dynamically based on exertion
       if (breathExertionLevel > 0.4 && _breathingHandle == null && AudioManager.instance.heavyBreathingSource != null) {
         _breathingHandle = SoLoud.instance.play(AudioManager.instance.heavyBreathingSource!, volume: breathExertionLevel * 0.6, looping: true);
       } else if (_breathingHandle != null) {
@@ -664,7 +633,6 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
 
     if (isPhasing) {
       phaseTimer -= dt;
-      // Visual feedback: Drop opacity to look like an audio "ghost"
       if (_fallbackSprite != null) {
         _fallbackSprite!.paint.color = _fallbackSprite!.paint.color.withOpacity(0.3);
       }
@@ -680,7 +648,6 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
       voxelComponent!.targetAngle = facingAngle - (pi / 2); 
       voxelComponent!.isMoving = isMoving;
 
-      // ADD THESE TWO LINES:
       voxelComponent!.attackCooldown = attackCooldown;
       try {
         voxelComponent!.activeMaskImage = game.images.fromCache('${currentMaskId}_mask.png');
@@ -695,12 +662,11 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
     double lowestTimer = 999.0;
     List<String> activeBuffs = [];
 
-    // --- RE-ADD THE MISSING DISGUISE TIMER ---
     if (isDisguised) {
       disguiseTimer -= dt; 
       isBuffActive = true;
       if (disguiseTimer < lowestTimer) lowestTimer = disguiseTimer;
-      activeBuffs.add('WALL: ${disguiseTimer.ceil()}s'); // Changed from 'BUSH' to 'WALL'
+      activeBuffs.add('WALL: ${disguiseTimer.ceil()}s'); 
       
       if (disguiseTimer <= 0) { 
         isDisguised = false; 
@@ -708,34 +674,26 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
       }
     }
 
-    // --- VISIBILITY & CLOAK LOGIC ---
     if (isDisguised) {
-      // 1. Hide the Voxel Rig completely
       if (voxelComponent != null) {
         voxelComponent!.isVisible = false;
       }
-      // 2. Hide the Fallback Sprite completely
       if (_fallbackSprite != null) {
         _fallbackSprite!.paint.color = _fallbackSprite!.paint.color.withOpacity(0.0);
       }
     } else {
-      // 1. Restore Voxel Rig
       if (voxelComponent != null) {
         voxelComponent!.isVisible = true;
-        voxelComponent!.isInvisible = isInvisible; // Triggers the cloak in render()
+        voxelComponent!.isInvisible = isInvisible; 
       }
-      // 2. Restore Fallback Sprite (with partial opacity if cloaked)
       if (_fallbackSprite != null) {
         _fallbackSprite!.paint.color = _fallbackSprite!.paint.color.withOpacity(isInvisible ? 0.3 : 1.0);
       }
     }
 
-    // --- DISGUISE WALL COMPONENT ATTACHMENT ---
     if (isDisguised) {
-      // Move it perfectly over the player
       if (_disguiseWall != null) _disguiseWall!.position = Vector2(-16, -16);
     } else {
-      // Banish it off-screen when the disguise timer hits zero
       if (_disguiseWall != null) _disguiseWall!.position = Vector2(-9999, -9999);
     }
 
@@ -772,41 +730,20 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
       } else {
         voxelComponent!.isHighlighted = false;
       }
-      // Only the disguise completely hides the voxel mesh now
       if (isDisguised) {
         if (voxelComponent != null) voxelComponent!.isVisible = false;
         if (_fallbackSprite != null) _fallbackSprite!.paint.color = _fallbackSprite!.paint.color.withOpacity(0.0);
       } else {
         if (voxelComponent != null) {
           voxelComponent!.isVisible = true;
-          voxelComponent!.isInvisible = isInvisible; // Tell the component to draw the cloak!
+          voxelComponent!.isInvisible = isInvisible; 
         }
         if (_fallbackSprite != null) {
           _fallbackSprite!.paint.color = _fallbackSprite!.paint.color.withOpacity(isInvisible ? 0.3 : 1.0);
         }
       }
-      /* if (isDisguised) {
-        // Hide the character completely when inside a bush
-        voxelComponent!.isVisible = false;
-      } else {
-        voxelComponent!.isVisible = true;
-        
-        // Apply the ethereal cloak effect
-        if (isInvisible) {
-          voxelComponent!.setOpacity(0.4); 
-          // Note: You will need to add a `setOpacity(double value)` method 
-          // inside your VoxelCharacterComponent to apply this to its internal Paint object!
-        } else {
-          voxelComponent!.setOpacity(1.0);
-        }
-      } */
     }
 
-    /* if (isDisguised) {
-      if (_bushSprite != null && _bushSprite!.parent == null) add(_bushSprite!);
-    } else {
-      if (_bushSprite != null && _bushSprite!.parent != null) _bushSprite!.removeFromParent();
-    } */
    if (isDisguised) {
       if (_disguiseWall != null && _disguiseWall!.parent == null) add(_disguiseWall!);
     } else {
@@ -827,7 +764,7 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
           if (networkTick >= networkRate) {
             networkTick = 0;
             channel.sendBroadcastMessage(event: 'move', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': facingAngle, 'c': equippedColorString, 's': score, 'd': isDisguised, 'm': isMoving, 'i': isInvisible,
-              'f': flashlightScale, 'mask_id': currentMaskId});
+              'f': flashlightScale, 'mask_id': currentMaskId, 'sp': species});
           }
         }
       }
@@ -900,15 +837,10 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
         movementDelta = keyboardDelta;
       } else if (!leftJoystick.delta.isZero()) { 
         if (game.isFpsMode) {
-          // ==========================================
-          // 3D FPS MODE TOUCH JOYSTICK STEERING
-          // ==========================================
-          // X-Axis rotates camera angle (facingAngle)
           const double touchRotationSpeed = 2.5;
           facingAngle += leftJoystick.relativeDelta.x * touchRotationSpeed * dt;
 
-          // Y-Axis drives forward / backward along current facingAngle heading
-          double forwardStep = -leftJoystick.relativeDelta.y; // Push up = forward
+          double forwardStep = -leftJoystick.relativeDelta.y; 
           
           if (forwardStep.abs() > 0.1) {
             final forwardVector = Vector2(sin(facingAngle), -cos(facingAngle));
@@ -918,13 +850,11 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
           }
 
         } else {
-          // 2D Top-Down Mode standard movement
           movementDelta = leftJoystick.relativeDelta;
         }
       }
 
       if (!movementDelta.isZero()) {
-        // Snap facingAngle to movement direction ONLY when in 2D top-down mode
         if (!game.isFpsMode && rightJoystick.delta.isZero()) {
           facingAngle = movementDelta.screenAngle();
         }
@@ -944,14 +874,12 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
            
            if (_footstepTimer >= dynamicInterval) {
              _footstepTimer = 0.0; 
-            // _playLocalFootstep();
              AudioManager.instance.playEntityFootstep(equippedCharacterId, position, isLocal: true);
              
              if (actualVelocity > 100) {
                 double timeRemaining = game.gameTimer.timeLeft;
                 double panicMultiplier = 1.0 + ((180.0 - timeRemaining) / 180.0) * 2.0;
                 
-                // --- APPLY WEARABLE FOOTPRINT REDUCTION ---
                 double noiseRadius = 100 * panicMultiplier * footstepReductionMult;
                 
                 for (var bot in game.bots) {
@@ -1011,7 +939,7 @@ void releaseHoldBreath({bool ranOutOfAir = false}) {
     if (networkTick >= networkRate) {
       networkTick = 0;
       channel.sendBroadcastMessage(event: 'move', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': facingAngle, 'c': equippedColorString, 's': score, 'd': isDisguised, 'm': isMoving, 'i': isInvisible,
-              'f': flashlightScale, 'mask_id': currentMaskId});
+              'f': flashlightScale, 'mask_id': currentMaskId, 'sp': species});
     }
   }
 }

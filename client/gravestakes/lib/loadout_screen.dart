@@ -179,7 +179,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     }
   }
 
-  // --- STORE PURCHASING IN CRYPT ---
   Future<void> _buyItem(String itemType, String itemId, int price, String currency) async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
@@ -440,7 +439,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
           elevation: 0,
           leading: Showcase(
             key: _loadoutBackKey,
-            description: 'STEP 4: Return to the Main Menu.',
+            description: 'STEP 9: Return to the Main Menu.',
             disposeOnTap: true,
             onTargetClick: () => Navigator.of(context).pop(),
             child: IconButton(
@@ -532,7 +531,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                       const Tab(icon: Icon(Icons.person, size: 18), text: 'Char'),
                       Showcase(
                         key: _masksTabKey,
-                        description: 'STEP 1: Tap here to view your Masks.',
+                        description: 'STEP 5: Tap here to view your Masks.',
                         disposeOnTap: true,
                         onTargetClick: () {
                           _tabController.animateTo(1);
@@ -613,7 +612,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                     if (i == 0) {
                       return Showcase(
                         key: _maskSlotKey,
-                        description: 'STEP 3: Tap this empty slot to bind your mask.',
+                        description: 'STEP 7: Tap this empty slot to bind your mask.',
                         disposeOnTap: true,
                         onTargetClick: () {
                           if (mId.isEmpty && isSelected) {
@@ -661,7 +660,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                   ),
                   Showcase(
                     key: _sealKey,
-                    description: 'STEP 4: Seal your attunement to save changes.',
+                    description: 'STEP 8: Seal your attunement to save changes.',
                     disposeOnTap: true,
                     onTargetClick: () async {
                       final prefs = await SharedPreferences.getInstance();
@@ -854,7 +853,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
             if (targetItemType == 'mask' && itemId == 'standard' && isOwned) {
               return Showcase(
                 key: _inventoryMaskKey,
-                description: 'STEP 2: Tap the Standard Mask to select it.',
+                description: 'STEP 6: Tap the Standard Mask to select it.',
                 disposeOnTap: true,
                 onTargetClick: () {
                   _selectInventoryItem(targetItemType, itemId);
@@ -874,7 +873,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     );
   }
 
-  // --- THE CHARACTER GRID INTERFACE ---
   Widget _buildCharacterCryptGrid() {
     Map<String, List<Map<String, dynamic>>> groupedChars = {};
 
@@ -1030,9 +1028,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
   }
 }
 
-// ==========================================
-// SAFE MANNEQUIN ENGINE
-// ==========================================
 class MannequinGame extends FlameGame {
   VoxelCharacterComponent? mannequin;
   double _rotationTimer = 0.0;

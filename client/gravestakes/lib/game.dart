@@ -59,6 +59,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   final int targetPlayers;
   final bool isGuildScrimmage;
   final String? scrimmageMessageId;
+  String guildActiveDoctrine = 'none';
 
   bool isWaitingInLobby = true;
 
@@ -78,6 +79,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   bool isFpsMode = false;
 
   Map<String, int> playerTeams = {};
+
+  bool _matchesDoctrine(dynamic target) {
+    if (guildActiveDoctrine == 'none') return false;
+    String targetSpecies = 'humanoid'; 
+    try {
+      targetSpecies = target.species ?? 'humanoid';
+    } catch (_) {
+      targetSpecies = 'humanoid';
+    }
+    return targetSpecies == guildActiveDoctrine;
+  }
 
   int getEntityTeam(dynamic entity) {
     if (matchMode != '2v2') return 0; 
@@ -173,6 +185,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
   Future<void> _loadVoxelAssets() async {
     try {
+      // ONLY load the default base mesh on startup. Do not query the DB!
       final ByteData data = await rootBundle.load('assets/character_assets.zip');
       final List<int> bytes = data.buffer.asUint8List();
       final archive = ZipDecoder().decodeBytes(bytes);
@@ -191,49 +204,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       }
     } catch (e) {
       debugPrint('CRITICAL: Default zip failed to load: $e');
-    }
-
-    try {
-      final supabase = Supabase.instance.client;
-      final charsRes = await supabase.from('characters').select('id, zip_asset_path');
-      final chars = List<Map<String, dynamic>>.from(charsRes);
-
-      for (var char in chars) {
-        final charId = char['id'] as String;
-        final zipPath = char['zip_asset_path'] as String;
-        
-        if (charId == 'default') continue; 
-        if (characterImagesCache.containsKey(charId)) continue;
-
-        try {
-          List<int> bytes = await CharacterAssetManager.getZipBytes(zipPath);
-          final archive = ZipDecoder().decodeBytes(bytes);
-          
-          Map<String, ui.Image> images = {};
-          Map<String, dynamic>? rig;
-
-          for (final file in archive) {
-            if (file.isFile) {
-              if (file.name == 'rig.json') {
-                final jsonStr = utf8.decode(file.content as List<int>);
-                rig = jsonDecode(jsonStr);
-              } else if (file.name.endsWith('.png')) {
-                final ui.Codec codec = await ui.instantiateImageCodec(file.content as Uint8List);
-                final ui.FrameInfo frameInfo = await codec.getNextFrame();
-                images[file.name] = frameInfo.image;
-              }
-            }
-          }
-          if (rig != null) {
-            characterImagesCache[charId] = images;
-            characterRigCache[charId] = rig;
-          }
-        } catch (e) {
-          debugPrint('Failed to load dynamic zip for $charId at $zipPath: $e');
-        }
-      }
-    } catch (e) {
-      debugPrint('Failed to fetch dynamic character paths from DB: $e');
     }
   }
   
@@ -265,6 +235,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         if (profileRes != null) {
           needsTutorial = !(profileRes['completed_tutorial'] ?? false);
           myPlayerLevel = profileRes['level'] as int? ?? 1;
+        }
+
+        final membership = await Supabase.instance.client
+            .from('guild_members')
+            .select('guild_id, guilds(active_doctrine)')
+            .eq('user_id', user.id)
+            .maybeSingle();
+            
+        if (membership != null && membership['guilds'] != null) {
+          guildActiveDoctrine = membership['guilds']['active_doctrine'] ?? 'none';
         }
       } catch (e) {}
     }
@@ -391,8 +371,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         
         int totalHumans = 1 + networkPlayers.length;
         
-        // THE FIX: If it's a guild scrimmage, ignore the timer and wait infinitely.
-        // If it's a public match, use the timer to auto-fill with bots.
         bool shouldStart = totalHumans >= targetPlayers || (!isGuildScrimmage && lobbyTimer <= 0);
         
         if (shouldStart) {
@@ -547,7 +525,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       }
     }
 
-    // --- NEW: DISABLE LOOT BOXES IN GUILD SCRIMMAGES ---
     if (!isGuildScrimmage && gameMap.potentialBoxSpawns.isNotEmpty) {
       List<Vector2> boxNodes = gameMap.potentialBoxSpawns.isNotEmpty 
           ? List.from(gameMap.potentialBoxSpawns)
@@ -595,7 +572,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       }
     }
 
-    // --- REWARDS PROCESSING ---
     if (!isGuildScrimmage) {
       final xpEarned = (player.score * 0.1).toInt();
       final shadowsEarned = (player.score * 0.05).toInt();
@@ -616,7 +592,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       }
     }
 
-    // Always attempt to award territorial IP, even during sparring!
     if (player.score > 0) {
       try {
         final userId = Supabase.instance.client.auth.currentUser?.id;
@@ -649,7 +624,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       }
     }
 
-    // --- HOST-ONLY MATCH CONCLUSION DUTIES ---
     if (isHost) {
       try {
         await Supabase.instance.client.from('active_matches').update({'status': 'ended'}).eq('id', roomId);
@@ -657,7 +631,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       
       myChannel.sendBroadcastMessage(event: 'match_control', payload: {'action': 'end'});
 
-      // Post final scores directly into the chat bubble if this was a scrimmage
       if (isGuildScrimmage && scrimmageMessageId != null) {
         try {
           String _short(String id) => id.length >= 4 ? id.substring(0, 4) : id;
@@ -777,7 +750,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
                 ));
               }
             } else {
-              bot.applyStun(4.0); 
+              double stunDuration = _matchesDoctrine(bot) ? 4.4 : 4.0;
+              bot.applyStun(stunDuration); 
               bot.localImmunityToMe = 7.0; 
               bot.triggerPrivateHighlight(); 
               hitCount++;
@@ -814,7 +788,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             hitCount++;
             remotePlayer.localImmunityToMe = 5.0; 
             remotePlayer.triggerPrivateHighlight(); 
-            myChannel.sendBroadcastMessage(event: 'stun', payload: {'id': remoteId, 'duration': 2.0, 'attacker_id': mySessionId});
+            
+            double stunDuration = _matchesDoctrine(remotePlayer) ? 2.2 : 2.0;
+            myChannel.sendBroadcastMessage(event: 'stun', payload: {'id': remoteId, 'duration': stunDuration, 'attacker_id': mySessionId});
           }
         }
       }
@@ -900,6 +876,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             final isMoving = payload['m'] as bool? ?? false;
             final isInvisible = payload['i'] as bool? ?? false;
             final fScale = payload['f'] as double? ?? 1.0;
+            final sp = payload['sp'] as String? ?? 'humanoid';
 
             final maskId = payload['mask_id'] as String? ?? 'standard';
 
@@ -917,6 +894,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               isDisguised: isDisguised, isMoving: isMoving, isInvisible: isInvisible,
               fScale: fScale,
               maskId: maskId,
+              species: sp,
             );
           }
         },
@@ -964,7 +942,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
                 if (toBot.length < 250.0) {
                   toBot.normalize();
                   if (forward.dot(toBot) > 0.1 && gameMap.hasLineOfSight(bot.position, remote.position)) {
-                    bot.applyStun(4.0); 
+                    double stunDuration = _matchesDoctrine(bot) ? 4.4 : 4.0;
+                    bot.applyStun(stunDuration); 
                     bot.localImmunityToMe = 7.0; 
                     bot.triggerPrivateHighlight(); 
                   }
@@ -1114,5 +1093,49 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           myChannel.sendBroadcastMessage(event: 'request_sync', payload: {});
         }
       });
+  }
+
+  // Just-In-Time Asset Loader
+  static Future<void> ensureCharacterLoaded(String charId) async {
+    if (charId == 'default' || characterImagesCache.containsKey(charId)) return;
+
+    try {
+      final charRes = await Supabase.instance.client
+          .from('characters').select('zip_asset_path').eq('id', charId).maybeSingle();
+      
+      if (charRes == null || charRes['zip_asset_path'] == null) return;
+      
+      String zipPath = charRes['zip_asset_path'];
+      
+      // FIX: Strip the accidental double prefix if it exists in the database
+      if (zipPath.startsWith('assets/assets/')) {
+        zipPath = zipPath.replaceFirst('assets/assets/', 'assets/');
+      }
+
+      List<int> bytes = await CharacterAssetManager.getZipBytes(zipPath);
+      final archive = ZipDecoder().decodeBytes(bytes);
+      
+      Map<String, ui.Image> images = {};
+      Map<String, dynamic>? rig;
+
+      for (final file in archive) {
+        if (file.isFile) {
+          if (file.name == 'rig.json') {
+            rig = jsonDecode(utf8.decode(file.content as List<int>));
+          } else if (file.name.endsWith('.png')) {
+            final ui.Codec codec = await ui.instantiateImageCodec(file.content as Uint8List);
+            final ui.FrameInfo frameInfo = await codec.getNextFrame();
+            images[file.name] = frameInfo.image;
+          }
+        }
+      }
+      if (rig != null) {
+        characterImagesCache[charId] = images;
+        characterRigCache[charId] = rig;
+      }
+    } catch (e) {
+      // Fails gracefully; engine will safely fallback to the default base mesh
+      debugPrint('Lazy load bypassed for missing asset $charId: $e');
+    }
   }
 }

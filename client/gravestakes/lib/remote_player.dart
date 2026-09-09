@@ -15,9 +15,10 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
 
   double facingAngle = 0.0;
   
-  // Track dynamic character ID and scale
+  // Track dynamic character ID, scale, and species for combat doctrines
   String equippedCharacterId = 'default';
   double visualScale = 1.0;
+  String species = 'humanoid';
   
   VoxelCharacterComponent? voxelComponent;
   RectangleComponent? _fallbackSprite;
@@ -47,26 +48,14 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
   bool isInvisible = false;
   SpriteComponent? _bushSprite;
 
-  /* void _playSpatialFootstep() {
-    if (!game.isAudioReady || game.footstepSource == null) return;
-    final distance = (position - game.player.position).length;
-    if (distance > 1000.0) return;
-
-    final posX = position.x / _audioScale;
-    final randomPitch = 0.85 + (_random.nextDouble() * 0.30);
-    final posY = position.y / _audioScale;
-
-    final handle = SoLoud.instance.play3d(game.footstepSource!, posX, posY, 0.0, volume: 0.85);
-    SoLoud.instance.setRelativePlaySpeed(handle, randomPitch);
-    SoLoud.instance.set3dSourceMinMaxDistance(handle, 2.0, 20.0);
-    SoLoud.instance.set3dSourceAttenuation(handle, 1, 1.2);
-  } */
-
   RemotePlayer() : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
   @override
   Future<void> onLoad() async {
-    _buildVoxelComponent(); 
+    // Ensure the remote player's model is downloaded before building
+    await GraveStakesGame.ensureCharacterLoaded(equippedCharacterId);
+
+    _buildVoxelComponent();
 
     try {
       final sheet = game.images.fromCache('Base_BaseChip_pipo.png');
@@ -78,7 +67,6 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     } catch (e) {}
   }
 
-  // Extracted so we can rebuild it dynamically with the safety throw included!
   void _buildVoxelComponent() {
     if (voxelComponent != null) voxelComponent!.removeFromParent();
     
@@ -109,6 +97,7 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     String? characterId,
     double? scaleValue,
     String? maskId,
+    String? species,
   }) {
     final newPos = Vector2(newX, newY);
     
@@ -116,7 +105,6 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     _distanceAccumulator += _targetPosition.distanceTo(newPos);
     
     _targetPosition = newPos;
-    //angle = newAngle;
     facingAngle = newAngle;
 
     if (colorStr != null && colorStr != currentColorStr) {
@@ -134,11 +122,13 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     this.isMoving = isMoving;
     this.isInvisible = isInvisible;
     if (fScale != null) this.flashlightScale = fScale;
+    if (species != null) this.species = species;
 
-    // Hot-swap the art rig if the network tells us they changed characters
     if (characterId != null && characterId != equippedCharacterId) {
       equippedCharacterId = characterId;
-      _buildVoxelComponent();
+      GraveStakesGame.ensureCharacterLoaded(equippedCharacterId).then((_) {
+        _buildVoxelComponent();
+      });
     }
     
     if (scaleValue != null && scaleValue != visualScale) {
@@ -157,15 +147,10 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
   void update(double dt) {
     super.update(dt);
 
-    // --- NEW: Add this so remote players sort properly with walls! ---
     priority = ((position.y + 16) * 10).toInt();
 
     if (voxelComponent != null) {
       voxelComponent!.targetAngle = facingAngle - (pi / 2); 
-      
-      // --- FIX: Delete this line so they stop spinning like a clock! ---
-      // voxelComponent!.angle = -angle; 
-      
       voxelComponent!.isMoving = isMoving;
       voxelComponent!.isStunned = isStunned;
       voxelComponent!.stunTimer = stunTimer;
@@ -183,7 +168,6 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
 
     if (!isStunned && _distanceAccumulator >= 85.0) {
       _distanceAccumulator = 0.0; 
-      //_playSpatialFootstep();
       AudioManager.instance.playEntityFootstep(equippedCharacterId, position, isLocal: false);
     }
 
@@ -195,8 +179,6 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     }
 
     double _breathTick = 0.0;
-
-    // Inside update(double dt):
     _breathTick += dt;
     if (_breathTick >= 3.5 && !isInvisible && !isDisguised) {
       _breathTick = 0.0;
@@ -209,7 +191,7 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
           0.0,
           volume: 0.7,
         );
-        SoLoud.instance.set3dSourceMinMaxDistance(handle, 1.0, 12.0); // Only heard when very close
+        SoLoud.instance.set3dSourceMinMaxDistance(handle, 1.0, 12.0); 
         SoLoud.instance.set3dSourceAttenuation(handle, 1, 2.0);
       }
     }

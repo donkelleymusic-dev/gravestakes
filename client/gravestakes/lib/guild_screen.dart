@@ -540,6 +540,202 @@ class _GuildScreenState extends State<GuildScreen> {
     );
   }
 
+  void _showTreasuryModal(BuildContext context) {
+    final user = supabase.auth.currentUser;
+    final bool isFounder = _myGuild != null && user != null && _myGuild!['founder_id'] == user.id;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.grey[900],
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setStateModal) {
+          int currentDividend = _myGuild?['dividend_rate'] ?? 20;
+          String currentDoctrine = _myGuild?['active_doctrine'] ?? 'none';
+          String currentStrike = _myGuild?['active_strike'] ?? 'none';
+          int vaultCoins = _myGuild?['vault_coins'] ?? 0;
+          int vaultShadows = _myGuild?['vault_shadows'] ?? 0;
+
+          Future<void> updateGuildField(String field, dynamic value) async {
+            try {
+              await supabase.from('guilds').update({field: value}).eq('id', _myGuild!['id']);
+              setState(() {
+                _myGuild![field] = value;
+              });
+              setStateModal(() {});
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Vault configuration updated!'), backgroundColor: Colors.green),
+                );
+              }
+            } catch (e) {
+              debugPrint('Error updating vault: $e');
+            }
+          }
+
+          return Container(
+            padding: const EdgeInsets.all(20),
+            height: MediaQuery.of(context).size.height * 0.8,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('GUILD TREASURY & DOCTRINES', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16, fontFamily: 'Courier')),
+                    IconButton(icon: const Icon(Icons.close, color: Colors.white54), onPressed: () => Navigator.pop(ctx)),
+                  ],
+                ),
+                const Divider(color: Colors.white24),
+                Expanded(
+                  child: ListView(
+                    children: [
+                      // SECTION 1: DIVIDEND SLIDER
+                      const Text('WEEKLY SUNDAY DIVIDEND SPLIT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'Courier')),
+                      const SizedBox(height: 4),
+                      Text('Percentage of Vault Coins paid out to members weekly: $currentDividend%', style: const TextStyle(color: Colors.grey, fontSize: 11, fontFamily: 'Courier')),
+                      Slider(
+                        value: currentDividend.toDouble(),
+                        min: 0,
+                        max: 100,
+                        divisions: 10,
+                        activeColor: Colors.amberAccent,
+                        inactiveColor: Colors.grey[800],
+                        onChanged: isFounder ? (val) {
+                          setStateModal(() {
+                            _myGuild!['dividend_rate'] = val.toInt();
+                          });
+                        } : null,
+                        onChangeEnd: isFounder ? (val) {
+                          updateGuildField('dividend_rate', val.toInt());
+                        } : null,
+                      ),
+                      const Divider(height: 30, color: Colors.white24),
+
+                      // SECTION 2: PERMANENT PASSIVES (GUILD DOCTRINES)
+const Text('GUILD DOCTRINE (SPECIES FOCUS)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'Courier')),
+const SizedBox(height: 4),
+const Text('Buffs squad defense & scare power against specific target types.', style: TextStyle(color: Colors.grey, fontSize: 11, fontFamily: 'Courier')),
+const SizedBox(height: 12),
+
+_buildDoctrineCard(
+  title: 'Xenophobic Protocol',
+  desc: '+10% Scare Stun against ALIEN species.',
+  id: 'alien',
+  current: currentDoctrine,
+  isFounder: isFounder,
+  onSelect: () => updateGuildField('active_doctrine', 'alien'),
+),
+_buildDoctrineCard(
+  title: 'Bestial Ward',
+  desc: '+10% Scare Stun against BEAST species.',
+  id: 'beast',
+  current: currentDoctrine,
+  isFounder: isFounder,
+  onSelect: () => updateGuildField('active_doctrine', 'beast'),
+),
+_buildDoctrineCard(
+  title: 'Anti-Tech Protocol',
+  desc: '+10% Scare Stun against CYBERNETIC species.',
+  id: 'cybernetic',
+  current: currentDoctrine,
+  isFounder: isFounder,
+  onSelect: () => updateGuildField('active_doctrine', 'cybernetic'),
+),
+_buildDoctrineCard(
+  title: 'Phantom Bane',
+  desc: '+10% Scare Stun against GHOST species.',
+  id: 'ghost',
+  current: currentDoctrine,
+  isFounder: isFounder,
+  onSelect: () => updateGuildField('active_doctrine', 'ghost'),
+),
+_buildDoctrineCard(
+  title: 'Bio-Defense Pact',
+  desc: '+10% Scare Stun against HUMANOID species.',
+  id: 'humanoid',
+  current: currentDoctrine,
+  isFounder: isFounder,
+  onSelect: () => updateGuildField('active_doctrine', 'humanoid'),
+),
+                      const Divider(height: 30, color: Colors.white24),
+
+                      // SECTION 3: TACTICAL STRIKES (PRIME-TIME CONSUMABLES)
+                      const Text('PRIME-TIME TACTICAL STRIKES', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'Courier')),
+                      const SizedBox(height: 4),
+                      const Text('One-time consumables purchased with Vault Shadows for Crypt War advantage.', style: TextStyle(color: Colors.grey, fontSize: 11, fontFamily: 'Courier')),
+                      const SizedBox(height: 12),
+
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.purpleAccent.withOpacity(0.4))),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('The Scrambler', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
+                                Text('Blinds node progress tracking for rivals (Cost: 500 Shadows)', style: TextStyle(color: Colors.grey, fontSize: 10, fontFamily: 'Courier')),
+                              ],
+                            ),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.purple[800]),
+                              onPressed: isFounder && vaultShadows >= 500 ? () {
+                                // Deduct shadows & activate strike logic here
+                                updateGuildField('active_strike', 'scrambler');
+                              } : null,
+                              child: const Text('DEPLOY', style: TextStyle(color: Colors.white, fontFamily: 'Courier', fontSize: 11)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDoctrineCard({required String title, required String desc, required String id, required String current, required bool isFounder, required VoidCallback onSelect}) {
+    bool isSelected = current == id;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isSelected ? Colors.red[900]?.withOpacity(0.3) : Colors.black45,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: isSelected ? Colors.redAccent : Colors.white24),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'Courier')),
+                const SizedBox(height: 2),
+                Text(desc, style: const TextStyle(color: Colors.grey, fontSize: 11, fontFamily: 'Courier')),
+              ],
+            ),
+          ),
+          if (isFounder)
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: isSelected ? Colors.grey[800] : Colors.red[800]),
+              onPressed: isSelected ? null : onSelect,
+              child: Text(isSelected ? 'ACTIVE' : 'SELECT', style: const TextStyle(color: Colors.white, fontSize: 10, fontFamily: 'Courier')),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = supabase.auth.currentUser;
@@ -742,6 +938,9 @@ class _GuildScreenState extends State<GuildScreen> {
   }
 
   Widget _buildGuildDashboard() {
+    final user = supabase.auth.currentUser;
+    final bool isFounder = _myGuild != null && user != null && _myGuild!['founder_id'] == user.id;
+    
     final vaultCoins = _myGuild?['vault_coins'] ?? 0;
     final vaultShadows = _myGuild?['vault_shadows'] ?? 0;
     final guildLevel = _myGuild?['guild_level'] ?? 1;
@@ -833,6 +1032,36 @@ class _GuildScreenState extends State<GuildScreen> {
             ],
           ),
         ),
+        // Inside _buildGuildDashboard() in guild_screen.dart:
+Container(
+  padding: const EdgeInsets.all(12),
+  color: Colors.grey[900],
+  child: Column(
+    children: [
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          Text('Level $guildLevel Guild', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
+          Text('Shadows: $vaultShadows', style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'Courier')),
+          Text('Coins: $vaultCoins', style: const TextStyle(color: Colors.amberAccent, fontSize: 12, fontFamily: 'Courier')),
+        ],
+      ),
+      const SizedBox(height: 8),
+      OutlinedButton.icon(
+        style: OutlinedButton.styleFrom(
+          side: const BorderSide(color: Colors.purpleAccent),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        ),
+        onPressed: () => _showTreasuryModal(context),
+        icon: const Icon(Icons.account_balance, color: Colors.purpleAccent, size: 16),
+        label: Text(
+          isFounder ? 'MANAGE TREASURY & DOCTRINES' : 'VIEW GUILD VAULT',
+          style: const TextStyle(color: Colors.purpleAccent, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Courier'),
+        ),
+      ),
+    ],
+  ),
+),
       ],
     );
   }

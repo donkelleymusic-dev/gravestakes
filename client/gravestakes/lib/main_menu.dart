@@ -497,7 +497,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
                   Showcase(
                     key: _startKey,
-                    description: 'STEP 4: Select Casual Mode and Enter the Darkness!',
+                    description: 'STEP 10: Select Casual Mode and Enter the Darkness!',
                     targetShapeBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     disposeOnTap: true,
                     onTargetClick: () async {
@@ -589,8 +589,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   const SizedBox(height: 10),
                   Showcase(
   key: _marketKey,
-  description: 'STEP 1: Enter the Black Market to acquire your first mask.',
-  disposeOnTap: true,
+                    description: 'STEP 1: Enter the Black Market for your first supply drop.',
+                    disposeOnTap: true,
   onTargetClick: () {
     Navigator.of(context).push(MaterialPageRoute(builder: (context) => const StoreScreen())).then((_) {
       _fetchPlayerData();
@@ -610,8 +610,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   const SizedBox(height: 10),
                   Showcase(
   key: _loadoutKey,
-  description: 'STEP 3: Enter The Crypt to equip your new mask.',
-  disposeOnTap: true,
+                    description: 'STEP 4: Enter The Crypt to equip your new mask.',
+                    disposeOnTap: true,
   onTargetClick: () {
     Navigator.of(context).push(MaterialPageRoute(builder: (context) => const LoadoutScreen())).then((_) {
       _checkTutorialPhase();
