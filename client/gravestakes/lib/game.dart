@@ -913,7 +913,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             final seed = payload['seed'] as int? ?? 0;
 
             remote.currentMaskId = maskId;
-            remote.visualAttackCooldown = 0.6;
+
+            // Fire the visual animation instead of the old variable!
+            if (remote.voxelComponent != null) remote.voxelComponent!.triggerScareAnimation();
+            //remote.visualAttackCooldown = 0.6;
 
             AudioManager.instance.playSpatialScare(maskId, remote.position);
 

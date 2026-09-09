@@ -486,6 +486,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     selectedMaskIndex = targetIndex;
     attackCooldown = currentMask.cooldown * swapSpeedModifier; 
 
+    // Fire the visual animation!
+    if (voxelComponent != null) voxelComponent!.triggerScareAnimation();
+
     if (AudioManager.instance.isInitialized) {
       if (currentMask.id == 'standard' && AudioManager.instance.impactSource != null) {
         SoLoud.instance.play(AudioManager.instance.impactSource!);

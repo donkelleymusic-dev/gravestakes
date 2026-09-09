@@ -158,10 +158,10 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
       voxelComponent!.isVisible = !(isDisguised || isInvisible);
     }
 
-    voxelComponent!.attackCooldown = visualAttackCooldown;
-      try {
-        voxelComponent!.activeMaskImage = game.images.fromCache('${currentMaskId}_mask.png');
-      } catch (e) {}
+    //voxelComponent!.attackCooldown = visualAttackCooldown;
+    try {
+      voxelComponent!.activeMaskImage = game.images.fromCache('${currentMaskId}_mask.png');
+    } catch (e) {}
 
     if (!_targetPosition.isZero()) position.lerp(_targetPosition, 15 * dt);
     if (localImmunityToMe > 0) localImmunityToMe -= dt;

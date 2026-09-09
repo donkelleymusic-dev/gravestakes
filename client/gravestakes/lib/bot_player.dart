@@ -41,6 +41,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   Vector2 movementDelta = Vector2.zero();
   
   double facingAngle = 0.0;
+  String currentMaskId = 'standard';
 
   VoxelCharacterComponent? voxelComponent;
   RectangleComponent? _fallbackSprite;
@@ -335,6 +336,10 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       voxelComponent!.isStunned = isStunned;
       voxelComponent!.stunTimer = stunTimer;
       voxelComponent!.isHighlighted = (highlightTimer > 0);
+
+      try {
+        voxelComponent!.activeMaskImage = game.images.fromCache('${currentMaskId}_mask.png');
+      } catch (e) {}
     }
 
     if (localImmunityToMe > 0) localImmunityToMe -= dt;
@@ -523,6 +528,9 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
             game.world.add(ScareBlast(position: position, angle: facingAngle - (pi / 2)));
             
             AudioManager.instance.playSpatialScare('standard', position);
+
+            // Fire the visual animation!
+            if (voxelComponent != null) voxelComponent!.triggerScareAnimation();
 
             if (currentTarget == game.player) {
               game.jumpScareEffect.trigger(); 

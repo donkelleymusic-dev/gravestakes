@@ -18,11 +18,18 @@ class VoxelCharacterComponent extends PositionComponent {
   double attackCooldown = 0.0;
   double swapAnimTimer = 0.0;
 
+  double scareAnimTimer = 0.0;
+
   ui.Image? activeMaskImage;
   double _walkCycleTime = 0.0;
 
   void triggerSwapAnimation() {
     swapAnimTimer = 0.15;
+  }
+
+  // Triggers the 0.5s lunge animation
+  void triggerScareAnimation() {
+    scareAnimTimer = 0.75;//0.5;
   }
 
   VoxelCharacterComponent({
@@ -35,6 +42,7 @@ class VoxelCharacterComponent extends PositionComponent {
   void update(double dt) {
     super.update(dt);
     if (swapAnimTimer > 0) swapAnimTimer -= dt;
+    if (scareAnimTimer > 0) scareAnimTimer -= dt;
     if (isMoving && !isStunned) {
       _walkCycleTime += dt * 8.0; 
     } else {
@@ -152,10 +160,22 @@ class VoxelCharacterComponent extends PositionComponent {
         maskScale *= 1.2; 
       }
 
-      if (attackCooldown > 0) {
-        canvas.rotate(sin(attackCooldown * 40) * 0.15); 
-        maskScale += sin(attackCooldown * 20).clamp(0.0, 1.0) * 0.15; 
+      // --- SCARE LUNGE ANIMATION ---
+      if (scareAnimTimer > 0) {
+        // Progress goes from 1.0 down to 0.0
+        double progress = scareAnimTimer / 0.5; 
+        
+        // 1. The Lunge: Move the mask "up/forward" off the face
+        double lungeDistance = sin(progress * pi) * 30.0;
+        canvas.translate(0, -lungeDistance);
+        
+        // 2. The Pop: Scale the mask to 2.2x its normal size at the peak
+        maskScale += sin(progress * pi) * 1.2;
+        
+        // 3. The Violent Shake: Rapidly vibrate back and forth 3 times
+        canvas.rotate(sin(progress * pi * 10) * 0.35); 
       }
+      // ---------------------------------
 
       canvas.scale(maskScale, maskScale);
 
