@@ -73,6 +73,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
 
   // --- DRAFT STATE (UI) ---
   String _draftCharacterId = 'default';
+  String _previewCharacterId = 'default';
   Map<String, String> _draftLoadout = {};
   List<String> _draftMasks = ['', '', '', ''];
 
@@ -82,6 +83,9 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
 
   // --- DATA CACHES ---
   List<Map<String, dynamic>> _inventory = [];
+  List<String> _ownedCharacters = ['default'];
+  Map<String, int> _userShards = {};
+  
   Map<String, WearableDef> _wearablesCatalog = {};
   Map<String, Map<String, dynamic>> _masksCatalog = {};
   Map<String, Map<String, dynamic>> _charactersCatalog = {}; 
@@ -109,12 +113,14 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
 
     try {
       final responses = await Future.wait<dynamic>([
-        supabase.from('wallets').select('shadows, coins').eq('id', userId).single(), // [0]
-        supabase.from('wearables').select(),                                         // [1]
-        supabase.from('masks').select().order('price'),                             // [2]
-        supabase.from('characters').select(),                                       // [3]
-        supabase.from('user_loadouts').select('slot_type, item_value').eq('user_id', userId), // [4]
-        supabase.from('user_inventory').select('item_id, item_type').eq('user_id', userId),   // [5]
+        supabase.from('wallets').select('shadows, coins').eq('id', userId).single(), 
+        supabase.from('wearables').select(),                                         
+        supabase.from('masks').select().order('price'),                             
+        supabase.from('characters').select(),                                       
+        supabase.from('user_loadouts').select('slot_type, item_value').eq('user_id', userId), 
+        supabase.from('user_inventory').select('item_id, item_type').eq('user_id', userId),   
+        supabase.from('user_characters').select('character_id').eq('user_id', userId),
+        supabase.from('user_shards').select('character_id, shard_count').eq('user_id', userId),
       ]);
 
       final walletData = responses[0] as Map<String, dynamic>;
@@ -161,6 +167,16 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
 
       _inventory = List<Map<String, dynamic>>.from(responses[5]);
 
+      final userCharsRes = List<Map<String, dynamic>>.from(responses[6]);
+      _ownedCharacters = userCharsRes.map((r) => r['character_id'].toString()).toList();
+      if (!_ownedCharacters.contains('default')) _ownedCharacters.add('default');
+
+      final userShardsRes = List<Map<String, dynamic>>.from(responses[7]);
+      _userShards.clear();
+      for (var row in userShardsRes) {
+        _userShards[row['character_id'].toString()] = row['shard_count'] as int;
+      }
+
       _revertDraft(); 
 
       if (mounted) setState(() => _isLoading = false);
@@ -176,6 +192,33 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
           ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_masksTabKey]);
         }
       });
+    }
+  }
+
+  Future<void> _bindOperative(String charId, int cost, String name) async {
+    if (_playerCoins < cost) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Not enough COINS to bind $name!'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+    setState(() => _isLoading = true);
+    try {
+      await supabase.rpc('bind_operative', params: {'p_character_id': charId});
+      await _fetchLoadoutData(); 
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$name Evolved Successfully!'), backgroundColor: Colors.greenAccent),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Binding failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -266,6 +309,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
   void _revertDraft() {
     setState(() {
       _draftCharacterId = _committedCharacterId;
+      _previewCharacterId = _committedCharacterId;
       _draftLoadout = Map.from(_committedLoadout);
       _draftMasks = List.from(_committedMasks);
       _selectedInventoryId = null;
@@ -309,6 +353,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
 
       setState(() {
         _committedCharacterId = _draftCharacterId;
+        _previewCharacterId = _draftCharacterId;
         _committedLoadout = Map.from(_draftLoadout);
         _committedMasks = List.from(_draftMasks);
         _selectedInventoryId = null;
@@ -328,6 +373,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
 
     if (itemType == 'character') {
       _draftCharacterId = itemId;
+      _previewCharacterId = itemId;
       _mannequinGame.loadBaseCharacter(itemId);
     } else if (itemType == 'mask') {
       _mannequinGame.setPreviewMask(itemId); 
@@ -422,10 +468,10 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       return const Scaffold(backgroundColor: Color(0xFF111111), body: Center(child: CircularProgressIndicator(color: Colors.purpleAccent)));
     }
 
-    final activeCharData = _charactersCatalog[_draftCharacterId] ?? {};
+    final activeCharData = _charactersCatalog[_previewCharacterId] ?? {};
     double baseSpeed = (activeCharData['base_speed'] as num?)?.toDouble() ?? 200.0;
     double baseEnergy = (activeCharData['max_energy'] as num?)?.toDouble() ?? 10.0;
-    double baseRegen = 0.5;
+    double baseRegen = (activeCharData['energy_regen'] as num?)?.toDouble() ?? 0.5;
     double baseSwapSpeed = (activeCharData['swap_speed_modifier'] as num?)?.toDouble() ?? 1.0;
     double baseFootprint = 1.0;
 
@@ -437,24 +483,24 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
           title: const Text('THE CRYPT', style: TextStyle(letterSpacing: 2.0, color: Colors.purpleAccent, fontSize: 16)),
           backgroundColor: Colors.black,
           elevation: 0,
-          leading: Showcase(
-            key: _loadoutBackKey,
-            description: 'STEP 9: Return to the Main Menu.',
-            disposeOnTap: true,
-            onTargetClick: () => Navigator.of(context).pop(),
-            child: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => Navigator.of(context).pop(),
           ),
           actions: [
             Padding(
               padding: const EdgeInsets.only(right: 16.0),
               child: Row(
                 children: [
-                  Text('👻 $_playerShadows', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                  const SizedBox(width: 10),
-                  Text('🪙 $_playerCoins', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 13)),
+                  const Icon(Icons.dark_mode, color: Colors.redAccent, size: 14),
+                  const SizedBox(width: 4),
+                  Text('$_playerShadows', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                  
+                  const SizedBox(width: 12),
+                  
+                  const Icon(Icons.monetization_on, color: Colors.amber, size: 14),
+                  const SizedBox(width: 4),
+                  Text('$_playerCoins', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 13)),
                 ],
               ),
             ),
@@ -463,7 +509,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         body: Column(
           children: [
           Container(
-            height: 165,
+            height: 175,
             color: Colors.black54,
             padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
             child: Row(
@@ -483,7 +529,24 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                           style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.0),
                         ),
                       ),
+                      // --- CIRCLE OF TORMENT HOOK ---
                       const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Text(
+                            (activeCharData['species'] as String?)?.toUpperCase() ?? 'UNKNOWN SPECIES',
+                            style: const TextStyle(fontSize: 11, color: Colors.purpleAccent, letterSpacing: 1.5, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(width: 6),
+                          GestureDetector(
+                            onTap: () {
+                              showDialog(context: context, builder: (_) => const CircleOfTormentOverlay());
+                            },
+                            child: const Icon(Icons.help_outline, color: Colors.white54, size: 14),
+                          ),
+                        ],
+                      ),
+                      // ------------------------------
                       const Divider(color: Colors.purpleAccent, height: 6, thickness: 1),
                       _buildStatRow('Speed', baseSpeed, _getDraftStat('speed', baseSpeed), false),
                       _buildStatRow('Max Energy', baseEnergy, _getDraftStat('energy_max', baseEnergy), false),
@@ -531,7 +594,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                       const Tab(icon: Icon(Icons.person, size: 18), text: 'Char'),
                       Showcase(
                         key: _masksTabKey,
-                        description: 'STEP 5: Tap here to view your Masks.',
+                        description: 'STEP 4: Tap here to view your Masks.',
                         disposeOnTap: true,
                         onTargetClick: () {
                           _tabController.animateTo(1);
@@ -612,7 +675,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                     if (i == 0) {
                       return Showcase(
                         key: _maskSlotKey,
-                        description: 'STEP 7: Tap this empty slot to bind your mask.',
+                        description: 'STEP 6: Tap this empty slot to bind your mask.',
                         disposeOnTap: true,
                         onTargetClick: () {
                           if (mId.isEmpty && isSelected) {
@@ -660,17 +723,11 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                   ),
                   Showcase(
                     key: _sealKey,
-                    description: 'STEP 8: Seal your attunement to save changes.',
-                    disposeOnTap: true,
+                    description: 'STEP 7: Seal your attunement to save changes.',disposeOnTap: true,
                     onTargetClick: () async {
                       final prefs = await SharedPreferences.getInstance();
                       await prefs.setString('tutorial_phase', 'match');
                       _commitDraft();
-                      Future.delayed(const Duration(milliseconds: 500), () {
-                        if (mounted && _scaffoldKey.currentContext != null) {
-                          ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_loadoutBackKey]);
-                        }
-                      });
                     },
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
@@ -853,7 +910,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
             if (targetItemType == 'mask' && itemId == 'standard' && isOwned) {
               return Showcase(
                 key: _inventoryMaskKey,
-                description: 'STEP 6: Tap the Standard Mask to select it.',
+                description: 'STEP 5: Tap the Standard Mask to select it.',
                 disposeOnTap: true,
                 onTargetClick: () {
                   _selectInventoryItem(targetItemType, itemId);
@@ -879,11 +936,16 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     _charactersCatalog.forEach((charId, charData) {
       String species = (charData['species'] ?? 'UNKNOWN').toString().toUpperCase();
       
-      bool isOwned = charId == 'default' || _inventory.any((i) => i['item_id'] == charId);
-      int currentShards = 0;
-      int maxShards = charData['unlock_threshold'] ?? 50; 
+      bool isOwned = _ownedCharacters.contains(charId);
+      int currentShards = _userShards[charId] ?? 0;
+      int maxShards = charData['unlock_threshold'] ?? 10; 
       
-      String state = isOwned ? 'owned' : (charData['currency'] != null ? 'store' : 'progression');
+      String state = 'progression';
+      if (isOwned) {
+        state = 'owned';
+      } else if (currentShards >= maxShards) {
+        state = 'bind';
+      }
 
       groupedChars.putIfAbsent(species, () => []).add({
         'id': charId,
@@ -894,6 +956,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         'currency': charData['currency'] ?? 'shadows',
         'current_shards': currentShards,
         'max_shards': maxShards,
+        'bind_cost': maxShards * 25,
       });
     });
 
@@ -922,7 +985,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 crossAxisCount: 3, 
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
-                childAspectRatio: 0.70,
+                childAspectRatio: 0.85,
               ),
               itemCount: charsInSpecies.length,
               itemBuilder: (context, index) {
@@ -931,30 +994,34 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 final state = char['state'];
                 
                 bool isEquipped = _draftCharacterId == charId;
+                bool isPreviewed = _previewCharacterId == charId && !isEquipped; // NEW
                 
                 Color borderColor = Colors.white12;
                 if (isEquipped) borderColor = Colors.greenAccent;
-                else if (state == 'store') borderColor = Colors.amber.withOpacity(0.5);
+                else if (isPreviewed) borderColor = Colors.white; // NEW: Highlights what you are looking at
+                else if (state == 'bind') borderColor = Colors.amberAccent;
                 else if (state == 'progression') borderColor = Colors.purpleAccent.withOpacity(0.5);
 
                 return GestureDetector(
                   onTap: () {
                     if (state == 'owned') {
                       _selectInventoryItem('character', charId);
-                    } else if (state == 'store') {
-                      _showPurchaseConfirm(
-                        itemType: 'character',
-                        itemId: charId,
-                        name: char['name'] ?? charId,
-                        price: char['price'],
-                        currency: char['currency'],
-                      );
+                    } else {
+                      // NEW: First tap previews, second tap confirms binding!
+                      if (_previewCharacterId != charId) {
+                        setState(() {
+                          _previewCharacterId = charId;
+                        });
+                        _mannequinGame.loadBaseCharacter(charId);
+                      } else if (state == 'bind') {
+                        _bindOperative(charId, char['bind_cost'], char['name'] ?? charId);
+                      }
                     }
                   },
                   child: Container(
                     decoration: BoxDecoration(
                       color: isEquipped ? Colors.greenAccent.withOpacity(0.1) : Colors.black45,
-                      border: Border.all(color: borderColor, width: isEquipped ? 2 : 1),
+                      border: Border.all(color: borderColor, width: isEquipped || state == 'bind' || isPreviewed ? 2 : 1),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Column(
@@ -988,23 +1055,26 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                               else if (state == 'owned')
                                 const Text('TAP TO BIND', textAlign: TextAlign.center, style: TextStyle(color: Colors.white54, fontSize: 8))
                               
-                              else if (state == 'store')
+                              else if (state == 'bind')
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Icon(char['currency'] == 'coins' ? Icons.monetization_on : Icons.dark_mode, size: 10, color: char['currency'] == 'coins' ? Colors.amber : Colors.redAccent),
+                                    // NEW: Contextual text swap on double-tap
+                                    Text(isPreviewed ? 'CONFIRM ' : 'EVOLVE ', style: const TextStyle(color: Colors.amberAccent, fontSize: 8, fontWeight: FontWeight.bold)),
+                                    const Icon(Icons.monetization_on, size: 10, color: Colors.amberAccent),
                                     const SizedBox(width: 2),
-                                    Text('${char['price']}', style: TextStyle(color: char['currency'] == 'coins' ? Colors.amber : Colors.redAccent, fontSize: 9, fontWeight: FontWeight.bold)),
+                                    Text('${char['bind_cost']}', style: const TextStyle(color: Colors.amberAccent, fontSize: 9, fontWeight: FontWeight.bold)),
                                   ],
                                 )
                               
                               else if (state == 'progression')
                                 Column(
                                   children: [
-                                    Text('${char['current_shards']} / ${char['max_shards']}', style: const TextStyle(color: Colors.grey, fontSize: 8)),
+                                    // NEW: Visual feedback while previewing
+                                    Text(isPreviewed ? 'PREVIEWING' : '${char['current_shards']} / ${char['max_shards']}', style: const TextStyle(color: Colors.grey, fontSize: 8)),
                                     const SizedBox(height: 2),
                                     LinearProgressIndicator(
-                                      value: char['current_shards'] / char['max_shards'],
+                                      value: (char['current_shards'] / char['max_shards']).clamp(0.0, 1.0),
                                       backgroundColor: Colors.black,
                                       color: Colors.purpleAccent,
                                       minHeight: 2,
@@ -1119,5 +1189,71 @@ class MannequinGame extends FlameGame {
   void onGameResize(Vector2 gameSize) {
     super.onGameResize(gameSize);
     if (mannequin != null) mannequin!.position = gameSize / 2;
+  }
+}
+
+// ==========================================
+// CIRCLE OF TORMENT UI OVERLAY
+// ==========================================
+class CircleOfTormentOverlay extends StatelessWidget {
+  const CircleOfTormentOverlay({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: Colors.grey[900],
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Colors.purpleAccent, width: 2),
+      ),
+      title: const Text(
+        'THE CIRCLE OF TORMENT',
+        textAlign: TextAlign.center,
+        style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, letterSpacing: 1.5),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Strike your favored prey to inflict +15% Stun Duration and Area of Effect.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white70, fontSize: 13, fontStyle: FontStyle.italic),
+          ),
+          const SizedBox(height: 20),
+          _buildRow(Icons.visibility_off, 'GHOSTS', 'terrify', Icons.person, 'HUMANOIDS', Colors.blueGrey, Colors.blue),
+          _buildRow(Icons.person, 'HUMANOIDS', 'dismantle', Icons.memory, 'CYBERNETICS', Colors.blue, Colors.cyan),
+          _buildRow(Icons.memory, 'CYBERNETICS', 'analyze', Icons.coronavirus, 'ALIENS', Colors.cyan, Colors.greenAccent),
+          _buildRow(Icons.coronavirus, 'ALIENS', 'mutate', Icons.pets, 'BEASTS', Colors.greenAccent, Colors.orange),
+          _buildRow(Icons.pets, 'BEASTS', 'devour', Icons.visibility_off, 'GHOSTS', Colors.orange, Colors.blueGrey),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('UNDERSTOOD', style: TextStyle(color: Colors.white54)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRow(IconData icon1, String text1, String action, IconData icon2, String text2, Color c1, Color c2) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon1, color: c1, size: 20),
+          const SizedBox(width: 6),
+          Text(text1, style: TextStyle(color: c1, fontWeight: FontWeight.bold, fontSize: 12)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Text(action, style: const TextStyle(color: Colors.white54, fontSize: 10, fontStyle: FontStyle.italic)),
+          ),
+          Icon(icon2, color: c2, size: 20),
+          const SizedBox(width: 6),
+          Text(text2, style: TextStyle(color: c2, fontWeight: FontWeight.bold, fontSize: 12)),
+        ],
+      ),
+    );
   }
 }

@@ -801,7 +801,7 @@ _buildDoctrineCard(
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800]),
             onPressed: _createGuild,
-            child: const Text('FOUND GUILD', style: TextStyle(color: Colors.white)),
+            child: const Text('CREATE GUILD', style: TextStyle(color: Colors.white)),
           ),
           const Divider(height: 40, color: Colors.grey),
           const Text('PUBLIC GUILDS', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 16)),

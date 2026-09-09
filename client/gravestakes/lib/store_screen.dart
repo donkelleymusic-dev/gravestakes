@@ -95,7 +95,7 @@ class _StoreScreenState extends State<StoreScreen> {
     if (currentPhase == 'market') {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _scaffoldKey.currentContext != null) {
-          ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_freeDropKey, _backKey]);
+          ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_freeDropKey]);
         }
       });
     }
@@ -460,15 +460,9 @@ class _StoreScreenState extends State<StoreScreen> {
         key: _scaffoldKey,
         backgroundColor: Colors.black,
         appBar: AppBar(
-          leading: Showcase(
-            key: _backKey,
-            description: 'STEP 3: Great! Now return to the Main Menu.',
-            disposeOnTap: true,
-            onTargetClick: () => Navigator.of(context).pop(),
-            child: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => Navigator.of(context).pop(),
           ),
           backgroundColor: Colors.grey[900],
           title: const Text('THE BLACK MARKET', style: TextStyle(color: Colors.redAccent, letterSpacing: 1.5)),
