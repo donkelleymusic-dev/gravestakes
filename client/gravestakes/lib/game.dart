@@ -755,6 +755,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               bot.localImmunityToMe = 7.0; 
               bot.triggerPrivateHighlight(); 
               hitCount++;
+
+              // SPAWN SCORE OVER BOT'S HEAD
+              camera.viewport.add(FloatingText(
+                text: '+100 SOULS',
+                worldPosition: Vector2(bot.position.x - 25, bot.position.y - 60),
+              ));
             }
           }
         }
@@ -790,7 +796,19 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             remotePlayer.triggerPrivateHighlight(); 
             
             double stunDuration = _matchesDoctrine(remotePlayer) ? 2.2 : 2.0;
-            myChannel.sendBroadcastMessage(event: 'stun', payload: {'id': remoteId, 'duration': stunDuration, 'attacker_id': mySessionId});
+            myChannel.sendBroadcastMessage(event: 'stun', payload: {
+              'id': remoteId, 
+              'duration': stunDuration, 
+              'attacker_id': mySessionId,
+              'attacker_x': attackerPos.x, // Send your position so they can recoil too!
+              'attacker_y': attackerPos.y
+            });
+
+            // SPAWN SCORE OVER REMOTE PLAYER'S HEAD
+            camera.viewport.add(FloatingText(
+              text: '+100 SOULS',
+              worldPosition: Vector2(remotePlayer.position.x - 25, remotePlayer.position.y - 60),
+            ));
           }
         }
       }
@@ -979,7 +997,13 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
           if (targetId == mySessionId) {
             jumpScareEffect.trigger();
-            player.applyStun(duration);
+            
+            Vector2? atkPos;
+            if (payload.containsKey('attacker_x') && payload.containsKey('attacker_y')) {
+              atkPos = Vector2((payload['attacker_x'] as num).toDouble(), (payload['attacker_y'] as num).toDouble());
+            }
+
+            player.applyStun(duration, attackerPos: atkPos);
             player.triggerPrivateHighlight();
             
             if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {

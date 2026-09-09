@@ -236,12 +236,21 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     facingAngle = randomAngle;
   }
 
-  void applyStun(double duration, {bool isVermin = false, String? attackerId}) {
+  // Update applyStun signature to accept an optional attacker position for recoil
+  void applyStun(double duration, {bool isVermin = false, String? attackerId, Vector2? attackerPos}) {
     if (localImmunityToMe > 0) return;
     
     isStunned = true;
     stunTimer = duration;
     
+    // --- DYNAMIC LEAP RECOIL ---
+    if (attackerPos != null) {
+      Vector2 awayDir = (position - attackerPos).normalized();
+      position += awayDir * 50.0; // Jump a couple paces back
+      facingAngle = awayDir.screenAngle(); // Pivot and face away in terror
+    }
+    // ---------------------------
+
     if (isVermin) {
       recoveryTimer = 2.0;
     }
@@ -249,8 +258,8 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     if (attackerId != null && game.mySessionId == attackerId) {
       game.player.score += 150;
       game.camera.viewport.add(FloatingText(
-        text: '+150 SCARE!', 
-        worldPosition: Vector2(position.x - 20, position.y - 50)
+        text: '+150 SOULS', 
+        worldPosition: Vector2(position.x - 25, position.y - 60)
       ));
     }
   }

@@ -19,6 +19,7 @@ import 'critter.dart';
 import 'voxel_character_component.dart';
 import 'audio_manager.dart';
 import 'game_map.dart';
+import 'fps_mask_effect.dart';
 
 class Player extends PositionComponent with KeyboardHandler, HasGameReference<GraveStakesGame> {
   final JoystickComponent leftJoystick;
@@ -219,7 +220,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     charmTargetPos = charmerPos;
   }
 
-  void applyStun(double duration, {bool isVermin = false, String? attackerId}) {
+  void applyStun(double duration, {bool isVermin = false, String? attackerId, Vector2? attackerPos}) {
     if (isPhasing) {
       game.camera.viewport.add(FloatingText(
         text: 'DODGED!', 
@@ -236,13 +237,17 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       return;
     }
 
+    // --- DYNAMIC LEAP RECOIL FOR LOCAL PLAYER ---
+    if (attackerPos != null) {
+      Vector2 awayDir = (position - attackerPos).normalized();
+      position += awayDir * 50.0;
+      facingAngle = awayDir.screenAngle();
+    }
+    // --------------------------------------------
+
     double finalDuration = duration;
     if (!isVermin && activeCounters.contains('standard') && duration > 0.5) {
       finalDuration = 0.5;
-      game.camera.viewport.add(FloatingText(
-        text: 'SIGNAL CLIPPED! (0.5s)', 
-        worldPosition: Vector2(position.x - 20, position.y - 40),
-      ));
     }
 
     isStunned = true;
@@ -488,6 +493,12 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     // Fire the visual animation!
     if (voxelComponent != null) voxelComponent!.triggerScareAnimation();
+
+    // --- TRIGGER FIRST-PERSON SCREEN MASK EFFECT ---
+    if (game.isFpsMode) {
+      game.camera.viewport.add(FpsMaskEffect(maskId: currentMask.id));
+    }
+    // ----------------------------------------------------
 
     if (AudioManager.instance.isInitialized) {
       if (currentMask.id == 'standard' && AudioManager.instance.impactSource != null) {
