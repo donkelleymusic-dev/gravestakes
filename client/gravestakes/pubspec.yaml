@@ -47,6 +47,8 @@ dependencies:
   #sentry_flutter: ^8.14.2
   sentry_flutter: ^9.29.0
   share_plus: ^13.3.0
+  easy_localization: ^3.0.8
+  google_fonts: ^8.2.1
 
 dev_dependencies:
   flutter_test:

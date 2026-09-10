@@ -4,10 +4,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
+import 'package:easy_localization/easy_localization.dart'; 
 
 // --- NEW IMPORTS FOR PAYMENTS ---
-import 'package:flutter/foundation.dart'; // For kIsWeb
-import 'dart:io' show Platform; // For Platform checks
+import 'package:flutter/foundation.dart'; 
+import 'dart:io' show Platform; 
 import 'package:purchases_flutter/purchases_flutter.dart';
 // --------------------------------
 
@@ -18,59 +19,62 @@ import 'splash_screen.dart';
 import 'audio_manager.dart';
 
 Future<void> main() async {
-  // 1. Initialize Sentry FIRST to wrap the entire app lifecycle
+  // 1. MUST BE FIRST: Ensure Flutter bindings and localization are ready before Sentry boots
+  WidgetsFlutterBinding.ensureInitialized();
+  await EasyLocalization.ensureInitialized();
+
+  // 2. Initialize Sentry
   await SentryFlutter.init(
     (options) {
-      options.dsn = 'https://5c13105a06c0c151b3fab20c9ad12475@o4511748451729408.ingest.us.sentry.io/4512048891428864'; // Paste your DSN from sentry.io
+      options.dsn = 'https://5c13105a06c0c151b3fab20c9ad12475@o4511748451729408.ingest.us.sentry.io/4512048891428864'; 
       options.tracesSampleRate = 1.0; 
     },
     appRunner: () async {
-  // 1. Ensure Flutter engine bindings are ready for async tasks before runApp
-  WidgetsFlutterBinding.ensureInitialized();
+      await Supabase.initialize(
+        url: 'https://rbpmgzcafsykjbljgfvl.supabase.co', 
+        anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJicG1nemNhZnN5a2pibGpnZnZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5MzEzMTgsImV4cCI6MjEwMjUwNzMxOH0.z-Th0EOWSqr4M7UcDrZUNO4U_ylhJ_nVB0VcUPWAYHA',
+      );
 
-  await Supabase.initialize(
-    url: 'https://rbpmgzcafsykjbljgfvl.supabase.co', 
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJicG1nemNhZnN5a2pibGpnZnZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5MzEzMTgsImV4cCI6MjEwMjUwNzMxOH0.z-Th0EOWSqr4M7UcDrZUNO4U_ylhJ_nVB0VcUPWAYHA',
-  );
+      // --- 3. REVENUECAT INITIALIZATION ---
+      if (!kIsWeb) {
+        await Purchases.setLogLevel(LogLevel.debug);
+        if (Platform.isIOS) {
+          await Purchases.configure(PurchasesConfiguration("appl_aJcMjydRQhDoZUvQpUjQgNpLPyH")); 
+        } else if (Platform.isAndroid) {
+          await Purchases.configure(PurchasesConfiguration("goog_NvbOeRUARSAPSunHAVZSjcKjoWE"));
+        }
+      }
 
-  // --- 2. REVENUECAT INITIALIZATION ---
-  // Guard against web builds since StoreKit/Google Play Billing don't exist in browsers
-  if (!kIsWeb) {
-    await Purchases.setLogLevel(LogLevel.debug);
+      // 4. Audio & Display settings
+      await AudioManager.instance.init();
+      AudioManager.instance.playMenuMusic();
 
-    if (Platform.isIOS) {
-      await Purchases.configure(PurchasesConfiguration("appl_aJcMjydRQhDoZUvQpUjQgNpLPyH")); 
-    } else if (Platform.isAndroid) {
-      await Purchases.configure(PurchasesConfiguration("goog_NvbOeRUARSAPSunHAVZSjcKjoWE"));
-    }
-  }
-  // ------------------------------------
+      await SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.immersiveSticky,
+      );
 
-  // 3. Initialize SoLoud and fire the music immediately during the splash phase
-  await AudioManager.instance.init();
-  AudioManager.instance.playMenuMusic();
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
 
-  // 4. Make game full screen
-  // Hide the navigation bar (Back/Home/Recents) and status bar automatically
-  await SystemChrome.setEnabledSystemUIMode(
-    SystemUiMode.immersiveSticky,
-  );
-
-  // Allow all device orientations (portrait, landscape, and inverted)
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
-  ]);
-
-  // 5. Boot the visual app
-  runApp(const GraveStakesApp());
-  },
+      // 5. Wrap the app with EasyLocalization
+      runApp(
+        EasyLocalization(
+          supportedLocales: const [
+            Locale('en'), Locale('es'), Locale('ja'), Locale('de'),
+          ],
+          path: 'assets/translations', // Ensure this folder and your .json files exist
+          fallbackLocale: const Locale('en'),
+          child: const GraveStakesApp(),
+        ),
+      );
+    },
   );
 }
 
-// Convert GraveStakesApp to a StatefulWidget to hold the lifecycle listener
 class GraveStakesApp extends StatefulWidget {
   const GraveStakesApp({super.key});
 
@@ -84,8 +88,6 @@ class _GraveStakesAppState extends State<GraveStakesApp> {
   @override
   void initState() {
     super.initState();
-
-    // Hook into Android/iOS OS-level background events
     _lifecycleListener = AppLifecycleListener(
       onPause: () => AudioManager.instance.mute(),
       onInactive: () => AudioManager.instance.mute(),
@@ -101,13 +103,32 @@ class _GraveStakesAppState extends State<GraveStakesApp> {
 
   @override
   Widget build(BuildContext context) {
+    // --- NEW: Safe Localization Fallback ---
+    // If the translations fail to load, this prevents the fatal crash by defaulting to standard Flutter English
+    Iterable<LocalizationsDelegate<dynamic>>? delegates;
+    Iterable<Locale>? supportedLocales;
+    Locale? currentLocale;
+    
+    try {
+      delegates = context.localizationDelegates;
+      supportedLocales = context.supportedLocales;
+      currentLocale = context.locale;
+    } catch (e) {
+      debugPrint('Warning: Localization missing or not loaded. Defaulting to English. ($e)');
+      supportedLocales = const [Locale('en')];
+      currentLocale = const Locale('en');
+    }
+
     return MaterialApp(
+      localizationsDelegates: delegates,
+      supportedLocales: supportedLocales ?? const [Locale('en')],
+      locale: currentLocale,
       navigatorObservers: [
         SentryNavigatorObserver(),
       ],
       title: 'Lumen Breach', 
       theme: ThemeData.dark(),
-      home: const SplashScreen(), 
+      home: const AuthGatekeeper(), // Note: Routing to AuthGatekeeper to check login state 
     );
   }
 }
@@ -125,23 +146,16 @@ class _AuthGatekeeperState extends State<AuthGatekeeper> {
     return StreamBuilder<AuthState>(
       stream: Supabase.instance.client.auth.onAuthStateChange,
       builder: (context, snapshot) {
-        
         final session = snapshot.data?.session ?? Supabase.instance.client.auth.currentSession;
         
-        // THE PREVENTION: If they have a session, but it is actively expired,
-        // show the spinner! Supabase is fetching a new token in the background,
-        // and will emit a new stream event when it succeeds (or fails).
         if (session != null && session.isExpired) {
-          return const Center(child: CircularProgressIndicator());
+          return const Scaffold(body: Center(child: CircularProgressIndicator(color: Colors.purpleAccent)));
         }
-        
-        // Token is alive and well! Let them in.
         if (session != null) {
           return const MainMenuScreen();
         }
-        
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const Scaffold(body: Center(child: CircularProgressIndicator(color: Colors.purpleAccent)));
         }
         
         return const LoginScreen();

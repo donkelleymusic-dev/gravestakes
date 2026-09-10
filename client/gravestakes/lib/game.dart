@@ -161,6 +161,27 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   final List<BotPlayer> bots = [];
   final List<ScareSnapshot> matchPhotos = [];
 
+  final int maxMatchPhotos = Random().nextDouble() < 0.20 ? 2 : 1;
+
+  void logScareSnapshot(ScareSnapshot snapshot, {required bool isHuman}) {
+    // 1. One snapshot max per victim ID to prevent duplicates of the same player
+    if (matchPhotos.any((p) => p.victimName == snapshot.victimName)) return;
+
+    // 2. Add normally if under capacity
+    if (matchPhotos.length < maxMatchPhotos) {
+      matchPhotos.add(snapshot);
+      return;
+    }
+
+    // 3. If full, a human scare will overwrite an existing bot scare
+    if (isHuman) {
+      int botIndex = matchPhotos.indexWhere((p) => !p.victimName.startsWith('Player '));
+      if (botIndex != -1) {
+        matchPhotos[botIndex] = snapshot;
+      }
+    }
+  }
+
   double hostBotSyncTick = 0;
   final double hostBotSyncRate = 0.12;
 
@@ -787,7 +808,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               hitCount++;
 
               // --- TAKE THE POLAROID (BOT VICTIM) ---
-              matchPhotos.add(ScareSnapshot(
+              logScareSnapshot(ScareSnapshot(
                 attackerName: player.score > 0 ? 'You' : 'Attacker', 
                 attackerCharId: player.equippedCharacterId,
                 attackerMaskId: maskId,
@@ -796,8 +817,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
                 timestamp: gameTimer.timeLeft.toInt(),
                 mapX: attackerPos.x,
                 mapY: attackerPos.y,
-              ));
-              // -------------------------------------------
+              ), isHuman: false);
 
               // SPAWN SCORE OVER BOT'S HEAD
               camera.viewport.add(FloatingText(
@@ -848,17 +868,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             });
 
             // --- TAKE THE POLAROID (PLAYER VICTIM) ---
-            matchPhotos.add(ScareSnapshot(
+            logScareSnapshot(ScareSnapshot(
               attackerName: 'You',
               attackerCharId: player.equippedCharacterId,
               attackerMaskId: maskId,
-              victimName: remoteId.substring(0, 4), // Fallback if no username
+              victimName: remoteId.substring(0, 4), 
               victimCharId: remotePlayer.equippedCharacterId,
               timestamp: gameTimer.timeLeft.toInt(),
               mapX: attackerPos.x,
               mapY: attackerPos.y,
-            ));
-            // ----------------------------------------------
+            ), isHuman: true);
 
             // SPAWN SCORE OVER REMOTE PLAYER'S HEAD
             camera.viewport.add(FloatingText(

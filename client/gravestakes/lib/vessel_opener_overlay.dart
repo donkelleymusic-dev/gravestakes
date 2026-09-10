@@ -243,74 +243,56 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
                         ),
                         const SizedBox(height: 50),
                         ElevatedButton(
-  style: ElevatedButton.styleFrom(backgroundColor: Colors.black, side: BorderSide(color: _explosionColor, width: 2)),
-  onPressed: () async {
-    // 1. Close the Vessel Opener dialog immediately
-    Navigator.of(context).pop(); 
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.black, side: BorderSide(color: _explosionColor, width: 2)),
+                          onPressed: () async {
+                            if (widget.isFromMatch) {
+                              int totalCoins = 0;
+                              int totalShadows = 0;
+                              for (var reward in _rewards) {
+                                if (reward['granted_reward_type'] == 'coins') totalCoins += (reward['granted_amount'] as int? ?? 0);
+                                if (reward['granted_reward_type'] == 'shadows') totalShadows += (reward['granted_amount'] as int? ?? 0);
+                              }
+                              int xpEarned = totalCoins + totalShadows + 150; 
+                              try {
+                                await Supabase.instance.client.rpc('add_season_xp', params: {'p_xp_gained': xpEarned});
+                              } catch (e) {}
 
-    // 2. ONLY run the post-match progression if this overlay was launched from a real match
-    if (widget.isFromMatch) {
-      int totalCoins = 0;
-      int totalShadows = 0;
-      for (var reward in _rewards) {
-        if (reward['granted_reward_type'] == 'coins') totalCoins += (reward['granted_amount'] as int? ?? 0);
-        if (reward['granted_reward_type'] == 'shadows') totalShadows += (reward['granted_amount'] as int? ?? 0);
-      }
+                              int currentLevel = 1;
+                              int xpPerLevel = 1000;
+                              final user = Supabase.instance.client.auth.currentUser;
+                              if (user != null) {
+                                try {
+                                  final profile = await Supabase.instance.client.from('profiles').select('level').eq('id', user.id).maybeSingle();
+                                  if (profile != null) currentLevel = profile['level'] ?? 1;
+                                } catch (e) {}
+                              }
+                              int oldXp = (currentLevel * 250) % xpPerLevel;
+                              int newXp = oldXp + xpEarned;
 
-      int xpEarned = totalCoins + totalShadows + 150; 
+                              if (!context.mounted) return;
 
-      try {
-        await Supabase.instance.client.rpc('add_season_xp', params: {
-          'p_xp_gained': xpEarned,
-        });
-      } catch (e) {
-        debugPrint('Error advancing Crypt Pass XP: $e');
-      }
-
-      final user = Supabase.instance.client.auth.currentUser;
-      int currentLevel = 1;
-      int xpPerLevel = 1000;
-
-      if (user != null) {
-        try {
-          final profile = await Supabase.instance.client
-              .from('profiles')
-              .select('level')
-              .eq('id', user.id)
-              .maybeSingle();
-
-          if (profile != null) {
-            currentLevel = profile['level'] ?? 1;
-          }
-        } catch (e) {
-          debugPrint('Failed to load profile XP: $e');
-        }
-      }
-
-      int oldXp = (currentLevel * 250) % xpPerLevel;
-      int newXp = oldXp + xpEarned;
-
-      if (!context.mounted) return;
-
-      // Push the Progression Screen
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => ProgressionScreen(
-            shadowsEarned: totalShadows,
-            coinsEarned: totalCoins,
-            oldXp: oldXp,
-            newXp: newXp,
-            xpRequired: xpPerLevel,
-          ),
-        ),
-      );
-    }
-  },
-  child: const Padding(
-    padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
-    child: Text('ACCEPT', style: TextStyle(color: Colors.white, letterSpacing: 2, fontWeight: FontWeight.bold)),
-  ),
-)
+                              // Return to Main Menu under the Progression Screen
+                              Navigator.of(context).pushAndRemoveUntil(
+                                MaterialPageRoute(
+                                  builder: (context) => ProgressionScreen(
+                                    shadowsEarned: totalShadows,
+                                    coinsEarned: totalCoins,
+                                    oldXp: oldXp,
+                                    newXp: newXp,
+                                    xpRequired: xpPerLevel,
+                                  ),
+                                ),
+                                (route) => route.isFirst, 
+                              );
+                            } else {
+                              Navigator.of(context).pop();
+                            }
+                          },
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+                            child: Text('ACCEPT', style: TextStyle(color: Colors.white, letterSpacing: 2, fontWeight: FontWeight.bold)),
+                          ),
+                        )
                       ],
                     ),
               ),

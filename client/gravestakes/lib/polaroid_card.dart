@@ -9,6 +9,19 @@ import 'package:share_plus/share_plus.dart';
 import 'game.dart';
 import 'voxel_character_component.dart';
 import 'game_map.dart'; 
+import 'package:easy_localization/easy_localization.dart';
+import 'theme.dart';
+
+const Map<String, Map<String, String>> comicTranslations = {
+  'BOO!': {'en': 'BOO!', 'es': '¡BUU!', 'ja': 'ばあ！', 'de': 'BUH!'},
+  'GOTCHA!': {'en': 'GOTCHA!', 'es': '¡TE TENGO!', 'ja': '捕まえた！', 'de': 'HAB DICH!'},
+  'AAAH!': {'en': 'AAAH!', 'es': '¡AAAH!', 'ja': 'うわぁ！', 'de': 'AAAH!'},
+  '*huff huff*': {'en': '*huff huff*', 'es': '*jadeo*', 'ja': '*ハァハァ*', 'de': '*keuch*'}
+};
+
+String getComicText(String key, String langCode) {
+  return comicTranslations[key]?[langCode] ?? comicTranslations[key]?['en'] ?? key;
+}
 
 class PolaroidCard extends StatefulWidget {
   final ScareSnapshot snapshot;
@@ -41,8 +54,9 @@ class _PolaroidCardState extends State<PolaroidCard> {
       // 3. Trigger the native save/share dialog
       await Share.shareXFiles(
         [XFile.fromData(pngBytes, name: filename, mimeType: 'image/png')],
-        text: 'Caught in the Lumen Breach!',
+        text: 'Got ambushed in the darkness! Can you survive Lumen Breach?\nPlay free: https://lumenbreach.com/download\n#LumenBreach #HorrorGaming',
       );
+
     } catch (e) {
       debugPrint('Failed to save polaroid: $e');
     } finally {
@@ -79,7 +93,19 @@ class _PolaroidCardState extends State<PolaroidCard> {
                       border: Border.all(color: Colors.black87, width: 2),
                     ),
                     child: ClipRect(
-                      child: GameWidget(game: PhotoStudioGame(snapshot: widget.snapshot)),
+                      child: GameWidget(
+                        game: PhotoStudioGame(
+                          snapshot: widget.snapshot,
+                          // --- Safe language lookup fallback ---
+                          langCode: () {
+                            try {
+                              return context.locale.languageCode;
+                            } catch (_) {
+                              return 'en'; 
+                            }
+                          }(), // Feed the active language here
+                        ),
+                      ),
                     ),
                   ),
                   if (_isCapturing)
@@ -122,8 +148,9 @@ class _PolaroidCardState extends State<PolaroidCard> {
 
 class PhotoStudioGame extends FlameGame {
   final ScareSnapshot snapshot;
+  final String langCode; // Add language property
 
-  PhotoStudioGame({required this.snapshot});
+  PhotoStudioGame({required this.snapshot, this.langCode = 'en'});
 
   @override
   Color backgroundColor() => const Color(0xFF000000); 
@@ -147,25 +174,22 @@ class PhotoStudioGame extends FlameGame {
 
         if (placeWall) {
           final wall = WallComponent(position: Vector2(col * 64.0, (row * 64.0) - 32.0), tileSize: 64.0);
-          wall.priority = 0; // Absolute background
+          wall.priority = 0; 
           add(wall);
         }
       }
     }
 
-    // 2. LIGHTING FALLOFF (CAMERA FLASH SIMULATION)
-    // Darkens the background walls heavily
+    // 2. LIGHTING FALLOFF
     add(RectangleComponent(
       size: Vector2(400, 400),
       paint: Paint()..color = Colors.black.withOpacity(0.75),
     )..priority = 5);
 
-    // Darkens the victim (midground) to simulate light dying off over distance
     add(RectangleComponent(
       size: Vector2(400, 400),
       paint: Paint()..color = Colors.black.withOpacity(0.35),
     )..priority = 15);
-
 
     // 3. LOAD CHARACTERS
     final attackerRig = GraveStakesGame.characterRigCache[snapshot.attackerCharId] ?? GraveStakesGame.characterRigCache['default'];
@@ -178,9 +202,7 @@ class PhotoStudioGame extends FlameGame {
     final attacker = VoxelCharacterComponent(images: attackerImages!, rigData: attackerRig, hitboxSize: Vector2(64, 64));
     final victim = VoxelCharacterComponent(images: victimImages!, rigData: victimRig, hitboxSize: Vector2(64, 64));
 
-    // Foreground Attacker gets full brightness (above priority 15 shadow)
     attacker.priority = 20; 
-    // Background Victim gets shaded (below priority 15 shadow, above priority 5 deep shadow)
     victim.priority = 10;   
 
     try {
@@ -189,81 +211,82 @@ class PhotoStudioGame extends FlameGame {
 
     int sceneLayout = snapshot.timestamp % 4;
 
+    // --- ALL COMIC BUBBLES NOW USE getComicText AND PASS langCode ---
     switch (sceneLayout) {
-      case 0: // THE WIDE TRACKING SHOT (Classic Left-to-Right chase)
+      case 0: 
         attacker.scale = Vector2.all(0.9);
         attacker.position = Vector2(size.x * 0.15, size.y * 0.7);
-        attacker.targetAngle = pi / 2; // Facing Right
+        attacker.targetAngle = pi / 2; 
         attacker.angle = 0.2; 
         attacker.scareAnimTimer = 0.25; 
 
         victim.scale = Vector2.all(0.85);
         victim.position = Vector2(size.x * 0.85, size.y * 0.75);
-        victim.targetAngle = pi / 2; // Fleeing Right
+        victim.targetAngle = pi / 2; 
         victim.angle = 0.35; 
         victim.isMoving = true; 
         victim.update(0.3); 
 
         add(ActionLines(position: victim.position + Vector2(-20, 0))..priority = 8);
-        add(ComicBubble(text: '*huff huff*', isSpeech: false, position: victim.position + Vector2(30, 20))..priority = 12);
-        add(ComicBubble(text: 'BOO!', isSpeech: true, position: attacker.position + Vector2(25, -60))..priority = 25);
+        add(ComicBubble(text: getComicText('*huff huff*', langCode), isSpeech: false, langCode: langCode, position: victim.position + Vector2(30, 20))..priority = 12);
+        add(ComicBubble(text: getComicText('BOO!', langCode), isSpeech: true, langCode: langCode, position: attacker.position + Vector2(25, -60))..priority = 25);
         break;
 
-      case 1: // OVER-THE-SHOULDER SHOCK (Attacker on the Right, Victim recoiling Left)
-        attacker.scale = Vector2.all(1.8); // Very close to camera
+      case 1: 
+        attacker.scale = Vector2.all(1.8); 
         attacker.position = Vector2(size.x * 0.85, size.y * 0.95);
-        attacker.targetAngle = -pi / 2; // Facing Left!
+        attacker.targetAngle = -pi / 2; 
         attacker.angle = -0.15; 
         attacker.scareAnimTimer = 0.35; 
 
-        victim.scale = Vector2.all(0.8); // Pushed back
+        victim.scale = Vector2.all(0.8); 
         victim.position = Vector2(size.x * 0.25, size.y * 0.65);
-        victim.targetAngle = pi / 2; // Facing Right (Looking back at attacker)
+        victim.targetAngle = pi / 2; 
         victim.angle = -0.25; 
         victim.isStunned = true; 
         victim.stunTimer = 999.0;
 
         add(ActionLines(position: attacker.position + Vector2(20, -20))..priority = 18..angle = pi);
-        add(ComicBubble(text: 'GOTCHA!', isSpeech: true, position: attacker.position + Vector2(-60, -100))..priority = 25);
-        add(ComicBubble(text: 'AAAH!', isSpeech: true, position: victim.position + Vector2(10, -60))..priority = 12);
+        add(ComicBubble(text: getComicText('GOTCHA!', langCode), isSpeech: true, langCode: langCode, position: attacker.position + Vector2(-60, -100))..priority = 25);
+        add(ComicBubble(text: getComicText('AAAH!', langCode), isSpeech: true, langCode: langCode, position: victim.position + Vector2(10, -60))..priority = 12);
         break;
 
-      case 2: // THE PREDATOR DROP (Attacker swooping from Top Left)
+      case 2: 
         victim.scale = Vector2.all(0.95);
         victim.position = Vector2(size.x * 0.7, size.y * 0.85);
-        victim.targetAngle = -pi / 2; // Facing Left
+        victim.targetAngle = -pi / 2; 
         victim.angle = -0.1; 
         victim.isStunned = true; 
         victim.stunTimer = 999.0;
 
         attacker.scale = Vector2.all(1.4);
-        attacker.position = Vector2(size.x * 0.25, size.y * 0.25); // Way up high
-        attacker.targetAngle = pi / 2; // Facing Right
-        attacker.angle = 0.6; // Tilted sharply downward
+        attacker.position = Vector2(size.x * 0.25, size.y * 0.25); 
+        attacker.targetAngle = pi / 2; 
+        attacker.angle = 0.6; 
         attacker.scareAnimTimer = 0.15; 
 
         add(ActionLines(position: attacker.position + Vector2(-30, -30))..priority = 18..angle = pi / 4);
-        add(ComicBubble(text: '?!', isSpeech: false, position: victim.position + Vector2(20, -50))..priority = 12);
-        add(ComicBubble(text: 'HEHEHE', isSpeech: true, position: attacker.position + Vector2(-30, -40))..priority = 25);
+        add(ComicBubble(text: getComicText('?!', langCode), isSpeech: false, langCode: langCode, position: victim.position + Vector2(20, -50))..priority = 12);
+        add(ComicBubble(text: getComicText('HEHEHE', langCode), isSpeech: true, langCode: langCode, position: attacker.position + Vector2(-30, -40))..priority = 25);
         break;
 
-      case 3: // THE EXTREME FISHEYE (Attacker lens-smashing huge, victim distant)
-        attacker.scale = Vector2.all(2.6); // Massive, bursting out of frame
-        attacker.position = Vector2(size.x * 0.1, size.y * 1.1); // Anchored off the bottom edge entirely
+      case 3: 
+        attacker.scale = Vector2.all(2.6); 
+        attacker.position = Vector2(size.x * 0.1, size.y * 1.1); 
         attacker.targetAngle = pi / 2; 
-        attacker.angle = -0.15; // Tilted back 
+        attacker.angle = -0.15; 
         attacker.scareAnimTimer = 0.3;
 
-        victim.scale = Vector2.all(0.45); // Tiny
-        victim.position = Vector2(size.x * 0.85, size.y * 0.45); // Very high up in the background
+        victim.scale = Vector2.all(0.45); 
+        victim.position = Vector2(size.x * 0.85, size.y * 0.45); 
         victim.targetAngle = pi / 2; 
-        victim.angle = 0.4; // Extreme lean
+        victim.angle = 0.4; 
         victim.isMoving = true; 
         victim.update(0.4); 
 
         add(ActionLines(position: victim.position + Vector2(-15, 0))..priority = 8);
-        add(ComicBubble(text: '*scuff*', isSpeech: false, position: victim.position + Vector2(20, 20))..priority = 12);
-        add(ComicBubble(text: 'BOO!', isSpeech: true, position: attacker.position + Vector2(40, -140))..priority = 25);
+        add(ComicBubble(text: getComicText('*scuff*', langCode), isSpeech: false, langCode: langCode, position: victim.position + Vector2(20, 20))..priority = 12);
+        add(ComicBubble(text: getComicText('BOO!', langCode), isSpeech: true, langCode: langCode, position: attacker.position + Vector2(40, -140))..priority = 25);
         break;
     }
 
@@ -302,8 +325,9 @@ class ActionLines extends PositionComponent {
 class ComicBubble extends PositionComponent {
   final String text;
   final bool isSpeech;
+  final String langCode; // <-- Add language property
 
-  ComicBubble({required this.text, required this.isSpeech, super.position});
+  ComicBubble({required this.text, required this.isSpeech, required this.langCode, super.position});
 
   @override
   void render(Canvas canvas) {
@@ -326,29 +350,29 @@ class ComicBubble extends PositionComponent {
     // Draw the directional tail for speech bubbles
     if (isSpeech) {
       final path = Path()
-        ..moveTo(-w/4, h/2) // Start at bottom left of bubble
-        ..lineTo(-w/2, h/2 + 15) // Point down towards character
-        ..lineTo(0, h/2) // Connect back to bottom center
+        ..moveTo(-w/4, h/2) 
+        ..lineTo(-w/2, h/2 + 15) 
+        ..lineTo(0, h/2) 
         ..close();
       canvas.drawPath(path, bgPaint);
       canvas.drawPath(path, borderPaint);
     }
 
-    // Paint the text inside
+    // Paint the text inside using your localized dynamic font router
     final textSpan = TextSpan(
       text: text,
-      style: TextStyle(
+      style: AppTheme.getLocalizedStyle(
+        langCode,
         color: Colors.black,
         fontSize: isSpeech ? 16 : 11,
         fontWeight: FontWeight.bold,
-        fontStyle: isSpeech ? FontStyle.normal : FontStyle.italic,
         letterSpacing: 1.2,
-      ),
+      ).copyWith(fontStyle: isSpeech ? FontStyle.normal : FontStyle.italic), // Append italic logic
     );
     
     final textPainter = TextPainter(
       text: textSpan,
-      textDirection: TextDirection.ltr,
+      textDirection: ui.TextDirection.ltr, // <--- Explicitly use the UI version
       textAlign: TextAlign.center,
     );
     

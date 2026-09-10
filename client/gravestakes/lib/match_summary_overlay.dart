@@ -151,17 +151,11 @@ class MatchSummaryOverlay extends StatelessWidget {
                   backgroundColor: Colors.purpleAccent,
                   padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
                 ),
-                onPressed: () async { // <--- Ensure 'async' is right here
-                  // 1. Hide the competitive scoreboard
+                onPressed: () {
+                  // Hide the competitive scoreboard
                   game.overlays.remove('summary');
-                  
-                  // 2. Launch the personal rewards phase and WAIT for the player to close it
-                  await VesselOpenerOverlay.show(context, 'soul_casket', isFromMatch: true);
-                  
-                  // 3. Automatically kick the player back to the Main Menu
-                  if (context.mounted) {
-                    Navigator.of(context).pop();
-                  }
+                  // Launch the personal rewards phase and let IT handle the navigation
+                  VesselOpenerOverlay.show(context, 'soul_casket', isFromMatch: true);
                 },
                 child: const Text('CLAIM REWARDS', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
               ),
