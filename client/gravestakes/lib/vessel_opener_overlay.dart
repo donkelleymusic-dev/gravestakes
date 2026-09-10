@@ -13,8 +13,8 @@ class VesselOpenerOverlay extends StatefulWidget {
     this.isFromMatch = false,
   });
 
-  static void show(BuildContext context, String vesselId, {bool isFromMatch = false}) {
-    showGeneralDialog(
+  static Future<void> show(BuildContext context, String vesselId, {bool isFromMatch = false}) async {
+    await showGeneralDialog(
       context: context,
       barrierColor: Colors.transparent, 
       transitionDuration: const Duration(milliseconds: 400),

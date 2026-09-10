@@ -1,58 +1,120 @@
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flame/game.dart';
 import 'package:flame/components.dart';
+import 'package:share_plus/share_plus.dart';
 import 'game.dart';
 import 'voxel_character_component.dart';
-import 'game_map.dart';
+import 'game_map.dart'; 
 
-class PolaroidCard extends StatelessWidget {
+class PolaroidCard extends StatefulWidget {
   final ScareSnapshot snapshot;
 
   const PolaroidCard({super.key, required this.snapshot});
 
   @override
+  State<PolaroidCard> createState() => _PolaroidCardState();
+}
+
+class _PolaroidCardState extends State<PolaroidCard> {
+  final GlobalKey _boundaryKey = GlobalKey();
+  bool _isCapturing = false;
+
+  Future<void> _downloadImage() async {
+    if (_isCapturing) return;
+    setState(() => _isCapturing = true);
+
+    try {
+      // 1. Capture the widget as a pixel image
+      RenderRepaintBoundary boundary = _boundaryKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      ui.Image image = await boundary.toImage(pixelRatio: 3.0); // High res export
+      ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      Uint8List pngBytes = byteData!.buffer.asUint8List();
+
+      // 2. Format the filename: lumenbreach-AttackerName-169420000.png
+      String safeName = widget.snapshot.attackerName.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+      String filename = 'lumenbreach-$safeName-${DateTime.now().millisecondsSinceEpoch}.png';
+
+      // 3. Trigger the native save/share dialog
+      await Share.shareXFiles(
+        [XFile.fromData(pngBytes, name: filename, mimeType: 'image/png')],
+        text: 'Caught in the Lumen Breach!',
+      );
+    } catch (e) {
+      debugPrint('Failed to save polaroid: $e');
+    } finally {
+      if (mounted) setState(() => _isCapturing = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 300,
-      height: 350,
-      decoration: BoxDecoration(
-        color: const Color(0xFFEBEBEB), 
-        borderRadius: BorderRadius.circular(4),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 10, offset: const Offset(4, 4))
-        ],
-      ),
-      child: Column(
-        children: [
-          Container(
-            margin: const EdgeInsets.all(12),
-            height: 250,
-            decoration: BoxDecoration(
-              color: Colors.black,
-              border: Border.all(color: Colors.black87, width: 2),
-            ),
-            child: ClipRect(
-              child: GameWidget(game: PhotoStudioGame(snapshot: snapshot)),
-            ),
+    return GestureDetector(
+      onTap: _downloadImage,
+      child: RepaintBoundary(
+        key: _boundaryKey,
+        child: Container(
+          width: 300,
+          height: 350,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEBEBEB), 
+            borderRadius: BorderRadius.circular(4),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 10, offset: const Offset(4, 4))
+            ],
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Text(
-              '${snapshot.attackerName} got ${snapshot.victimName}!',
-              style: const TextStyle(
-                fontFamily: 'Courier', 
-                fontSize: 16, 
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
+          child: Column(
+            children: [
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    margin: const EdgeInsets.all(12),
+                    height: 250,
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      border: Border.all(color: Colors.black87, width: 2),
+                    ),
+                    child: ClipRect(
+                      child: GameWidget(game: PhotoStudioGame(snapshot: widget.snapshot)),
+                    ),
+                  ),
+                  if (_isCapturing)
+                    const CircularProgressIndicator(color: Colors.purpleAccent),
+                ],
               ),
-            ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${widget.snapshot.attackerName} got ${widget.snapshot.victimName}!',
+                        style: const TextStyle(
+                          fontFamily: 'Courier', 
+                          fontSize: 14, 
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const Icon(Icons.download, size: 16, color: Colors.black54),
+                  ],
+                ),
+              ),
+              Text(
+                '@ ${widget.snapshot.timestamp}s remaining',
+                style: const TextStyle(fontFamily: 'Courier', fontSize: 12, color: Colors.black54),
+              ),
+            ],
           ),
-          Text(
-            '@ ${snapshot.timestamp}s remaining',
-            style: const TextStyle(fontFamily: 'Courier', fontSize: 12, color: Colors.black54),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -64,71 +126,62 @@ class PhotoStudioGame extends FlameGame {
   PhotoStudioGame({required this.snapshot});
 
   @override
-  Color backgroundColor() => const Color(0xFF1A1A24); 
+  Color backgroundColor() => const Color(0xFF000000); 
 
   @override
   Future<void> onLoad() async {
     await super.onLoad();
 
-    // --- NEW: PROCEDURAL LOCATION-BASED DIORAMA ---
-    // Use the map coordinates to create a unique, repeatable seed for this exact spot.
+    // 1. GENERATE BACKGROUND MAZE
     int seed = (snapshot.mapX.toInt() * 73856) ^ (snapshot.mapY.toInt() * 19349);
     final random = Random(seed);
-
-    // Pick 1 of 3 rough architectural shapes based on location
     int architectureType = random.nextInt(3);
 
     for (int col = -1; col < 6; col++) {
       for (int row = -1; row < 4; row++) {
         bool placeWall = true;
-
-        // Apply architectural artistic license
-        if (architectureType == 0 && col > 2) placeWall = false; // Corner/Alley
-        if (architectureType == 1 && (row == 0 || row == 3)) placeWall = false; // Narrow corridor
-        if (architectureType == 2 && random.nextDouble() > 0.6) placeWall = false; // Broken/Ruined wall
-        
-        // Always ensure the very bottom has a "floor" block so characters don't float
+        if (architectureType == 0 && col > 2) placeWall = false; 
+        if (architectureType == 1 && (row == 0 || row == 3)) placeWall = false; 
+        if (architectureType == 2 && random.nextDouble() > 0.6) placeWall = false; 
         if (row == 3) placeWall = true; 
 
         if (placeWall) {
-          final wall = WallComponent(
-            position: Vector2(col * 64.0, (row * 64.0) - 32.0),
-            tileSize: 64.0,
-          );
-          wall.priority = 0; // Way in the back
+          final wall = WallComponent(position: Vector2(col * 64.0, (row * 64.0) - 32.0), tileSize: 64.0);
+          wall.priority = 0; // Absolute background
           add(wall);
         }
       }
     }
-    
-    // Add a semi-transparent black overlay to push the procedural walls into the shadows
-    final shadowOverlay = RectangleComponent(
+
+    // 2. LIGHTING FALLOFF (CAMERA FLASH SIMULATION)
+    // Darkens the background walls heavily
+    add(RectangleComponent(
       size: Vector2(400, 400),
-      paint: Paint()..color = Colors.black.withOpacity(0.4),
-    );
-    shadowOverlay.priority = 5; 
-    add(shadowOverlay);
-    // ----------------------------------------------
+      paint: Paint()..color = Colors.black.withOpacity(0.75),
+    )..priority = 5);
 
-    final attackerRig = GraveStakesGame.characterRigCache[snapshot.attackerCharId] 
-                     ?? GraveStakesGame.characterRigCache['default'];
-    final attackerImages = GraveStakesGame.characterImagesCache[snapshot.attackerCharId] 
-                        ?? GraveStakesGame.characterImagesCache['default'];
+    // Darkens the victim (midground) to simulate light dying off over distance
+    add(RectangleComponent(
+      size: Vector2(400, 400),
+      paint: Paint()..color = Colors.black.withOpacity(0.35),
+    )..priority = 15);
 
-    final victimRig = GraveStakesGame.characterRigCache[snapshot.victimCharId] 
-                   ?? GraveStakesGame.characterRigCache['default'];
-    final victimImages = GraveStakesGame.characterImagesCache[snapshot.victimCharId] 
-                      ?? GraveStakesGame.characterImagesCache['default'];
+
+    // 3. LOAD CHARACTERS
+    final attackerRig = GraveStakesGame.characterRigCache[snapshot.attackerCharId] ?? GraveStakesGame.characterRigCache['default'];
+    final attackerImages = GraveStakesGame.characterImagesCache[snapshot.attackerCharId] ?? GraveStakesGame.characterImagesCache['default'];
+    final victimRig = GraveStakesGame.characterRigCache[snapshot.victimCharId] ?? GraveStakesGame.characterRigCache['default'];
+    final victimImages = GraveStakesGame.characterImagesCache[snapshot.victimCharId] ?? GraveStakesGame.characterImagesCache['default'];
 
     if (attackerRig == null || victimRig == null) return;
 
     final attacker = VoxelCharacterComponent(images: attackerImages!, rigData: attackerRig, hitboxSize: Vector2(64, 64));
     final victim = VoxelCharacterComponent(images: victimImages!, rigData: victimRig, hitboxSize: Vector2(64, 64));
 
-    // --- ENFORCE STRICT Z-INDEX LAYERING ---
-    victim.priority = 10;   // Always in the background
-    attacker.priority = 20; // Always in the foreground
-    // ---------------------------------------
+    // Foreground Attacker gets full brightness (above priority 15 shadow)
+    attacker.priority = 20; 
+    // Background Victim gets shaded (below priority 15 shadow, above priority 5 deep shadow)
+    victim.priority = 10;   
 
     try {
       attacker.activeMaskImage = await images.load('${snapshot.attackerMaskId}_mask.png');
@@ -137,81 +190,80 @@ class PhotoStudioGame extends FlameGame {
     int sceneLayout = snapshot.timestamp % 4;
 
     switch (sceneLayout) {
-      case 0: // THE CLASSIC CHASE (Standard distance)
-        attacker.scale = Vector2.all(1.0);
-        attacker.position = Vector2(size.x * 0.25, size.y * 0.7);
-        attacker.targetAngle = pi / 2; 
-        attacker.angle = 0.15; 
+      case 0: // THE WIDE TRACKING SHOT (Classic Left-to-Right chase)
+        attacker.scale = Vector2.all(0.9);
+        attacker.position = Vector2(size.x * 0.15, size.y * 0.7);
+        attacker.targetAngle = pi / 2; // Facing Right
+        attacker.angle = 0.2; 
         attacker.scareAnimTimer = 0.25; 
 
-        victim.scale = Vector2.all(1.0);
-        victim.position = Vector2(size.x * 0.75, size.y * 0.7);
-        victim.targetAngle = pi / 2; 
-        victim.angle = 0.25; 
-        victim.isMoving = true;
+        victim.scale = Vector2.all(0.85);
+        victim.position = Vector2(size.x * 0.85, size.y * 0.75);
+        victim.targetAngle = pi / 2; // Fleeing Right
+        victim.angle = 0.35; 
+        victim.isMoving = true; 
         victim.update(0.3); 
 
-        add(ActionLines(position: victim.position + Vector2(-20, 0))..priority = 5);
-        add(ComicBubble(text: '*huff huff*', isSpeech: false, position: victim.position + Vector2(30, 20))..priority = 30);
-        add(ComicBubble(text: 'BOO!', isSpeech: true, position: attacker.position + Vector2(25, -60))..priority = 30);
+        add(ActionLines(position: victim.position + Vector2(-20, 0))..priority = 8);
+        add(ComicBubble(text: '*huff huff*', isSpeech: false, position: victim.position + Vector2(30, 20))..priority = 12);
+        add(ComicBubble(text: 'BOO!', isSpeech: true, position: attacker.position + Vector2(25, -60))..priority = 25);
         break;
 
-      case 1: // THE HEAD-ON CLASH (Attacker very close, victim medium distance)
-        attacker.scale = Vector2.all(1.6); // Pushed closer to lens
-        attacker.position = Vector2(size.x * 0.25, size.y * 0.85); // Lowered so the head dominates
-        attacker.targetAngle = pi / 2; 
-        attacker.angle = 0.2; 
+      case 1: // OVER-THE-SHOULDER SHOCK (Attacker on the Right, Victim recoiling Left)
+        attacker.scale = Vector2.all(1.8); // Very close to camera
+        attacker.position = Vector2(size.x * 0.85, size.y * 0.95);
+        attacker.targetAngle = -pi / 2; // Facing Left!
+        attacker.angle = -0.15; 
         attacker.scareAnimTimer = 0.35; 
 
-        victim.scale = Vector2.all(1.1); // Slightly pushed back
-        victim.position = Vector2(size.x * 0.75, size.y * 0.7);
-        victim.targetAngle = -pi / 2; 
-        victim.angle = -0.2; 
+        victim.scale = Vector2.all(0.8); // Pushed back
+        victim.position = Vector2(size.x * 0.25, size.y * 0.65);
+        victim.targetAngle = pi / 2; // Facing Right (Looking back at attacker)
+        victim.angle = -0.25; 
         victim.isStunned = true; 
         victim.stunTimer = 999.0;
 
-        add(ActionLines(position: attacker.position + Vector2(-30, -30))..priority = 15);
-        add(ComicBubble(text: 'GOTCHA!', isSpeech: true, position: attacker.position + Vector2(-10, -90))..priority = 30);
-        add(ComicBubble(text: 'AAAH!', isSpeech: true, position: victim.position + Vector2(20, -70))..priority = 30);
+        add(ActionLines(position: attacker.position + Vector2(20, -20))..priority = 18..angle = pi);
+        add(ComicBubble(text: 'GOTCHA!', isSpeech: true, position: attacker.position + Vector2(-60, -100))..priority = 25);
+        add(ComicBubble(text: 'AAAH!', isSpeech: true, position: victim.position + Vector2(10, -60))..priority = 12);
         break;
 
-      case 2: // THE DROP AMBUSH (Attacker massive, dropping past camera)
-        victim.scale = Vector2.all(0.9); // Victim is smaller, lower in the frame
-        victim.position = Vector2(size.x * 0.35, size.y * 0.8);
-        victim.targetAngle = pi / 2; 
-        victim.angle = 0.0; 
+      case 2: // THE PREDATOR DROP (Attacker swooping from Top Left)
+        victim.scale = Vector2.all(0.95);
+        victim.position = Vector2(size.x * 0.7, size.y * 0.85);
+        victim.targetAngle = -pi / 2; // Facing Left
+        victim.angle = -0.1; 
+        victim.isStunned = true; 
+        victim.stunTimer = 999.0;
 
-        attacker.scale = Vector2.all(1.4); // Attacker is huge
-        attacker.position = Vector2(size.x * 0.75, size.y * 0.4); // Dropping from high up
-        attacker.targetAngle = -pi / 2; 
-        attacker.angle = -0.4; 
+        attacker.scale = Vector2.all(1.4);
+        attacker.position = Vector2(size.x * 0.25, size.y * 0.25); // Way up high
+        attacker.targetAngle = pi / 2; // Facing Right
+        attacker.angle = 0.6; // Tilted sharply downward
         attacker.scareAnimTimer = 0.15; 
 
-        var diveLines = ActionLines(position: attacker.position + Vector2(40, -40))..priority = 15;
-        diveLines.angle = -pi / 4; 
-        add(diveLines);
-        
-        add(ComicBubble(text: '?', isSpeech: false, position: victim.position + Vector2(10, -50))..priority = 30);
-        add(ComicBubble(text: 'HEHEHE', isSpeech: true, position: attacker.position + Vector2(40, 0))..priority = 30);
+        add(ActionLines(position: attacker.position + Vector2(-30, -30))..priority = 18..angle = pi / 4);
+        add(ComicBubble(text: '?!', isSpeech: false, position: victim.position + Vector2(20, -50))..priority = 12);
+        add(ComicBubble(text: 'HEHEHE', isSpeech: true, position: attacker.position + Vector2(-30, -40))..priority = 25);
         break;
 
-      case 3: // THE CLOSE CALL (Attacker lens-smashing huge, victim tiny)
-        attacker.scale = Vector2.all(2.2); // Extremely close to the camera!
-        attacker.position = Vector2(size.x * 0.1, size.y * 1.0); // Anchored off the bottom left edge
+      case 3: // THE EXTREME FISHEYE (Attacker lens-smashing huge, victim distant)
+        attacker.scale = Vector2.all(2.6); // Massive, bursting out of frame
+        attacker.position = Vector2(size.x * 0.1, size.y * 1.1); // Anchored off the bottom edge entirely
         attacker.targetAngle = pi / 2; 
-        attacker.angle = 0.1;
-        attacker.scareAnimTimer = 0.25;
+        attacker.angle = -0.15; // Tilted back 
+        attacker.scareAnimTimer = 0.3;
 
-        victim.scale = Vector2.all(0.65); // Tiny, running away in the background
-        victim.position = Vector2(size.x * 0.8, size.y * 0.6); // Higher up to simulate distance
+        victim.scale = Vector2.all(0.45); // Tiny
+        victim.position = Vector2(size.x * 0.85, size.y * 0.45); // Very high up in the background
         victim.targetAngle = pi / 2; 
-        victim.angle = 0.3; 
-        victim.isMoving = true;
+        victim.angle = 0.4; // Extreme lean
+        victim.isMoving = true; 
         victim.update(0.4); 
 
-        add(ActionLines(position: victim.position + Vector2(-15, 0))..priority = 5);
-        add(ComicBubble(text: '*scuff*', isSpeech: false, position: victim.position + Vector2(20, 20))..priority = 30);
-        add(ComicBubble(text: 'BOO!', isSpeech: true, position: attacker.position + Vector2(-10, -110))..priority = 30); // Raised bubble to clear huge head
+        add(ActionLines(position: victim.position + Vector2(-15, 0))..priority = 8);
+        add(ComicBubble(text: '*scuff*', isSpeech: false, position: victim.position + Vector2(20, 20))..priority = 12);
+        add(ComicBubble(text: 'BOO!', isSpeech: true, position: attacker.position + Vector2(40, -140))..priority = 25);
         break;
     }
 
