@@ -21,6 +21,7 @@ import 'guild_war_results_overlay.dart';
 import 'audio_manager.dart';
 import 'guild_war_results_overlay.dart';
 import 'crypt_pass_screen.dart';
+import 'match_summary_screen.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -560,6 +561,28 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                   ),
+
+                  // --- NEW: LAST MATCH HIGHLIGHTS BUTTON ---
+                  if (GraveStakesGame.lastMatchPhotos.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => MatchSummaryScreen(photos: GraveStakesGame.lastMatchPhotos)
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.photo_library, color: Colors.purpleAccent),
+                      label: const Text('LAST MATCH HIGHLIGHTS', style: TextStyle(color: Colors.purpleAccent, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: Colors.purpleAccent.withOpacity(0.1),
+                        side: const BorderSide(color: Colors.purpleAccent, width: 2),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ],
 
                   const SizedBox(height: 24),
                   const Text('COMMUNITY & MANAGEMENT', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),

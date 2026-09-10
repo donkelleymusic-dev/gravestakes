@@ -4,6 +4,7 @@ import 'package:flame/game.dart';
 import 'package:flame/components.dart';
 import 'game.dart';
 import 'voxel_character_component.dart';
+import 'game_map.dart';
 
 class PolaroidCard extends StatelessWidget {
   final ScareSnapshot snapshot;
@@ -67,71 +68,160 @@ class PhotoStudioGame extends FlameGame {
 
   @override
   Future<void> onLoad() async {
-    // 1. Setup Attacker (Left side, leaning forward)
-    final attackerRig = GraveStakesGame.characterRigCache[snapshot.attackerCharId];
-    final attackerImages = GraveStakesGame.characterImagesCache[snapshot.attackerCharId];
+    await super.onLoad();
 
-    if (attackerRig != null && attackerImages != null) {
-      final attacker = VoxelCharacterComponent(
-        images: attackerImages,
-        rigData: attackerRig,
-        hitboxSize: Vector2(64, 64),
-      );
-      attacker.position = Vector2(size.x * 0.25, size.y * 0.7);
-      attacker.targetAngle = pi / 2; // Face exact right
-      
-      // Dynamic Action Posing
-      attacker.angle = 0.15; // Lean forward about 8 degrees
-      attacker.scareAnimTimer = 0.25; // Freeze mask mid-lunge
-      
-      try {
-        attacker.activeMaskImage = await images.load('${snapshot.attackerMaskId}_mask.png');
-      } catch (e) {}
+    // --- NEW: PROCEDURAL LOCATION-BASED DIORAMA ---
+    // Use the map coordinates to create a unique, repeatable seed for this exact spot.
+    int seed = (snapshot.mapX.toInt() * 73856) ^ (snapshot.mapY.toInt() * 19349);
+    final random = Random(seed);
 
-      add(attacker);
-      
-      // Add Speech Bubble
-      add(ComicBubble(
-        text: 'BOO!', 
-        isSpeech: true, 
-        position: attacker.position + Vector2(25, -60),
-      ));
+    // Pick 1 of 3 rough architectural shapes based on location
+    int architectureType = random.nextInt(3);
+
+    for (int col = -1; col < 6; col++) {
+      for (int row = -1; row < 4; row++) {
+        bool placeWall = true;
+
+        // Apply architectural artistic license
+        if (architectureType == 0 && col > 2) placeWall = false; // Corner/Alley
+        if (architectureType == 1 && (row == 0 || row == 3)) placeWall = false; // Narrow corridor
+        if (architectureType == 2 && random.nextDouble() > 0.6) placeWall = false; // Broken/Ruined wall
+        
+        // Always ensure the very bottom has a "floor" block so characters don't float
+        if (row == 3) placeWall = true; 
+
+        if (placeWall) {
+          final wall = WallComponent(
+            position: Vector2(col * 64.0, (row * 64.0) - 32.0),
+            tileSize: 64.0,
+          );
+          wall.priority = 0; // Way in the back
+          add(wall);
+        }
+      }
+    }
+    
+    // Add a semi-transparent black overlay to push the procedural walls into the shadows
+    final shadowOverlay = RectangleComponent(
+      size: Vector2(400, 400),
+      paint: Paint()..color = Colors.black.withOpacity(0.4),
+    );
+    shadowOverlay.priority = 5; 
+    add(shadowOverlay);
+    // ----------------------------------------------
+
+    final attackerRig = GraveStakesGame.characterRigCache[snapshot.attackerCharId] 
+                     ?? GraveStakesGame.characterRigCache['default'];
+    final attackerImages = GraveStakesGame.characterImagesCache[snapshot.attackerCharId] 
+                        ?? GraveStakesGame.characterImagesCache['default'];
+
+    final victimRig = GraveStakesGame.characterRigCache[snapshot.victimCharId] 
+                   ?? GraveStakesGame.characterRigCache['default'];
+    final victimImages = GraveStakesGame.characterImagesCache[snapshot.victimCharId] 
+                      ?? GraveStakesGame.characterImagesCache['default'];
+
+    if (attackerRig == null || victimRig == null) return;
+
+    final attacker = VoxelCharacterComponent(images: attackerImages!, rigData: attackerRig, hitboxSize: Vector2(64, 64));
+    final victim = VoxelCharacterComponent(images: victimImages!, rigData: victimRig, hitboxSize: Vector2(64, 64));
+
+    // --- ENFORCE STRICT Z-INDEX LAYERING ---
+    victim.priority = 10;   // Always in the background
+    attacker.priority = 20; // Always in the foreground
+    // ---------------------------------------
+
+    try {
+      attacker.activeMaskImage = await images.load('${snapshot.attackerMaskId}_mask.png');
+    } catch (e) {}
+
+    int sceneLayout = snapshot.timestamp % 4;
+
+    switch (sceneLayout) {
+      case 0: // THE CLASSIC CHASE (Standard distance)
+        attacker.scale = Vector2.all(1.0);
+        attacker.position = Vector2(size.x * 0.25, size.y * 0.7);
+        attacker.targetAngle = pi / 2; 
+        attacker.angle = 0.15; 
+        attacker.scareAnimTimer = 0.25; 
+
+        victim.scale = Vector2.all(1.0);
+        victim.position = Vector2(size.x * 0.75, size.y * 0.7);
+        victim.targetAngle = pi / 2; 
+        victim.angle = 0.25; 
+        victim.isMoving = true;
+        victim.update(0.3); 
+
+        add(ActionLines(position: victim.position + Vector2(-20, 0))..priority = 5);
+        add(ComicBubble(text: '*huff huff*', isSpeech: false, position: victim.position + Vector2(30, 20))..priority = 30);
+        add(ComicBubble(text: 'BOO!', isSpeech: true, position: attacker.position + Vector2(25, -60))..priority = 30);
+        break;
+
+      case 1: // THE HEAD-ON CLASH (Attacker very close, victim medium distance)
+        attacker.scale = Vector2.all(1.6); // Pushed closer to lens
+        attacker.position = Vector2(size.x * 0.25, size.y * 0.85); // Lowered so the head dominates
+        attacker.targetAngle = pi / 2; 
+        attacker.angle = 0.2; 
+        attacker.scareAnimTimer = 0.35; 
+
+        victim.scale = Vector2.all(1.1); // Slightly pushed back
+        victim.position = Vector2(size.x * 0.75, size.y * 0.7);
+        victim.targetAngle = -pi / 2; 
+        victim.angle = -0.2; 
+        victim.isStunned = true; 
+        victim.stunTimer = 999.0;
+
+        add(ActionLines(position: attacker.position + Vector2(-30, -30))..priority = 15);
+        add(ComicBubble(text: 'GOTCHA!', isSpeech: true, position: attacker.position + Vector2(-10, -90))..priority = 30);
+        add(ComicBubble(text: 'AAAH!', isSpeech: true, position: victim.position + Vector2(20, -70))..priority = 30);
+        break;
+
+      case 2: // THE DROP AMBUSH (Attacker massive, dropping past camera)
+        victim.scale = Vector2.all(0.9); // Victim is smaller, lower in the frame
+        victim.position = Vector2(size.x * 0.35, size.y * 0.8);
+        victim.targetAngle = pi / 2; 
+        victim.angle = 0.0; 
+
+        attacker.scale = Vector2.all(1.4); // Attacker is huge
+        attacker.position = Vector2(size.x * 0.75, size.y * 0.4); // Dropping from high up
+        attacker.targetAngle = -pi / 2; 
+        attacker.angle = -0.4; 
+        attacker.scareAnimTimer = 0.15; 
+
+        var diveLines = ActionLines(position: attacker.position + Vector2(40, -40))..priority = 15;
+        diveLines.angle = -pi / 4; 
+        add(diveLines);
+        
+        add(ComicBubble(text: '?', isSpeech: false, position: victim.position + Vector2(10, -50))..priority = 30);
+        add(ComicBubble(text: 'HEHEHE', isSpeech: true, position: attacker.position + Vector2(40, 0))..priority = 30);
+        break;
+
+      case 3: // THE CLOSE CALL (Attacker lens-smashing huge, victim tiny)
+        attacker.scale = Vector2.all(2.2); // Extremely close to the camera!
+        attacker.position = Vector2(size.x * 0.1, size.y * 1.0); // Anchored off the bottom left edge
+        attacker.targetAngle = pi / 2; 
+        attacker.angle = 0.1;
+        attacker.scareAnimTimer = 0.25;
+
+        victim.scale = Vector2.all(0.65); // Tiny, running away in the background
+        victim.position = Vector2(size.x * 0.8, size.y * 0.6); // Higher up to simulate distance
+        victim.targetAngle = pi / 2; 
+        victim.angle = 0.3; 
+        victim.isMoving = true;
+        victim.update(0.4); 
+
+        add(ActionLines(position: victim.position + Vector2(-15, 0))..priority = 5);
+        add(ComicBubble(text: '*scuff*', isSpeech: false, position: victim.position + Vector2(20, 20))..priority = 30);
+        add(ComicBubble(text: 'BOO!', isSpeech: true, position: attacker.position + Vector2(-10, -110))..priority = 30); // Raised bubble to clear huge head
+        break;
     }
 
-    // 2. Setup Victim (Right side, fleeing frantically)
-    final victimRig = GraveStakesGame.characterRigCache[snapshot.victimCharId];
-    final victimImages = GraveStakesGame.characterImagesCache[snapshot.victimCharId];
-
-    if (victimRig != null && victimImages != null) {
-      final victim = VoxelCharacterComponent(
-        images: victimImages,
-        rigData: victimRig,
-        hitboxSize: Vector2(64, 64),
-      );
-      victim.position = Vector2(size.x * 0.75, size.y * 0.7);
-      
-      // Dynamic Fleeing Posing
-      victim.targetAngle = pi / 2; // Face exact right (running AWAY)
-      victim.angle = 0.25; // Lean forward heavily into the sprint
-      victim.isMoving = true;
-      
-      // Manually force a few frames of update so the legs split into a run cycle
-      victim.update(0.3); 
-      
-      // Layering: Lines -> Victim -> Sound Bubble
-      add(ActionLines(position: victim.position + Vector2(-20, 0)));
-      add(victim);
-      add(ComicBubble(
-        text: '*huff huff*', 
-        isSpeech: false, 
-        position: victim.position + Vector2(30, 20),
-      ));
-    }
+    add(attacker);
+    add(victim);
   }
 
   @override
   void update(double dt) {
-    // OVERRIDE: Do absolutely nothing. Freezes the engine instantly.
+    super.update(0.0);
   }
 }
 

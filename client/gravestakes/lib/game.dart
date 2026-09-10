@@ -58,6 +58,8 @@ class ScareSnapshot {
   final String victimName;
   final String victimCharId;
   final int timestamp; // To show "Scare occurred at 2:14"
+  final double mapX;
+  final double mapY;
 
   ScareSnapshot({
     required this.attackerName,
@@ -66,10 +68,13 @@ class ScareSnapshot {
     required this.victimName,
     required this.victimCharId,
     required this.timestamp,
+    required this.mapX,
+    required this.mapY,
   });
 }
 
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
+  static List<ScareSnapshot> lastMatchPhotos = [];
   String roomId;
   final bool isGunner;
   final String matchMode; 
@@ -220,6 +225,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             loadedAssetImages[file.name] = frameInfo.image;
           }
         }
+      }
+      // Expose the default assets to the Polaroid Studio! ---
+      if (loadedRigData != null) {
+        characterRigCache['default'] = loadedRigData!;
+        characterImagesCache['default'] = loadedAssetImages;
       }
     } catch (e) {
       debugPrint('CRITICAL: Default zip failed to load: $e');
@@ -461,6 +471,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
   @override
   void onRemove() {
+    lastMatchPhotos = List.from(matchPhotos);
     myChannel.unsubscribe();
     try {
       Supabase.instance.client.rpc('leave_match', params: {'p_match_id': roomId});
@@ -783,6 +794,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
                 victimName: bot.fakeUsername,
                 victimCharId: bot.assignedCharacterId,
                 timestamp: gameTimer.timeLeft.toInt(),
+                mapX: attackerPos.x,
+                mapY: attackerPos.y,
               ));
               // -------------------------------------------
 
@@ -842,6 +855,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               victimName: remoteId.substring(0, 4), // Fallback if no username
               victimCharId: remotePlayer.equippedCharacterId,
               timestamp: gameTimer.timeLeft.toInt(),
+              mapX: attackerPos.x,
+              mapY: attackerPos.y,
             ));
             // ----------------------------------------------
 

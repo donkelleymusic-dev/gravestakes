@@ -337,7 +337,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     try {
       _disguiseWall = WallComponent(
         position: Vector2(-9999, -9999), 
-        tileSize: 32.0,
+        tileSize: 64.0,
       );
       add(_disguiseWall!);
     } catch (e) {}
