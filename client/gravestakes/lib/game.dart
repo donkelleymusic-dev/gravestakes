@@ -472,11 +472,29 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     super.update(dt);
 
     if (matchPhase == 'cinematic') {
-      // --- THE DIRECTOR'S CLAPBOARD ---
-      // Halt the entire timeline until both actors have finished downloading from Supabase!
-      
       if (stuntDoubleHero?.voxelComponent == null || cinematicMonster?.voxelComponent == null) {
         return; 
+      }
+
+      final stageX = 15 * 64.0; // X = 960
+      final stageY = 15 * 64.0; // Y = 960
+
+      // --- THE BULLDOZER & INITIAL STAGE SETUP ---
+      if (cinematicTimer == 0.0) {
+        world.children.whereType<WallComponent>().forEach((wall) {
+          if (wall.position.x > stageX - 600 && wall.position.x < stageX + 800 &&
+              wall.position.y > stageY - 400 && wall.position.y < stageY + 400) {
+            wall.removeFromParent();
+          }
+        });
+
+        // BEAT 1-2 SETUP: Camera right next to the track, facing East into oncoming runners
+        player.position = Vector2(stageX + 300, stageY - 50);
+        player.facingAngle = pi / 2; // Looking East (toward oncoming runners)
+        player.isInvisible = true;
+
+        stuntDoubleHero!.position = Vector2(stageX + 800, stageY - 100);
+        cinematicMonster!.position = Vector2(stageX + 1200, stageY - 100);
       }
 
       cinematicTimer += dt;
@@ -484,64 +502,49 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
       // --- SCRIPT MONITOR TEXT UPDATER ---
       String currentBeat = 'WAITING';
-      if (cinematicTimer <= 5.0) currentBeat = 'BEAT 1-2: FLY-BY RUN';
-      else if (cinematicTimer <= 8.0) currentBeat = 'BEAT 3: CORNER HIDE';
-      else if (cinematicTimer <= 12.0) currentBeat = 'BEAT 4-5: BLACKOUT';
-      else if (cinematicTimer <= 18.0) currentBeat = 'BEAT 6-7: JUMP SCARE';
+      if (cinematicTimer <= 5.0) currentBeat = 'BEAT 1-2: FLY-BY (FRONT VIEW)';
+      else if (cinematicTimer <= 8.0) currentBeat = 'BEAT 3: NEW CORNER LOCATION';
+      else if (cinematicTimer <= 12.0) currentBeat = 'BEAT 4-5: BLACKOUT SETUP';
+      else if (cinematicTimer <= 18.0) currentBeat = 'BEAT 6-7: SNAP TURN & SCARE';
       else currentBeat = 'SCENE END';
 
       cinematicStatusText?.text = 'TIME: [${cinematicTimer.toStringAsFixed(2)}s] | $currentBeat';
 
-      final stageX = 15 * 64.0; // X = 960
-      final stageY = 15 * 64.0; // Y = 960
-
-      // --- THE BULLDOZER ---
-      // On the very first frame, delete all walls in a 10x10 radius to clear the stage
-      if (cinematicTimer == 0.0) {
-        world.children.whereType<WallComponent>().forEach((wall) {
-          if (wall.position.x > stageX - 500 && wall.position.x < stageX + 500 &&
-              wall.position.y > stageY - 300 && wall.position.y < stageY + 300) {
-            wall.removeFromParent();
-          }
-        });
-      }
-
-      //cinematicTimer += dt;
-      //super.update(dt); 
-
       // --- CINEMATIC OVERRIDES ---
       if (stuntDoubleHero != null && stuntDoubleHero!.parent != null) {
          stuntDoubleHero!.facingAngle = -pi / 2; 
-         stuntDoubleHero!.attackCooldown = 999.0; // <--- NEUTER AI ATTACKS
+         stuntDoubleHero!.attackCooldown = 999.0; 
+         stuntDoubleHero!.isStunned = false;
          if (stuntDoubleHero!.voxelComponent != null) stuntDoubleHero!.voxelComponent!.isMoving = true;
       }
       
       if (cinematicMonster != null && cinematicMonster!.parent != null) {
          cinematicMonster!.facingAngle = -pi / 2;
-         cinematicMonster!.attackCooldown = 999.0; // <--- NEUTER AI ATTACKS
+         cinematicMonster!.attackCooldown = 999.0; 
+         cinematicMonster!.isStunned = false;
          if (cinematicMonster!.voxelComponent != null) {
              cinematicMonster!.voxelComponent!.isMoving = true;
              try { cinematicMonster!.voxelComponent!.activeMaskImage ??= images.fromCache('siren_mask.png'); } catch(e){}
          }
       }
 
-      // BEAT 1 & 2: The Fly-By (0s - 5s)
+      // BEAT 1 & 2: The Fly-By (0s - 5s) - Runners streak past to our left, facing us
       if (cinematicTimer > 0.5 && !cinematicStage1) {
         cinematicStage1 = true;
-        stuntDoubleHero!.add(MoveToEffect(Vector2(stageX - 400, stageY - 64), EffectController(duration: 2.0)));
+        stuntDoubleHero!.add(MoveToEffect(Vector2(stageX - 600, stageY - 100), EffectController(duration: 2.0)));
         Future.delayed(const Duration(milliseconds: 1800), () {
-          cinematicMonster!.add(MoveToEffect(Vector2(stageX - 400, stageY - 64), EffectController(duration: 1.2)));
+          cinematicMonster!.add(MoveToEffect(Vector2(stageX - 600, stageY - 100), EffectController(duration: 1.2)));
         });
       }
 
-      // BEAT 3: Cut to First-Person Corner (5s - 8s)
+      // BEAT 3: Cut to New Location (5s - 8s) - Relocate camera to a distinct active hallway
       if (cinematicTimer > 5.0 && !cinematicStage2) {
         cinematicStage2 = true;
         stuntDoubleHero!.position = Vector2(-9999, -9999); 
         
-        // Put player in the corner we just bulldozed
-        player.position = Vector2(stageX + 300, stageY + 200);
-        player.facingAngle = -pi / 2; 
+        // Distinct camera position for Beat 3 so it happens on-camera
+        player.position = Vector2(stageX - 200, stageY + 150);
+        player.facingAngle = 0.0; // Looking North down a clean corridor
         player.isInvisible = false;
       }
 
@@ -551,10 +554,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         player.flashlightBattery = 0.0;
         player.isFlashlightDead = true; 
         
-        cinematicMonster!.position = player.position + Vector2(60, 0); 
+        // Position monster right beside us in the new location for the turn
+        cinematicMonster!.position = player.position + Vector2(0, -70); 
       }
 
-      // BEAT 6 & 7: The Reveal & Jump Scare (12s - 16s)
+      // BEAT 6 & 7: The Reveal & Jump Scare (12s - 16s+)
       if (cinematicTimer > 12.0) {
         if (!cinematicStage4) {
           cinematicStage4 = true;
@@ -562,17 +566,33 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           player.isFlashlightDead = false;
         }
         
-        if (cinematicTimer < 14.0) {
-          player.facingAngle += dt * 1.5; 
+        // Custom segmented rotation curve:
+        // - 12.0 to 13.2: Slow initial rotation (first half circle / 180 deg)
+        // - 13.2 to 13.6: Pause / stop briefly
+        // - 13.6 to 14.2: Speed up a LOT in the last 90 degrees
+        double scanTime = cinematicTimer - 12.0;
+        if (scanTime <= 1.2) {
+          player.facingAngle += dt * (pi / 1.2);
+        } else if (scanTime <= 1.6) {
+          // Pause / hold angle steady briefly
+        } else if (scanTime <= 2.2) {
+          player.facingAngle += dt * ((pi / 2) / 0.6);
         }
 
-        if (cinematicTimer > 13.9 && cinematicTimer < 14.0) {
+        // Trigger monster jump scare animation up close when rotation completes (~14.2s)
+        if (scanTime > 2.2 && scanTime <= 2.25) {
           if (cinematicMonster!.voxelComponent != null) {
               cinematicMonster!.voxelComponent!.triggerScareAnimation();
           }
+          if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
+            SoLoud.instance.play(AudioManager.instance.impactSource!);
+          }
         }
 
-        if (cinematicTimer > 18.0) pauseEngine();
+        // Immediate blackout and freeze for REAPER recording at ~14.5s
+        if (scanTime > 2.5) {
+          pauseEngine();
+        }
       }
       return;
     }
