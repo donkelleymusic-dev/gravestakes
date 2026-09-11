@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flame/game.dart';
 import 'package:flame/components.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'game.dart';
 import 'voxel_character_component.dart';
 import 'game_map.dart'; 
@@ -64,6 +65,63 @@ class _PolaroidCardState extends State<PolaroidCard> {
     }
   }
 
+  Future<void> _sendTauntToInbox() async {
+    final victimId = widget.snapshot.victimId;
+    if (victimId == null) return; // Only allow sending to human players
+    
+    if (_isCapturing) return;
+    setState(() => _isCapturing = true);
+
+    try {
+      // 1. Capture the widget as a pixel image
+      RenderRepaintBoundary boundary = _boundaryKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      ui.Image image = await boundary.toImage(pixelRatio: 2.0); // Slightly lower res to save bandwidth
+      ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      Uint8List pngBytes = byteData!.buffer.asUint8List();
+
+      final supabase = Supabase.instance.client;
+      final myId = supabase.auth.currentUser!.id;
+      final filename = 'taunt_${myId}_${DateTime.now().millisecondsSinceEpoch}.png';
+      
+      // 2. Upload to Supabase Storage
+      await supabase.storage.from('inbox_attachments').uploadBinary(filename, pngBytes);
+      final imageUrl = supabase.storage.from('inbox_attachments').getPublicUrl(filename);
+
+      // 3. Create Pending Friendship (Catch error if they are already friends)
+      try {
+        await supabase.from('friendships').insert({
+          'requester_id': myId,
+          'addressee_id': victimId,
+          'status': 'pending'
+        });
+      } catch (_) {}
+
+      // 4. Dispatch the Translated Message
+      await supabase.from('player_inbox').insert({
+        'recipient_id': victimId,
+        'sender_id': myId,
+        'message_type': 'friend_request',
+        'template_key': 'req_new_rival', // This matches your en.json key!
+        'attached_image_url': imageUrl,
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Taunt & Friend Request Sent!'), backgroundColor: Colors.purple),
+        );
+      }
+    } catch (e) {
+      debugPrint('Failed to send taunt: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to send message.'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isCapturing = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -113,24 +171,43 @@ class _PolaroidCardState extends State<PolaroidCard> {
                 ],
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                child: Column(
                   children: [
-                    Expanded(
-                      child: Text(
-                        '${widget.snapshot.attackerName} got ${widget.snapshot.victimName}!',
-                        style: const TextStyle(
-                          fontFamily: 'Courier', 
-                          fontSize: 14, 
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${widget.snapshot.attackerName} got ${widget.snapshot.victimName}!',
+                            style: const TextStyle(fontFamily: 'Courier', fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                        Text('@ ${widget.snapshot.timestamp}s', style: const TextStyle(fontFamily: 'Courier', fontSize: 12, color: Colors.black54)),
+                      ],
                     ),
-                    const Icon(Icons.download, size: 16, color: Colors.black54),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        // Native Share/Download Button
+                        IconButton(
+                          icon: const Icon(Icons.share, color: Colors.black87),
+                          onPressed: _downloadImage,
+                          tooltip: 'Share to Socials',
+                        ),
+                        // In-Game Taunt Button (Only visible if the victim was a real player)
+                        if (widget.snapshot.victimId != null)
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.purple[800]),
+                            icon: const Icon(Icons.send, color: Colors.white, size: 16),
+                            label: const Text('SEND TAUNT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                            onPressed: _sendTauntToInbox,
+                          ),
+                      ],
+                    ),
                   ],
                 ),
               ),

@@ -5,6 +5,7 @@ import 'package:showcaseview/showcaseview.dart';
 import 'package:flame/game.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'game.dart';
 import 'store_screen.dart';
 import 'loadout_screen.dart';
@@ -22,6 +23,9 @@ import 'audio_manager.dart';
 import 'guild_war_results_overlay.dart';
 import 'crypt_pass_screen.dart';
 import 'match_summary_screen.dart';
+import 'inbox_screen.dart';
+import 'settings_screen.dart';
+import 'theme.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -524,8 +528,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                       child: Text(
-                        _isSearchingForMatch ? 'SEARCHING...' : 'FIND MATCH',
-                        style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 2),
+                        _isSearchingForMatch ? 'btn_searching'.tr() : 'btn_find_match'.tr(),
+                        style: AppTheme.getLocalizedStyle(context.locale.languageCode, color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 2),
                       ),
                     ),
                   ),
@@ -538,7 +542,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       ).then((_) => _fetchPlayerData());
                     },
                     icon: const Icon(Icons.group, color: Colors.white),
-                    label: const Text('SQUAD PARTY', style: TextStyle(color: Colors.white, fontSize: 16)),
+                    label: Text('btn_squad_party'.tr(), style: TextStyle(color: Colors.white, fontSize: 16)),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       side: const BorderSide(color: Colors.grey),
@@ -554,7 +558,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       );
                     },
                     icon: const Icon(Icons.remove_red_eye, color: Colors.white),
-                    label: const Text('SPECTATE MATCHES', style: TextStyle(color: Colors.white, fontSize: 16)),
+                    label: Text('btn_spectate_matches'.tr(), style: TextStyle(color: Colors.white, fontSize: 16)),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       side: const BorderSide(color: Colors.grey),
@@ -574,7 +578,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                         );
                       },
                       icon: const Icon(Icons.photo_library, color: Colors.purpleAccent),
-                      label: const Text('LAST MATCH HIGHLIGHTS', style: TextStyle(color: Colors.purpleAccent, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                      label: Text('btn_last_match_highlights'.tr(), style: TextStyle(color: Colors.purpleAccent, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         backgroundColor: Colors.purpleAccent.withOpacity(0.1),
@@ -589,8 +593,18 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   const SizedBox(height: 12),
 
                   _buildMenuButton(
+                    icon: Icons.mail_outline,
+                    label: 'INBOX',
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const InboxScreen()),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  _buildMenuButton(
                     icon: Icons.local_fire_department,
-                    label: 'CRYPT WAR MAP',
+                    label: 'btn_crypt_war_map'.tr(),
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(builder: (context) => const GuildWarMapScreen()),
@@ -601,7 +615,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   const SizedBox(height: 10),
                   _buildMenuButton(
                     icon: Icons.card_membership,
-                    label: 'CRYPT PASS',
+                    label: 'btn_crypt_pass'.tr(),
                     badgeCount: _unclaimedPassTiers, // <--- ADD THIS
                     onPressed: () {
                       Navigator.of(context).push(
@@ -622,7 +636,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   },
   child:_buildMenuButton(
                     icon: Icons.store,
-                    label: 'THE BLACK MARKET',
+                    label: 'btn_black_market'.tr(),
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(builder: (context) => const StoreScreen()),
@@ -642,7 +656,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   },
   child:_buildMenuButton(
                     icon: Icons.backpack,
-                    label: 'THE CRYPT',
+                    label:'btn_crypt'.tr(),
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(builder: (context) => const LoadoutScreen()),
@@ -653,7 +667,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   const SizedBox(height: 10),
                   _buildMenuButton(
                     icon: Icons.people,
-                    label: 'FRIENDS',
+                    label: 'btn_friends'.tr(),
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(builder: (context) => const FriendsScreen()),
@@ -663,7 +677,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   const SizedBox(height: 10),
                   _buildMenuButton(
                     icon: Icons.shield,
-                    label: 'GUILDS',
+                    label: 'btn_guilds'.tr(),
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(builder: (context) => const GuildScreen()),
@@ -673,10 +687,22 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   const SizedBox(height: 10),
                   _buildMenuButton(
                     icon: Icons.leaderboard,
-                    label: 'LEADERBOARD',
+                    label: 'btn_leaderboard'.tr(),
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(builder: (context) => const LeaderboardScreen()),
+                      );
+                    },
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  _buildMenuButton(
+                    icon: Icons.settings,
+                    label: 'SETTINGS',
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const SettingsScreen()),
                       );
                     },
                   ),
@@ -697,6 +723,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   }
 
   Widget _buildMenuButton({required IconData icon, required String label, required VoidCallback onPressed, int badgeCount = 0}) {
+    String currentLang = context.locale.languageCode; // Grab active language
+
     return OutlinedButton(
       onPressed: onPressed,
       style: OutlinedButton.styleFrom(
@@ -709,8 +737,11 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         children: [
           Icon(icon, color: Colors.white),
           const SizedBox(width: 12),
-          Text(label, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-          const Spacer(), // Pushes the badge to the far right
+          Text(
+            label, 
+            style: AppTheme.getLocalizedStyle(currentLang, color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)
+          ),
+          const Spacer(), 
           if (badgeCount > 0)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

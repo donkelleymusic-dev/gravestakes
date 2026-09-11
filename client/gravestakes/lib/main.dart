@@ -19,23 +19,24 @@ import 'splash_screen.dart';
 import 'audio_manager.dart';
 
 Future<void> main() async {
-  // 1. MUST BE FIRST: Ensure Flutter bindings and localization are ready before Sentry boots
-  WidgetsFlutterBinding.ensureInitialized();
-  await EasyLocalization.ensureInitialized();
-
-  // 2. Initialize Sentry
+  // 1. Initialize Sentry first. This creates the custom error-tracking Zone.
   await SentryFlutter.init(
     (options) {
       options.dsn = 'https://5c13105a06c0c151b3fab20c9ad12475@o4511748451729408.ingest.us.sentry.io/4512048891428864'; 
       options.tracesSampleRate = 1.0; 
     },
     appRunner: () async {
+      // 2. Initialize Flutter bindings INSIDE Sentry's zone
+      WidgetsFlutterBinding.ensureInitialized();
+      
+      // 3. Initialize EasyLocalization INSIDE Sentry's zone
+      await EasyLocalization.ensureInitialized();
+
       await Supabase.initialize(
         url: 'https://rbpmgzcafsykjbljgfvl.supabase.co', 
         anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJicG1nemNhZnN5a2pibGpnZnZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5MzEzMTgsImV4cCI6MjEwMjUwNzMxOH0.z-Th0EOWSqr4M7UcDrZUNO4U_ylhJ_nVB0VcUPWAYHA',
       );
 
-      // --- 3. REVENUECAT INITIALIZATION ---
       if (!kIsWeb) {
         await Purchases.setLogLevel(LogLevel.debug);
         if (Platform.isIOS) {
@@ -45,7 +46,6 @@ Future<void> main() async {
         }
       }
 
-      // 4. Audio & Display settings
       await AudioManager.instance.init();
       AudioManager.instance.playMenuMusic();
 
@@ -60,13 +60,23 @@ Future<void> main() async {
         DeviceOrientation.landscapeRight,
       ]);
 
-      // 5. Wrap the app with EasyLocalization
+      // 4. Launch the app inside the same zone
       runApp(
         EasyLocalization(
           supportedLocales: const [
-            Locale('en'), Locale('es'), Locale('ja'), Locale('de'),
+            Locale('en'), 
+            Locale('es'), 
+            Locale('pt', 'BR'), // Split regional codes
+            Locale('ja'), 
+            Locale('ko'), 
+            Locale('de'), 
+            Locale('fr'), 
+            Locale('ru'), 
+            Locale('hi'), 
+            Locale('fa'), 
+            Locale('ar')
           ],
-          path: 'assets/translations', // Ensure this folder and your .json files exist
+          path: 'assets/translations', 
           fallbackLocale: const Locale('en'),
           child: const GraveStakesApp(),
         ),

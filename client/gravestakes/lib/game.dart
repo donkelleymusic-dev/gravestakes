@@ -57,7 +57,8 @@ class ScareSnapshot {
   final String attackerMaskId;
   final String victimName;
   final String victimCharId;
-  final int timestamp; // To show "Scare occurred at 2:14"
+  final String? victimId;
+  final int timestamp; 
   final double mapX;
   final double mapY;
 
@@ -67,6 +68,7 @@ class ScareSnapshot {
     required this.attackerMaskId,
     required this.victimName,
     required this.victimCharId,
+    this.victimId,
     required this.timestamp,
     required this.mapX,
     required this.mapY,
@@ -874,6 +876,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               attackerMaskId: maskId,
               victimName: remoteId.substring(0, 4), 
               victimCharId: remotePlayer.equippedCharacterId,
+              victimId: remoteId, // <-- NEW: Pass the full UUID here
               timestamp: gameTimer.timeLeft.toInt(),
               mapX: attackerPos.x,
               mapY: attackerPos.y,

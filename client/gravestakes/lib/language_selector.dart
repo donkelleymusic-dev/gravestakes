@@ -12,15 +12,29 @@ class LanguageSelector extends StatelessWidget {
   };
 
   Future<void> _updateLanguage(BuildContext context, String langCode) async {
-    await context.setLocale(Locale(langCode));
+    // Safely parse regional locales (e.g., pt-BR becomes Locale('pt', 'BR'))
+    Locale targetLocale;
+    if (langCode.contains('-')) {
+      final parts = langCode.split('-');
+      targetLocale = Locale(parts[0], parts[1]);
+    } else {
+      targetLocale = Locale(langCode);
+    }
+    
+    // Switch the local UI
+    await context.setLocale(targetLocale);
+    
+    // Sync to Supabase
     final user = Supabase.instance.client.auth.currentUser;
     if (user != null) {
       try {
         await Supabase.instance.client.from('profiles').update({'language_code': langCode}).eq('id', user.id);
-      } catch (e) {}
+      } catch (e) {
+        debugPrint('Failed to sync language to DB: $e');
+      }
     }
   }
-
+  
   @override
   Widget build(BuildContext context) {
     String currentLang = context.locale.languageCode;
