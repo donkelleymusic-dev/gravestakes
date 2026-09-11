@@ -44,7 +44,12 @@ class _PolaroidCardState extends State<PolaroidCard> {
     try {
       // 1. Capture the widget as a pixel image
       RenderRepaintBoundary boundary = _boundaryKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
-      ui.Image image = await boundary.toImage(pixelRatio: 3.0); // High res export
+      // Wait a split second if the frame is currently dirty/painting
+      while (boundary.debugNeedsPaint) {
+        await Future.delayed(const Duration(milliseconds: 20));
+      }
+
+      ui.Image image = await boundary.toImage(pixelRatio: 3.0);
       ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       Uint8List pngBytes = byteData!.buffer.asUint8List();
 
@@ -75,7 +80,13 @@ class _PolaroidCardState extends State<PolaroidCard> {
     try {
       // 1. Capture the widget as a pixel image
       RenderRepaintBoundary boundary = _boundaryKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
-      ui.Image image = await boundary.toImage(pixelRatio: 2.0); // Slightly lower res to save bandwidth
+      
+      // Wait a split second if the frame is currently dirty/painting
+      while (boundary.debugNeedsPaint) {
+        await Future.delayed(const Duration(milliseconds: 20));
+      }
+
+      ui.Image image = await boundary.toImage(pixelRatio: 2.0);
       ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       Uint8List pngBytes = byteData!.buffer.asUint8List();
 
@@ -130,7 +141,7 @@ class _PolaroidCardState extends State<PolaroidCard> {
         key: _boundaryKey,
         child: Container(
           width: 300,
-          height: 350,
+          height: 366,
           decoration: BoxDecoration(
             color: const Color(0xFFEBEBEB), 
             borderRadius: BorderRadius.circular(4),
@@ -145,7 +156,7 @@ class _PolaroidCardState extends State<PolaroidCard> {
                 children: [
                   Container(
                     margin: const EdgeInsets.all(12),
-                    height: 250,
+                    height: 230,
                     decoration: BoxDecoration(
                       color: Colors.black,
                       border: Border.all(color: Colors.black87, width: 2),
@@ -402,29 +413,55 @@ class ActionLines extends PositionComponent {
 class ComicBubble extends PositionComponent {
   final String text;
   final bool isSpeech;
-  final String langCode; // <-- Add language property
+  final String langCode;
 
   ComicBubble({required this.text, required this.isSpeech, required this.langCode, super.position});
 
   @override
   void render(Canvas canvas) {
     super.render(canvas);
+    
+    // 1. Setup the TextPainter FIRST so we know exactly how big the text is
+    final textSpan = TextSpan(
+      text: text,
+      style: AppTheme.getLocalizedStyle(
+        langCode,
+        color: Colors.black,
+        fontSize: isSpeech ? 16 : 11,
+        fontWeight: FontWeight.bold,
+        letterSpacing: 1.2,
+      ).copyWith(fontStyle: isSpeech ? FontStyle.normal : FontStyle.italic),
+    );
+    
+    final textPainter = TextPainter(
+      text: textSpan,
+      textDirection: ui.TextDirection.ltr,
+      textAlign: TextAlign.center,
+      maxLines: 1, // Truncate to a single line if it gets too long
+      ellipsis: '..', // Cut off oversized translations with an ellipsis
+    );
+    
+    // Layout with a hard maximum width so massive translations don't break the Polaroid boundaries
+    const double maxTextWidth = 110.0;
+    textPainter.layout(maxWidth: maxTextWidth);
+
+    // 2. Determine bubble sizing based on the actual measured text
+    // We add 20 pixels of padding (10 on each side) to the calculated text width
+    double w = (textPainter.width + 20.0).clamp(40.0, maxTextWidth + 20.0);
+    double h = isSpeech ? 35.0 : 20.0;
+    
+    // 3. Draw the main bubble shape
     final bgPaint = Paint()..color = isSpeech ? Colors.white : Colors.amberAccent;
     final borderPaint = Paint()
       ..color = Colors.black
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
 
-    // Determine sizing based on text length
-    double w = (text.length * 9.0).clamp(40.0, 100.0);
-    double h = isSpeech ? 35.0 : 20.0;
-    
-    // Draw the main bubble shape
     final rrect = RRect.fromLTRBR(-w/2, -h/2, w/2, h/2, Radius.circular(isSpeech ? 12 : 4));
     canvas.drawRRect(rrect, bgPaint);
     canvas.drawRRect(rrect, borderPaint);
 
-    // Draw the directional tail for speech bubbles
+    // 4. Draw the directional tail for speech bubbles
     if (isSpeech) {
       final path = Path()
         ..moveTo(-w/4, h/2) 
@@ -435,25 +472,7 @@ class ComicBubble extends PositionComponent {
       canvas.drawPath(path, borderPaint);
     }
 
-    // Paint the text inside using your localized dynamic font router
-    final textSpan = TextSpan(
-      text: text,
-      style: AppTheme.getLocalizedStyle(
-        langCode,
-        color: Colors.black,
-        fontSize: isSpeech ? 16 : 11,
-        fontWeight: FontWeight.bold,
-        letterSpacing: 1.2,
-      ).copyWith(fontStyle: isSpeech ? FontStyle.normal : FontStyle.italic), // Append italic logic
-    );
-    
-    final textPainter = TextPainter(
-      text: textSpan,
-      textDirection: ui.TextDirection.ltr, // <--- Explicitly use the UI version
-      textAlign: TextAlign.center,
-    );
-    
-    textPainter.layout();
+    // 5. Paint the text inside, perfectly centered based on its measured dimensions
     textPainter.paint(canvas, Offset(-textPainter.width / 2, -textPainter.height / 2));
   }
 }
