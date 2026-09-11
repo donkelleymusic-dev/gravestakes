@@ -26,6 +26,7 @@ import 'match_summary_screen.dart';
 import 'inbox_screen.dart';
 import 'settings_screen.dart';
 import 'theme.dart';
+import 'cinematic_trailer_game.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -707,7 +708,30 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                     },
                   ),
 
+                  
                   const SizedBox(height: 32),
+
+                  // --- SECRET DIRECTOR MODE (Master Account Only) ---
+                  if (supabase.auth.currentUser?.email == 'donkelleymusic@gmail.com') ...[
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => Scaffold(
+                              body: GameWidget(game: GraveStakesGame(matchMode: 'cinematic')),
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.movie_creation, color: Colors.greenAccent),
+                      label: const Text('RECORD CINEMATIC SEQUENCE', style: TextStyle(color: Colors.greenAccent, fontSize: 16, fontWeight: FontWeight.bold)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        side: const BorderSide(color: Colors.greenAccent, width: 2),
+                      ),
+                    ),
+                  ],
 
                   TextButton(
                     onPressed: _logout,

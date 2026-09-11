@@ -14,6 +14,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
+import 'package:flame/effects.dart';
 
 import 'player.dart';
 import 'remote_player.dart';
@@ -95,6 +96,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   double lobbyTimer = 10.0;
   double countdownTimer = 3.0;
   int _lastTick = 3;
+
+  double cinematicTimer = 0.0;
+  bool cinematicStage1 = false, cinematicStage2 = false, cinematicStage3 = false, cinematicStage4 = false;
+  BotPlayer? stuntDoubleHero;
+  BotPlayer? cinematicMonster;
+  TextComponent? cinematicStatusText;
   
   static Map<String, Map<String, ui.Image>> characterImagesCache = {};
   static Map<String, Map<String, dynamic>> characterRigCache = {};
@@ -339,66 +346,236 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     jumpScareEffect = JumpScareEffect();
 
     world.add(player);
-    world.add(PowerUpHud(player: player));
     camera.follow(player);
 
     camera.viewport.add(jumpScareEffect);
     camera.viewport.add(DarknessOverlay(player));
 
-    if (isGunner) {
-      camera.viewport.add(rightJoystick);
-    } else {
-      camera.viewport.add(leftJoystick);
-    }
-
-    camera.viewport.add(ScoreHud());
-    camera.viewport.add(gameTimer = GameTimer());
+    // Ensure the 3D raycaster is always added
     await camera.viewport.add(FpsViewportOverlay());
-    await camera.viewport.add(FpsTouchControls());
-    await camera.viewport.add(ModeToggleButton());
 
-    mapOverlay = MapOverlay();
-    await camera.viewport.add(mapOverlay);
-    await camera.viewport.add(MapButton());
+    // Initialize the timer in memory so Player.update doesn't crash
+    gameTimer = GameTimer();
 
-    try {
-      final logoSprite = await Sprite.load('lumen_breach_small.jpg');
-      final logoComponent = SpriteComponent(
-        sprite: logoSprite,
-        size: Vector2(120, 60), 
-        position: Vector2(camera.viewport.size.x / 2, camera.viewport.size.y - 20), 
-        anchor: Anchor.bottomCenter,
-        priority: 200, 
-      );
-      camera.viewport.add(logoComponent);
-    } catch (e) {}
-
-    if (matchMode == 'casual') {
-      matchPhase = 'playing'; 
-      camera.viewport.add(StartButton());
-    } else {
-      overlays.add('searching');
-    }
-    camera.viewport.add(AttackButton());
-    camera.viewport.add(DefenseButton());
-    camera.viewport.add(PlayerHud());
-    camera.viewport.add(FlashlightHud());
-
-    if (needsTutorial) {
+    if (matchMode == 'cinematic') {
+      matchPhase = 'cinematic';
       gameStarted = true;
-      gameTimer.start();
-      camera.viewport.children.whereType<StartButton>().toList().forEach((btn) => btn.removeFromParent());
-      world.add(PowerUp(id: 'tutorial_spark', position: safeSpawnPoint + Vector2(100, 0)));
-      camera.viewport.add(TutorialManager());
+      isFpsMode = true; 
+
+      final stageX = 15 * 64.0; 
+      final stageY = 15 * 64.0; 
+
+      player.position = Vector2(stageX, stageY + 128); 
+      player.facingAngle = 0.0; 
+      player.isInvisible = true; 
+
+      stuntDoubleHero = BotPlayer(isHunter: false)
+        ..position = Vector2(stageX + 400, stageY - 64) 
+        ..wanderSpeed = 0.0
+        ..huntSpeed = 0.0
+        ..priority = 10;
+      stuntDoubleHero!.assignedCharacterId = player.equippedCharacterId;
+
+      cinematicMonster = BotPlayer(isHunter: false) 
+        ..position = Vector2(stageX + 800, stageY - 64) 
+        ..wanderSpeed = 0.0
+        ..huntSpeed = 0.0
+        ..priority = 10;
+
+      world.add(stuntDoubleHero!);
+      world.add(cinematicMonster!);
+      
+      bots.add(stuntDoubleHero!);
+      bots.add(cinematicMonster!);
+
+      // --- MOVED HERE SO IT LOADS IN CINEMATIC MODE ---
+      cinematicStatusText = TextComponent(
+        text: 'WAITING FOR CLAPBOARD...',
+        position: Vector2(camera.viewport.size.x / 2, 20),
+        anchor: Anchor.topCenter,
+        priority: 500,
+        textRenderer: TextPaint(
+          style: const TextStyle(
+            color: Colors.cyanAccent,
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            fontFamily: 'Courier',
+            shadows: [Shadow(color: Colors.black, blurRadius: 6)],
+          ),
+        ),
+      );
+      camera.viewport.add(cinematicStatusText!);
+
+    } else {
+      // --- NORMAL GAME UI & CONTROLS ---
+      world.add(PowerUpHud(player: player));
+
+      if (isGunner) {
+        camera.viewport.add(rightJoystick);
+      } else {
+        camera.viewport.add(leftJoystick);
+      }
+
+      camera.viewport.add(ScoreHud());
+
+      // Add the pre-initialized timer to the screen
+      camera.viewport.add(gameTimer);
+      
+      await camera.viewport.add(FpsTouchControls());
+      await camera.viewport.add(ModeToggleButton());
+
+      mapOverlay = MapOverlay();
+      await camera.viewport.add(mapOverlay);
+      await camera.viewport.add(MapButton());
+
+      
+
+      try {
+        final logoSprite = await Sprite.load('lumen_breach_small.jpg');
+        final logoComponent = SpriteComponent(
+          sprite: logoSprite,
+          size: Vector2(120, 60), 
+          position: Vector2(camera.viewport.size.x / 2, camera.viewport.size.y - 20), 
+          anchor: Anchor.bottomCenter,
+          priority: 200, 
+        );
+        camera.viewport.add(logoComponent);
+      } catch (e) {}
+
+      if (matchMode == 'casual') {
+        matchPhase = 'playing'; 
+        camera.viewport.add(StartButton());
+      } else {
+        overlays.add('searching');
+      }
+      
+      camera.viewport.add(AttackButton());
+      camera.viewport.add(DefenseButton());
+      camera.viewport.add(PlayerHud());
+      camera.viewport.add(FlashlightHud());
+      camera.viewport.add(SpecialButton());
+
+      if (needsTutorial) {
+        gameStarted = true;
+        gameTimer.start();
+        camera.viewport.children.whereType<StartButton>().toList().forEach((btn) => btn.removeFromParent());
+        world.add(PowerUp(id: 'tutorial_spark', position: safeSpawnPoint + Vector2(100, 0)));
+        camera.viewport.add(TutorialManager());
+      }
     }
 
-    camera.viewport.add(SpecialButton());
     _setupSupabaseListener();
   }
 
-  @override
+ @override
   void update(double dt) {
     super.update(dt);
+
+    if (matchPhase == 'cinematic') {
+      // --- THE DIRECTOR'S CLAPBOARD ---
+      // Halt the entire timeline until both actors have finished downloading from Supabase!
+      
+      if (stuntDoubleHero?.voxelComponent == null || cinematicMonster?.voxelComponent == null) {
+        return; 
+      }
+
+      cinematicTimer += dt;
+      super.update(dt); 
+
+      // --- SCRIPT MONITOR TEXT UPDATER ---
+      String currentBeat = 'WAITING';
+      if (cinematicTimer <= 5.0) currentBeat = 'BEAT 1-2: FLY-BY RUN';
+      else if (cinematicTimer <= 8.0) currentBeat = 'BEAT 3: CORNER HIDE';
+      else if (cinematicTimer <= 12.0) currentBeat = 'BEAT 4-5: BLACKOUT';
+      else if (cinematicTimer <= 18.0) currentBeat = 'BEAT 6-7: JUMP SCARE';
+      else currentBeat = 'SCENE END';
+
+      cinematicStatusText?.text = 'TIME: [${cinematicTimer.toStringAsFixed(2)}s] | $currentBeat';
+
+      final stageX = 15 * 64.0; // X = 960
+      final stageY = 15 * 64.0; // Y = 960
+
+      // --- THE BULLDOZER ---
+      // On the very first frame, delete all walls in a 10x10 radius to clear the stage
+      if (cinematicTimer == 0.0) {
+        world.children.whereType<WallComponent>().forEach((wall) {
+          if (wall.position.x > stageX - 500 && wall.position.x < stageX + 500 &&
+              wall.position.y > stageY - 300 && wall.position.y < stageY + 300) {
+            wall.removeFromParent();
+          }
+        });
+      }
+
+      //cinematicTimer += dt;
+      //super.update(dt); 
+
+      // --- CINEMATIC OVERRIDES ---
+      if (stuntDoubleHero != null && stuntDoubleHero!.parent != null) {
+         stuntDoubleHero!.facingAngle = -pi / 2; 
+         stuntDoubleHero!.attackCooldown = 999.0; // <--- NEUTER AI ATTACKS
+         if (stuntDoubleHero!.voxelComponent != null) stuntDoubleHero!.voxelComponent!.isMoving = true;
+      }
+      
+      if (cinematicMonster != null && cinematicMonster!.parent != null) {
+         cinematicMonster!.facingAngle = -pi / 2;
+         cinematicMonster!.attackCooldown = 999.0; // <--- NEUTER AI ATTACKS
+         if (cinematicMonster!.voxelComponent != null) {
+             cinematicMonster!.voxelComponent!.isMoving = true;
+             try { cinematicMonster!.voxelComponent!.activeMaskImage ??= images.fromCache('siren_mask.png'); } catch(e){}
+         }
+      }
+
+      // BEAT 1 & 2: The Fly-By (0s - 5s)
+      if (cinematicTimer > 0.5 && !cinematicStage1) {
+        cinematicStage1 = true;
+        stuntDoubleHero!.add(MoveToEffect(Vector2(stageX - 400, stageY - 64), EffectController(duration: 2.0)));
+        Future.delayed(const Duration(milliseconds: 1800), () {
+          cinematicMonster!.add(MoveToEffect(Vector2(stageX - 400, stageY - 64), EffectController(duration: 1.2)));
+        });
+      }
+
+      // BEAT 3: Cut to First-Person Corner (5s - 8s)
+      if (cinematicTimer > 5.0 && !cinematicStage2) {
+        cinematicStage2 = true;
+        stuntDoubleHero!.position = Vector2(-9999, -9999); 
+        
+        // Put player in the corner we just bulldozed
+        player.position = Vector2(stageX + 300, stageY + 200);
+        player.facingAngle = -pi / 2; 
+        player.isInvisible = false;
+      }
+
+      // BEAT 4 & 5: The Blackout (8s - 12s)
+      if (cinematicTimer > 8.0 && !cinematicStage3) {
+        cinematicStage3 = true;
+        player.flashlightBattery = 0.0;
+        player.isFlashlightDead = true; 
+        
+        cinematicMonster!.position = player.position + Vector2(60, 0); 
+      }
+
+      // BEAT 6 & 7: The Reveal & Jump Scare (12s - 16s)
+      if (cinematicTimer > 12.0) {
+        if (!cinematicStage4) {
+          cinematicStage4 = true;
+          player.flashlightBattery = 100.0; 
+          player.isFlashlightDead = false;
+        }
+        
+        if (cinematicTimer < 14.0) {
+          player.facingAngle += dt * 1.5; 
+        }
+
+        if (cinematicTimer > 13.9 && cinematicTimer < 14.0) {
+          if (cinematicMonster!.voxelComponent != null) {
+              cinematicMonster!.voxelComponent!.triggerScareAnimation();
+          }
+        }
+
+        if (cinematicTimer > 18.0) pauseEngine();
+      }
+      return;
+    }
     
     if (matchPhase == 'searching') {
       if (isHost) {
@@ -508,6 +685,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
   void _spawnWorldEntities() {
     if (bots.isNotEmpty) return; 
+    if (matchMode == 'cinematic') return;
     
     List<Vector2> availableSpawns = gameMap.playerSpawns.isNotEmpty 
         ? List<Vector2>.from(gameMap.playerSpawns)
