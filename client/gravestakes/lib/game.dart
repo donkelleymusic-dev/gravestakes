@@ -488,11 +488,14 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           }
         });
 
-        // BEAT 1-2 SETUP: Camera right next to the track, facing East into oncoming runners
-        player.position = Vector2(stageX + 300, stageY - 50);
-        player.facingAngle = pi / 2; // Looking East (toward oncoming runners)
+        // BEAT 1-2 SETUP: Backed the camera up to give a wider field of view!
+        player.position = Vector2(stageX + 150, stageY + 40); 
+        
+        // 80 degrees clockwise from North (looking East-North-East at the spawning actors)
+        player.facingAngle = 80 * (pi / 180); 
         player.isInvisible = true;
 
+        // Actors run along the Y = stageY - 100 lane
         stuntDoubleHero!.position = Vector2(stageX + 800, stageY - 100);
         cinematicMonster!.position = Vector2(stageX + 1200, stageY - 100);
       }
