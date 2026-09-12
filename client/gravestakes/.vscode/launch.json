@@ -1,0 +1,18 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Flutter Web (Mac Browser)",
+      "request": "launch",
+      "type": "dart",
+      "toolArgs": [
+        "-d", 
+        "web-server", 
+        "--web-hostname", 
+        "0.0.0.0", 
+        "--web-port", 
+        "8080"
+      ]
+    }
+  ]
+}

@@ -739,7 +739,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
   @override
   void onRemove() {
-    lastMatchPhotos = List.from(matchPhotos);
+    // STRICT GUARDRAIL: Only overwrite the gallery if this instance actually took photos!
+    // This prevents aborted matchmaking lobbies or cinematic modes from wiping your history.
+    if (matchPhotos.isNotEmpty) {
+      lastMatchPhotos = List.from(matchPhotos);
+    }
+    
     myChannel.unsubscribe();
     try {
       Supabase.instance.client.rpc('leave_match', params: {'p_match_id': roomId});
@@ -846,6 +851,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
   Future<void> endGame() async {
     gameStarted = false; 
+
+    // RESTORE THE SUMMARY OVERLAY
+    overlays.add('summary');
     
     int myTeamScore = player.score;
     int enemyTeamScore = 0;
