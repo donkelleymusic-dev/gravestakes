@@ -13,6 +13,7 @@ class CryptPassScreen extends StatefulWidget {
 
 class _CryptPassScreenState extends State<CryptPassScreen> {
   final supabase = Supabase.instance.client;
+  final ScrollController _scrollController = ScrollController();
 
   bool _isLoading = true;
   bool _isClaiming = false;
@@ -146,6 +147,18 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
       final String? freeVessel = tier['free_vessel_type'];
       final String? premiumVessel = tier['premium_vessel_type'];
 
+      // --- NEW SCROLL LOGIC ---
+      final int itemIndex = _tiers.indexOf(tier);
+      if (_scrollController.hasClients) {
+        await _scrollController.animateTo(
+          itemIndex * 96.0, // Multiplies the index by your exact 96px row height
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeOutCubic,
+        );
+        // Add a tiny delay so the scroll finishes before the overlay dims the screen
+        await Future.delayed(const Duration(milliseconds: 100)); 
+      }
+      
       // 1. Open Free Chest
       if (freeVessel != null && mounted) {
         await _showAndWaitForVessel(freeVessel);
@@ -277,6 +290,7 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
                 _buildTrackTitles(),
                 Expanded(
                   child: ListView.builder(
+                    controller: _scrollController,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     itemCount: _tiers.length,
                     itemBuilder: (context, index) {
