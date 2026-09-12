@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart' hide Image;
+import 'game.dart';
 
 class GameMap extends Component with HasGameReference<FlameGame> {
   final String roomId;
@@ -26,6 +27,26 @@ class GameMap extends Component with HasGameReference<FlameGame> {
   // Track exploration bounds for auto-scaling
   int minExploredX = 999, maxExploredX = -1;
   int minExploredY = 999, maxExploredY = -1;
+
+  int getProgressionSeed(String roomId) {
+    // Cast the generic Flame game reference to your specific class
+    final myGame = game as GraveStakesGame;
+
+    // 1. Lock the movie set perfectly in place for the cinematic director!
+    if (myGame.matchMode == 'cinematic') {
+      return 8675309; 
+    }
+    
+    // 2. Stable, cross-platform hash combining map progression and room identity
+    // (If you want identical daily maps across ALL lobbies, remove "_$roomId")
+    String combinedKey = "${myGame.mapName}_$roomId";
+    int stableHash = 0;
+    for (int i = 0; i < combinedKey.length; i++) {
+      stableHash = 31 * stableHash + combinedKey.codeUnitAt(i);
+    }
+    
+    return stableHash;
+  }
 
   void initExplorationGrid() {
     visitedGrid = List.generate(gridHeight, (_) => List.filled(gridWidth, false));
@@ -81,8 +102,9 @@ class GameMap extends Component with HasGameReference<FlameGame> {
     int targetEmptySpaces = (gridWidth * gridHeight * 0.45).toInt(); 
     int currentEmpty = 1;
     
-    // FIX: Deterministic seed based on the room ID so all players share the exact same map layout!
-    final rand = Random(roomId.hashCode);
+    // Call the updated stable seed generator
+    int mapSeed = getProgressionSeed(roomId);
+    final rand = Random(mapSeed);
     
     // The "Drunkard" carves out the dungeon
     while (currentEmpty < targetEmptySpaces) {
