@@ -482,13 +482,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       // --- THE BULLDOZER & INITIAL STAGE SETUP ---
       if (cinematicTimer == 0.0) {
         world.children.whereType<WallComponent>().forEach((wall) {
-          if (wall.position.x > stageX - 1000 && wall.position.x < stageX + 1000 &&
-              wall.position.y > stageY - 600 && wall.position.y < stageY + 600) {
+          if (wall.position.x > stageX - 1500 && wall.position.x < stageX + 1500 &&
+              wall.position.y > stageY - 1000 && wall.position.y < stageY + 1000) {
             wall.removeFromParent();
           }
         });
 
-        // BEAT 1-2 SETUP
+        // Spawn a custom 2-block "Prop Wall" for Beat 3's corner hiding scene
+        world.add(WallComponent(position: Vector2(stageX - 200, stageY + 150), tileSize: 64.0));
+        world.add(WallComponent(position: Vector2(stageX - 200, stageY + 214), tileSize: 64.0));
+
+        // BEAT 1-2 SETUP: The Runway
         player.position = Vector2(stageX - 100, stageY - 14); 
         player.facingAngle = (pi / 2) - (25 * (pi / 180)); 
         player.isInvisible = true;
@@ -503,19 +507,20 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       // --- SCRIPT MONITOR TEXT UPDATER ---
       String currentBeat = 'WAITING';
       if (cinematicTimer <= 5.0) currentBeat = 'BEAT 1-2: FLY-BY';
-      else if (cinematicTimer <= 8.0) currentBeat = 'BEAT 3: NEW CORNER';
-      else if (cinematicTimer <= 12.0) currentBeat = 'BEAT 4-5: BLACKOUT SETUP';
-      else if (cinematicTimer <= 18.0) currentBeat = 'BEAT 6-7: SNAP TURN & SCARE';
+      else if (cinematicTimer <= 10.0) currentBeat = 'BEAT 3: CORNER CREEP (EXT)';
+      else if (cinematicTimer <= 13.0) currentBeat = 'BEAT 4: FPS POV';
+      else if (cinematicTimer <= 15.0) currentBeat = 'BEAT 5: BLACKOUT';
+      else if (cinematicTimer <= 20.0) currentBeat = 'BEAT 6: EMPTY TURN';
+      else if (cinematicTimer <= 23.0) currentBeat = 'BEAT 7: SNAP SCARE';
       else currentBeat = 'SCENE END';
 
       cinematicStatusText?.text = 'TIME: [${cinematicTimer.toStringAsFixed(2)}s] | $currentBeat';
 
-      // --- CINEMATIC OVERRIDES ---
+      // --- CINEMATIC AI LOCKS ---
       if (stuntDoubleHero != null && stuntDoubleHero!.parent != null) {
-         stuntDoubleHero!.facingAngle = -pi / 2; 
          stuntDoubleHero!.attackCooldown = 999.0; 
-         stuntDoubleHero!.wanderSpeed = 0.0; // <--- LOCK AI SPEED
-         stuntDoubleHero!.huntSpeed = 0.0;   // <--- LOCK AI SPEED
+         stuntDoubleHero!.wanderSpeed = 0.0;
+         stuntDoubleHero!.huntSpeed = 0.0;
          stuntDoubleHero!.isStunned = false;
          if (stuntDoubleHero!.voxelComponent != null) {
              stuntDoubleHero!.voxelComponent!.isMoving = cinematicTimer < 5.0; 
@@ -523,13 +528,13 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       }
       
       if (cinematicMonster != null && cinematicMonster!.parent != null) {
-         cinematicMonster!.facingAngle = -pi / 2; 
          cinematicMonster!.attackCooldown = 999.0; 
-         cinematicMonster!.wanderSpeed = 0.0; // <--- LOCK AI SPEED
-         cinematicMonster!.huntSpeed = 0.0;   // <--- LOCK AI SPEED
+         cinematicMonster!.wanderSpeed = 0.0;
+         cinematicMonster!.huntSpeed = 0.0;
          cinematicMonster!.isStunned = false;
          if (cinematicMonster!.voxelComponent != null) {
-             cinematicMonster!.voxelComponent!.isMoving = cinematicTimer < 5.0;
+             // Monster runs in Beat 1, and walks in Beat 3
+             cinematicMonster!.voxelComponent!.isMoving = (cinematicTimer < 5.0) || (cinematicTimer >= 5.0 && cinematicTimer < 9.0);
              try { cinematicMonster!.voxelComponent!.activeMaskImage ??= images.fromCache('siren_mask.png'); } catch(e){}
          }
       }
@@ -537,72 +542,101 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       // BEAT 1 & 2: The Fly-By (0s - 5s)
       if (cinematicTimer > 0.5 && !cinematicStage1) {
         cinematicStage1 = true;
+        stuntDoubleHero!.facingAngle = -pi / 2;
+        cinematicMonster!.facingAngle = -pi / 2;
+
         stuntDoubleHero!.add(MoveToEffect(Vector2(stageX - 400, stageY - 64), EffectController(duration: 2.0)));
         Future.delayed(const Duration(milliseconds: 1800), () {
           cinematicMonster!.add(MoveToEffect(Vector2(stageX - 400, stageY - 64), EffectController(duration: 1.2)));
         });
       }
 
-      // BEAT 3: Cut to New Location (5s - 8s)
-      if (cinematicTimer > 5.0 && !cinematicStage2) {
-        cinematicStage2 = true;
+      // BEAT 3: External Corner Creep (5s - 10s)
+      bool cinematicStage2 = cinematicTimer > 5.0;
+      if (cinematicStage2 && cinematicTimer < 5.1) { // Trigger exactly once at 5.0
+        // Hero hides on the East side of the wall, facing North
+        stuntDoubleHero!.position = Vector2(stageX - 100, stageY + 250);
+        stuntDoubleHero!.facingAngle = 0.0;
+
+        // Camera moves to North-East, looking South-West at the Hero and Wall
+        player.position = Vector2(stageX - 50, stageY + 100);
+        player.facingAngle = (3 * pi) / 4; 
+
+        // Monster starts West of the wall, creeps Eastwards towards the corner edge
+        cinematicMonster!.position = Vector2(stageX - 500, stageY + 150);
+        cinematicMonster!.facingAngle = pi / 2; // Facing East
+        
+        // Creep slowly to just behind the corner wall
+        cinematicMonster!.add(MoveToEffect(Vector2(stageX - 250, stageY + 150), EffectController(duration: 4.0)));
+      }
+
+      // BEAT 4: FPS POV Cut (10s - 13s)
+      bool cinematicStage3 = cinematicTimer > 10.0;
+      if (cinematicStage3 && cinematicTimer < 10.1) {
         stuntDoubleHero!.position = Vector2(-9999, -9999); 
         
-        player.position = Vector2(stageX - 200, stageY + 150);
-        player.facingAngle = -pi / 2; // Look West (where we theoretically came from)
+        // Camera snaps into Hero's exact position behind the wall, looking North
+        player.position = Vector2(stageX - 100, stageY + 250);
+        player.facingAngle = 0.0; 
         player.isInvisible = false;
       }
 
-      // BEAT 4 & 5: The Blackout (8s - 12s)
-      if (cinematicTimer > 8.0 && !cinematicStage3) {
-        cinematicStage3 = true;
+      // BEAT 5: The Blackout (13s - 15s)
+      bool cinematicStage4 = cinematicTimer > 13.0;
+      if (cinematicStage4 && cinematicTimer < 13.1) {
         player.flashlightBattery = 0.0;
         player.isFlashlightDead = true; 
-        
-        // Plant the monster directly East of the player, facing West (towards the lens)
-        cinematicMonster!.position = player.position + Vector2(50, 0); 
-        cinematicMonster!.facingAngle = -pi / 2; 
       }
 
-      // BEAT 6 & 7: The Reveal & Jump Scare (12s - 16s+)
-      if (cinematicTimer > 12.0) {
-        if (!cinematicStage4) {
-          cinematicStage4 = true;
-          player.flashlightBattery = 100.0; 
-          player.isFlashlightDead = false;
-          
-          // Optional: Add breathing audio here
-        }
+      // BEAT 6: Light Returns & First Slow Turn (15s - 20s)
+      bool cinematicStage5 = cinematicTimer > 15.0;
+      if (cinematicStage5 && cinematicTimer < 15.1) {
+        player.flashlightBattery = 100.0; 
+        player.isFlashlightDead = false;
+
+        // Teleport Monster 25 pixels directly behind (South of) the player's new position!
+        cinematicMonster!.position = player.position + Vector2(0, 25); 
+        cinematicMonster!.facingAngle = 0.0; // Looking at the back of Hero's head
+      }
+
+      if (cinematicTimer > 15.0 && cinematicTimer <= 20.0) {
+        double turnProgress = cinematicTimer - 15.0;
         
-        double scanTime = cinematicTimer - 12.0;
+        // 15s to 18s: Slow 90-degree sweep to the Right (North to East)
+        if (turnProgress <= 3.0) {
+          player.facingAngle = (turnProgress / 3.0) * (pi / 2);
+        }
+        // 18s to 20s: The Pause (Hold exactly East, seeing nothing)
+        else {
+          player.facingAngle = pi / 2;
+        }
+      }
 
-        // 12.0s to 13.5s: Slow rotation from West (-pi/2) to North (0.0)
-        if (scanTime > 0.0 && scanTime <= 1.5) {
-          player.facingAngle += dt * (pi / 3.0); // 90 degrees over 1.5s
-          if (player.facingAngle > 0.0) player.facingAngle = 0.0; // clamp
-        }
-        // 13.5s to 14.5s: The Pause (Looking North into the distant maze)
-        else if (scanTime > 1.5 && scanTime <= 2.5) {
-          player.facingAngle = 0.0;
-        }
-        // 14.5s to 14.7s: The Snap Turn (From North to East)
-        else if (scanTime > 2.5 && scanTime <= 2.7) {
-          player.facingAngle += dt * ((pi / 2) / 0.2); // 90 degrees in just 0.2s!
-          if (player.facingAngle > pi / 2) player.facingAngle = pi / 2; // clamp
+      // BEAT 7: Snap Turn & Jump Scare (20s - 23s)
+      if (cinematicTimer > 20.0) {
+        double snapTime = cinematicTimer - 20.0;
+        
+        // 20.0s to 20.5s: Exponentially accelerating 90-degree turn to South
+        if (snapTime <= 0.5) {
+          // Cubing the progress creates a slow start that violently snaps at the end
+          double curve = pow(snapTime / 0.5, 3).toDouble();
+          player.facingAngle = (pi / 2) + (curve * (pi / 2));
+        } else {
+          player.facingAngle = pi; // Lock facing South (Looking right at the monster)
         }
 
-        // 14.7s: TRIGGER SCARE
-        if (scanTime > 2.7 && scanTime < 2.75) {
+        // 20.5s: SCARE TRIGGER (Exactly as the camera locks onto South)
+        if (snapTime > 0.5 && snapTime < 0.55) {
           if (cinematicMonster!.voxelComponent != null) {
               cinematicMonster!.voxelComponent!.triggerScareAnimation();
           }
           if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
-            SoLoud.instance.play(AudioManager.instance.impactSource!); // Sub in your scream!
+            SoLoud.instance.play(AudioManager.instance.impactSource!); 
           }
         }
 
-        // 14.9s: BLACKOUT AND FREEZE
-        if (scanTime >= 2.9) {
+        // 20.7s: FINAL CUT TO BLACK
+        if (snapTime >= 0.7) {
           player.flashlightBattery = 0.0;
           player.isFlashlightDead = true;
           pauseEngine();
