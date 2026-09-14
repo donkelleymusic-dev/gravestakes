@@ -58,7 +58,7 @@ class FpsTouchControls extends PositionComponent with HasGameReference<GraveStak
   }
 }
 
-class FpsActionButton extends PositionComponent with TapCallbacks {
+class FpsActionButton extends PositionComponent with DragCallbacks {
   final String label;
   final VoidCallback? onPressed;
   final VoidCallback? onPressedDown;
@@ -73,18 +73,21 @@ class FpsActionButton extends PositionComponent with TapCallbacks {
   }) : super(position: position, size: Vector2(40, 32), anchor: Anchor.topLeft);
 
   @override
-  void onTapDown(TapDownEvent event) {
+  void onDragStart(DragStartEvent event) {
+    super.onDragStart(event);
     onPressed?.call();
     onPressedDown?.call();
   }
 
   @override
-  void onTapUp(TapUpEvent event) {
+  void onDragEnd(DragEndEvent event) {
+    super.onDragEnd(event);
     onPressedUp?.call();
   }
 
   @override
-  void onTapCancel(TapCancelEvent event) {
+  void onDragCancel(DragCancelEvent event) {
+    super.onDragCancel(event);
     onPressedUp?.call();
   }
 

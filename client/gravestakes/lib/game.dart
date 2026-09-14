@@ -719,6 +719,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         if (AudioManager.instance.isInitialized && AudioManager.instance.tickSource != null) {
           SoLoud.instance.play(AudioManager.instance.tickSource!);
         }
+
+        // --- START MATCH MUSIC ---
+        if (AudioManager.instance.isInitialized) {
+          AudioManager.instance.playRandomInGameTrack();
+        }
         
         overlays.remove('countdown');
         overlays.add('countdown');
@@ -878,6 +883,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
   Future<void> endGame() async {
     gameStarted = false; 
+
+    // --- STOP MUSIC FOR SCORE SCREEN ---
+    if (AudioManager.instance.isInitialized) {
+      AudioManager.instance.stopMusic();
+    }
 
     overlays.add('summary');
     
@@ -1204,6 +1214,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     gameStarted = true;
     gameTimer.start();
     camera.viewport.children.whereType<StartButton>().toList().forEach((btn) => btn.removeFromParent());
+    // --- START MATCH MUSIC ---
+    if (AudioManager.instance.isInitialized) {
+      AudioManager.instance.playRandomInGameTrack();
+    }
   }
 
   void _setupSupabaseListener() {

@@ -4,7 +4,7 @@ import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import 'game.dart';
 
-class AttackButton extends PositionComponent with HasGameReference<GraveStakesGame>, TapCallbacks {
+class AttackButton extends PositionComponent with HasGameReference<GraveStakesGame>, DragCallbacks {
   final double buttonRadius = 55.0;
   int? _flashedSlot; 
   
@@ -21,7 +21,8 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
   }
 
   @override
-  void onTapDown(TapDownEvent event) {
+  void onDragStart(DragStartEvent event) {
+    super.onDragStart(event);
     if (!game.gameStarted || game.player.isStunned) return;
 
     final localPos = event.localPosition;

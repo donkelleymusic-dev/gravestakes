@@ -3,7 +3,7 @@ import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import 'game.dart';
 
-class ModeToggleButton extends PositionComponent with HasGameReference<GraveStakesGame>, TapCallbacks {
+class ModeToggleButton extends PositionComponent with HasGameReference<GraveStakesGame>, DragCallbacks {
   final double buttonRadius = 25.0;
 
   ModeToggleButton() {
@@ -20,7 +20,8 @@ class ModeToggleButton extends PositionComponent with HasGameReference<GraveStak
   }
 
   @override
-  void onTapDown(TapDownEvent event) {
+  void onDragStart(DragStartEvent event) {
+    super.onDragStart(event);
     game.isFpsMode = !game.isFpsMode;
   }
 

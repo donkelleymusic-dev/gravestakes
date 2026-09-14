@@ -72,7 +72,7 @@ class AudioManager {
 
       // 1. Preload Music
       menuMusic = await SoLoud.instance.loadAsset('assets/audio/music/menu_theme.mp3');
-      // inGameTracks.add(await SoLoud.instance.loadAsset('assets/audio/music/crypt_ambience_1.mp3'));
+      inGameTracks.add(await SoLoud.instance.loadAsset('assets/audio/music/map_theme.mp3'));
       // inGameTracks.add(await SoLoud.instance.loadAsset('assets/audio/music/crypt_ambience_2.mp3'));
 
       // 2. Preload Mask SFX
