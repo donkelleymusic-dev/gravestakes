@@ -732,7 +732,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         hostBotSyncTick = 0;
         List<Map<String, dynamic>> botData = [];
         for (var bot in bots) {
-          botData.add({'x': bot.position.x, 'y': bot.position.y, 'a': bot.angle});
+          // Send facingAngle instead of angle, and include 'i' for invisibility
+          botData.add({'x': bot.position.x, 'y': bot.position.y, 'a': bot.facingAngle, 'i': bot.isInvisible});
         }
         myChannel.sendBroadcastMessage(event: 'sync_bots', payload: {'bots': botData});
       }
@@ -1242,7 +1243,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         event: 'move',
         callback: (payload) {
           final id = payload['id'] as String?;
-          if (id != null && id != mySessionId) {
+          if (id == null || id == mySessionId) return;
+          if (id != mySessionId) {
             final x = payload['x'] as double;
             final y = payload['y'] as double;
             final angle = payload['a'] as double;
@@ -1279,7 +1281,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         event: 'scare',
         callback: (payload) {
           final id = payload['id'] as String?;
-          if (id != null && id != mySessionId && networkPlayers.containsKey(id)) {
+          if (id == null || id == mySessionId || !networkPlayers.containsKey(id)) return;
+          if (id != mySessionId && networkPlayers.containsKey(id)) {
             final remote = networkPlayers[id]!;
             remote.position.x = payload['x'] as double;
             remote.position.y = payload['y'] as double;
@@ -1343,6 +1346,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           if (targetId == mySessionId) {
             player.applyCharm(duration, charmerPos);
           } 
+        },
+      )
+      .onBroadcast(
+        event: 'dissonance',
+        callback: (payload) {
+          final id = payload['id'] as String?;
+          if (id == mySessionId) {
+            final duration = (payload['duration'] as num?)?.toDouble() ?? 3.0;
+            player.applyDissonance(duration);
+          }
         },
       )
       .onBroadcast(
@@ -1445,7 +1458,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               }
               bots[i].position.x = data['x'] as double;
               bots[i].position.y = data['y'] as double;
-              bots[i].angle = data['a'] as double;
+              // Ensure we write to facingAngle and decode 'i'
+              bots[i].facingAngle = data['a'] as double;
+              bots[i].isInvisible = data['i'] as bool? ?? false;
             }
           }
         },

@@ -18,6 +18,11 @@ class GameMap extends Component with HasGameReference<FlameGame> {
   final int gridHeight = 30;
   final double tileSize = 64.0; 
 
+  int minDiscoveredX = 99999;
+  int maxDiscoveredX = -1;
+  int minDiscoveredY = 99999;
+  int maxDiscoveredY = -1;
+
   late List<List<int>> mapGrid;
 
   GameMap({required this.roomId, required this.mapName});
@@ -52,7 +57,7 @@ class GameMap extends Component with HasGameReference<FlameGame> {
     visitedGrid = List.generate(gridHeight, (_) => List.filled(gridWidth, false));
   }
 
-  void revealRadius(Vector2 worldPos, {int radius = 2}) {
+  /* void revealRadius(Vector2 worldPos, {int radius = 2}) {
     int gridX = (worldPos.x / tileSize).floor();
     int gridY = (worldPos.y / tileSize).floor();
 
@@ -70,6 +75,20 @@ class GameMap extends Component with HasGameReference<FlameGame> {
           if (targetY < minExploredY) minExploredY = targetY;
           if (targetY > maxExploredY) maxExploredY = targetY;
         }
+      }
+    }
+  } */
+
+  void markDiscovered(int gridX, int gridY) {
+    if (gridX >= 0 && gridX < gridWidth && gridY >= 0 && gridY < gridHeight) {
+      if (!visitedGrid[gridY][gridX]) {
+        visitedGrid[gridY][gridX] = true;
+
+        // Expand bounding box for the mini-map zoom calculation
+        if (gridX < minExploredX) minExploredX = gridX;
+        if (gridX > maxExploredX) maxExploredX = gridX;
+        if (gridY < minExploredY) minExploredY = gridY;
+        if (gridY > maxExploredY) maxExploredY = gridY;
       }
     }
   }

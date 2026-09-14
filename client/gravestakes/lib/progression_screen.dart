@@ -30,7 +30,7 @@ class ProgressionScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('ACCOUNT RESONANCE', style: TextStyle(color: Colors.cyanAccent, fontSize: 28, letterSpacing: 4, fontFamily: 'Courier')),
+            const Text('ACCOUNT LEVEL', style: TextStyle(color: Colors.cyanAccent, fontSize: 28, letterSpacing: 4, fontFamily: 'Courier')),
             const SizedBox(height: 10),
             Text('XP EARNED THIS MATCH: +${newXp - oldXp}', style: const TextStyle(color: Colors.white70, fontSize: 14, fontFamily: 'Courier')),
             const SizedBox(height: 30),
@@ -86,7 +86,7 @@ class ProgressionScreen extends StatelessWidget {
 const SizedBox(height: 12),
 AnimatedStatTicker(label: 'COINS SALVAGED', beginVal: 0, endVal: coinsEarned, color: Colors.yellowAccent),
 const SizedBox(height: 12),
-AnimatedStatTicker(label: 'ACCOUNT RESONANCE XP', beginVal: oldXp, endVal: newXp, color: Colors.cyanAccent),
+AnimatedStatTicker(label: 'ACCOUNT LEVEL XP', beginVal: oldXp, endVal: newXp, color: Colors.cyanAccent),
 const SizedBox(height: 12),
 // Add feedback for season pass progress:
 AnimatedStatTicker(label: 'CRYPT PASS XP GAINED', beginVal: 0, endVal: newXp - oldXp, color: Colors.purpleAccent),

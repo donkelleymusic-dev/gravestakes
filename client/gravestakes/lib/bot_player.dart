@@ -8,10 +8,17 @@ import 'scare_blast.dart';
 import 'voxel_character_component.dart';
 import 'floating_text.dart';
 import 'audio_manager.dart';
+import 'player.dart';
+import 'remote_player.dart';
 
 enum BotState { wander, hunt, investigate, charmed, flee }
+enum BotPersonality { grunt, stalker, phantom, trapdoor }
 
 class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
+
+  BotPersonality personality = BotPersonality.grunt;
+  late TextComponent debugLabel;
+
   bool isHunter; 
   double wanderSpeed = 80.0;
   double huntSpeed = 130.0; 
@@ -42,6 +49,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   
   double facingAngle = 0.0;
   String currentMaskId = 'standard';
+  bool isInvisible = false;
 
   VoxelCharacterComponent? voxelComponent;
   RectangleComponent? _fallbackSprite;
@@ -68,6 +76,12 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   void transformToHunter() {
     if (isHunter) return;
     isHunter = true;
+    personality = BotPersonality.grunt; // The Goliath just hunts blindly
+    
+    if (parent != null) {
+      debugLabel.text = '[GOLIATH]';
+      debugLabel.textRenderer = TextPaint(style: const TextStyle(color: Colors.redAccent, fontSize: 10, fontFamily: 'Courier'));
+    }
 
     String goliathId = 'the_goliath';
     if (!GraveStakesGame.characterRigCache.containsKey(goliathId)) {
@@ -147,6 +161,55 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     fakeUsername = _fakeNames[_random.nextInt(_fakeNames.length)];
   }
 
+  void _updatePhantomLogic(double dt) {
+    PositionComponent? prey = _getAbsoluteClosestPlayer();
+
+    if (prey != null) {
+      currentState = BotState.hunt;
+
+      // 1. Relentless Pathfinding (Ignores Line of Sight)
+      _pathRecalcTimer -= dt;
+      if (_pathRecalcTimer <= 0) {
+        _hunterPath = game.gameMap.findPath(position, prey.position);
+        _pathRecalcTimer = 0.5; 
+      }
+
+      if (_hunterPath.isNotEmpty) {
+        if (position.distanceTo(_hunterPath.first) < 15.0) _hunterPath.removeAt(0);
+        if (_hunterPath.isNotEmpty) {
+          movementDelta = (_hunterPath.first - position).normalized();
+        } else {
+          movementDelta = (prey.position - position).normalized();
+        }
+      } else {
+        movementDelta = (prey.position - position).normalized();
+      }
+      facingAngle = movementDelta.screenAngle();
+
+      // 2. The Dissonance Aura (AoE Scramble)
+      if (attackCooldown <= 0 && position.distanceTo(prey.position) < 250.0) {
+        if (prey == game.player) {
+          game.player.applyDissonance(3.0);
+        } else {
+          String? targetId;
+          game.networkPlayers.forEach((key, val) { if (val == prey) targetId = key; });
+          if (targetId != null) {
+            game.myChannel.sendBroadcastMessage(event: 'dissonance', payload: {'id': targetId, 'duration': 3.0});
+          }
+        }
+        
+        triggerPrivateHighlight();
+        if (AudioManager.instance.isInitialized && AudioManager.instance.tickSource != null) {
+          SoLoud.instance.play(AudioManager.instance.tickSource!, volume: 1.0);
+        }
+        
+        attackCooldown = 5.0; // Recasts the scramble every 5 seconds if they stay close
+      }
+    } else {
+      _updateGruntLogic(dt);
+    }
+  }
+
   bool _isInVisionCone(Vector2 targetPos) {
     final vectorToTarget = targetPos - position;
     final angleToTarget = atan2(vectorToTarget.y, vectorToTarget.x);
@@ -162,6 +225,32 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   @override
   Future<void> onLoad() async {
     priority = ((position.y + 16) * 10).toInt(); 
+
+    // --- ASSIGN PERSONALITY (Strict Limit of 1 per Special Type) ---
+    if (!isHunter) {
+      // 1. Scan the current game roster to see what is already taken
+      bool hasStalker = game.bots.any((b) => b != this && b.personality == BotPersonality.stalker);
+      bool hasPhantom = game.bots.any((b) => b != this && b.personality == BotPersonality.phantom);
+      bool hasTrapdoor = game.bots.any((b) => b != this && b.personality == BotPersonality.trapdoor);
+
+      // 2. Build the available pool (We add Grunt twice so it remains the most common bot)
+      List<BotPersonality> pool = [BotPersonality.grunt, BotPersonality.grunt];
+      if (!hasStalker) pool.add(BotPersonality.stalker);
+      if (!hasPhantom) pool.add(BotPersonality.phantom);
+      if (!hasTrapdoor) pool.add(BotPersonality.trapdoor);
+
+      // 3. Roll the dice from the remaining available options
+      personality = pool[_random.nextInt(pool.length)];
+    }
+
+    debugLabel = TextComponent(
+      text: isHunter ? '[GOLIATH]' : '[${personality.name.toUpperCase()}]',
+      position: Vector2(size.x / 2, -20),
+      anchor: Anchor.bottomCenter,
+      textRenderer: TextPaint(style: TextStyle(color: isHunter ? Colors.redAccent : Colors.greenAccent, fontSize: 10, fontFamily: 'Courier')),
+    );
+    add(debugLabel);
+
     try {
       final supabase = Supabase.instance.client;
       final charsRes = await supabase.from('characters').select('*');
@@ -332,6 +421,119 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     return closest;
   }
 
+  bool _isBeingWatchedBy(PositionComponent target) {
+    double targetFacing = 0.0;
+    
+    if (target is Player) {
+      targetFacing = target.facingAngle;
+    } else if (target is RemotePlayer) {
+      targetFacing = target.facingAngle;
+    } else {
+      return false; 
+    }
+
+    final toBot = (position - target.position).normalized();
+    final targetForward = Vector2(sin(targetFacing), -cos(targetFacing));
+    
+    // Dot product > 0.3 means the bot is inside a roughly 145-degree cone in front of the player
+    return targetForward.dot(toBot) > 0.3 && game.gameMap.hasLineOfSight(position, target.position); 
+  }
+
+  void _updateStalkerLogic(double dt) {
+    PositionComponent? prey = _getAbsoluteClosestPlayer();
+    
+    if (prey != null && position.distanceTo(prey.position) < 900.0) {
+      if (attackCooldown > 0) {
+        // SCURRY AWAY! It just attacked, time to vanish into the darkness.
+        currentState = BotState.flee;
+        if (evasionTimer <= 0) {
+          movementDelta = (position - prey.position).normalized();
+          facingAngle = movementDelta.screenAngle();
+        }
+      } else if (_isBeingWatchedBy(prey)) {
+        // FREEZE! They are looking at us.
+        currentState = BotState.wander;
+        movementDelta = Vector2.zero();
+        
+        // Reset attack cooldown slightly so it doesn't instantly fire a scare the millisecond they turn away
+        if (attackCooldown < 0.5) attackCooldown = 0.5; 
+      } else {
+        // CREEP! They are looking away.
+        currentState = BotState.hunt;
+        
+        if (evasionTimer <= 0) {
+          movementDelta = (prey.position - position).normalized();
+          facingAngle = movementDelta.screenAngle();
+        }
+      }
+      currentTarget = prey;
+    } else {
+      // No one is close enough to stalk, act like a normal wandering bot
+      _updateGruntLogic(dt);
+    }
+  }
+
+  void _updateTrapdoorLogic(double dt) {
+    _updateGruntLogic(dt); // Run standard pathfinding and state management
+
+    // Invisibility Rules
+    if (attackCooldown > 0 || isStunned || currentState == BotState.flee || currentState == BotState.charmed) {
+      isInvisible = false; // Drop camo when vulnerable or recently attacked
+    } else {
+      // Check if any player is actively shining a light on us
+      PositionComponent? closest = _getAbsoluteClosestPlayer();
+      if (closest != null && _isBeingWatchedBy(closest)) {
+        isInvisible = false; // Poof! Revealed by the flashlight
+      } else {
+        isInvisible = true;  // Fade into the shadows
+      }
+    }
+  }
+
+  void _updateGruntLogic(double dt) {
+    PositionComponent? visibleTarget;
+    if (attackCooldown <= 0) visibleTarget = _findClosestVisiblePlayer();
+
+    if (visibleTarget != null) {
+      currentTarget = visibleTarget;
+      lastKnownPosition = currentTarget!.position.clone();
+      currentState = BotState.hunt;
+    } else if (currentState == BotState.hunt && lastKnownPosition != null) {
+      currentState = BotState.investigate;
+      currentTarget = null;
+    }
+
+    if (currentState == BotState.hunt) {
+      // --- FIXED: Null-safe check before accessing currentTarget ---
+      if (currentTarget != null) {
+        if (evasionTimer <= 0) {
+          movementDelta = (currentTarget!.position - position).normalized();
+          facingAngle = movementDelta.screenAngle();
+        }
+      } else {
+        // Safety fallback if state carried over but the target is gone
+        currentState = BotState.wander;
+      }
+      // -----------------------------------------------------------
+    } else if (currentState == BotState.investigate && lastKnownPosition != null) {
+      if (evasionTimer <= 0) {
+        movementDelta = (lastKnownPosition! - position).normalized();
+        facingAngle = movementDelta.screenAngle();
+      }
+      
+      if (position.distanceTo(lastKnownPosition!) < 20.0) {
+        currentState = BotState.wander;
+        lastKnownPosition = null;
+        _chooseNewDirection();
+      }
+    } else {
+      currentState = BotState.wander;
+      directionTimer -= dt;
+      if (directionTimer <= 0) _chooseNewDirection();
+      if (evasionTimer <= 0) facingAngle = movementDelta.screenAngle();
+    }
+  }
+
   @override
   void update(double dt) {    
     priority = ((position.y + 16) * 10).toInt();
@@ -346,9 +548,18 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       voxelComponent!.stunTimer = stunTimer;
       voxelComponent!.isHighlighted = (highlightTimer > 0);
 
+      // --- TRUE INVISIBILITY, unlike our invisibility cloak for humans---
+      voxelComponent!.isVisible = !isInvisible; // Completely stops rendering the 3D mesh
+      voxelComponent!.isInvisible = false;
+
       try {
         voxelComponent!.activeMaskImage = game.images.fromCache('${currentMaskId}_mask.png');
       } catch (e) {}
+    }
+
+    // Also hide the fallback 2D sprite just in case the 3D mesh hasn't loaded yet
+    if (_fallbackSprite != null && !isStunned && highlightTimer <= 0) {
+      _fallbackSprite!.paint.color = _fallbackSprite!.paint.color.withOpacity(isInvisible ? 0.0 : 1.0);
     }
 
     if (localImmunityToMe > 0) localImmunityToMe -= dt;
@@ -468,41 +679,27 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         }
 
       } else {
-        PositionComponent? visibleTarget;
-        if (attackCooldown <= 0) visibleTarget = _findClosestVisiblePlayer();
-
-        if (visibleTarget != null) {
-          currentTarget = visibleTarget;
-          lastKnownPosition = currentTarget!.position.clone();
-          currentState = BotState.hunt;
-        } else if (currentState == BotState.hunt && lastKnownPosition != null) {
-          currentState = BotState.investigate;
-          currentTarget = null;
-        }
-
-        if (currentState == BotState.hunt) {
-          currentSpeed = huntSpeed;
-          if (evasionTimer <= 0) {
-            movementDelta = (currentTarget!.position - position).normalized();
-            facingAngle = movementDelta.screenAngle();
+        // --- THE PERSONALITY ROUTER ---
+        if (personality == BotPersonality.stalker) {
+          _updateStalkerLogic(dt);
+          if (currentState == BotState.flee) {
+            currentSpeed = huntSpeed * 1.6; 
+          } else if (currentState == BotState.wander && movementDelta.isZero()) {
+            currentSpeed = 0.0; 
+          } else {
+            currentSpeed = huntSpeed * 1.3; 
           }
-        } else if (currentState == BotState.investigate && lastKnownPosition != null) {
-          currentSpeed = huntSpeed * 0.85; 
-          if (evasionTimer <= 0) {
-            movementDelta = (lastKnownPosition! - position).normalized();
-            facingAngle = movementDelta.screenAngle();
-          }
-          
-          if (position.distanceTo(lastKnownPosition!) < 20.0) {
-            currentState = BotState.wander;
-            lastKnownPosition = null;
-            _chooseNewDirection();
-          }
+        } else if (personality == BotPersonality.phantom) {
+          _updatePhantomLogic(dt);
+          currentSpeed = huntSpeed * 0.90;
+        } else if (personality == BotPersonality.trapdoor) {
+          _updateTrapdoorLogic(dt);
+          // Standard speed, but moves 20% faster when invisible to execute the ambush
+          currentSpeed = (currentState == BotState.hunt) ? huntSpeed : (currentState == BotState.investigate ? huntSpeed * 0.85 : wanderSpeed);
+          if (isInvisible && currentState == BotState.hunt) currentSpeed *= 1.2;
         } else {
-          currentState = BotState.wander;
-          directionTimer -= dt;
-          if (directionTimer <= 0) _chooseNewDirection();
-          if (evasionTimer <= 0) facingAngle = movementDelta.screenAngle();
+          _updateGruntLogic(dt); // Standard behavior
+          currentSpeed = (currentState == BotState.hunt) ? huntSpeed : (currentState == BotState.investigate ? huntSpeed * 0.85 : wanderSpeed);
         }
       }
 

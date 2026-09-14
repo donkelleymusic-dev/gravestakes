@@ -52,6 +52,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   bool _isSearchingForMatch = false;
   String? _errorMessage;
   int _lumen = 0;
+  bool _completedTutorial = false;
 
   // first run menu tutorial
   final GlobalKey _loadoutKey = GlobalKey();
@@ -63,9 +64,9 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   String _selectedMatchMode = '1v1'; 
 
   Future<void> _checkTutorialPhase() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (_level > 1) return; 
+    if (_level > 1 || _completedTutorial) return;
 
+    final prefs = await SharedPreferences.getInstance();
     final phase = prefs.getString('tutorial_phase') ?? 'market';
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -160,7 +161,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     for (int i = 0; i < maxRetries; i++) {
       try {
         final responses = await Future.wait<dynamic>([
-          supabase.from('profiles').select('username, level, lumen').eq('id', user.id).single(),
+          supabase.from('profiles').select('username, level, lumen, completed_tutorial').eq('id', user.id).single(),
           supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(),
         ]);
 
@@ -240,6 +241,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             _username = responses[0]['username'] ?? 'Ghost';
             _level = serverLevel;
             _lumen = responses[0]['lumen'] ?? 0;
+            _completedTutorial = responses[0]['completed_tutorial'] ?? false;
             _shadows = responses[1]['shadows'] ?? 0;
             _coins = responses[1]['coins'] ?? 0; 
             _unclaimedPassTiers = unclaimedTiers;
@@ -540,18 +542,32 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                     targetShapeBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     disposeOnTap: true,
                     onTargetClick: () async {
-                      // Update state before finding a match
                       final prefs = await SharedPreferences.getInstance();
                       await prefs.setString('tutorial_phase', 'completed');
+                      
+                      // --- Lock it in the database permanently ---
+                      try {
+                        final userId = supabase.auth.currentUser?.id;
+                        if (userId != null) {
+                          await supabase.from('profiles').update({'completed_tutorial': true}).eq('id', userId);
+                          _completedTutorial = true;
+                        }
+                      } catch (e) {
+                        debugPrint('Failed to sync tutorial completion: $e');
+                      }
                       
                       if (mounted) _findMatchAndStart(context);
                     },
                     child: ElevatedButton(
                       onPressed: () async {
                         // Also catch it for standard taps
-                        final prefs = await SharedPreferences.getInstance();
-                        if (prefs.getString('tutorial_phase') == 'match') {
-                          await prefs.setString('tutorial_phase', 'completed');
+                        try {
+                          final prefs = await SharedPreferences.getInstance();
+                          if (prefs.getString('tutorial_phase') == 'match') {
+                            await prefs.setString('tutorial_phase', 'completed');
+                          }
+                          } catch (e) {
+                          debugPrint('Failed to sync tutorial completion: $e');
                         }
                         
                         if (mounted) _findMatchAndStart(context);

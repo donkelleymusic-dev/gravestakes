@@ -132,6 +132,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   final double maxPhaseDuration = 0.5; 
 
   bool isHoldingBreath = false;
+  bool isDissonant = false;
+  double dissonanceTimer = 0.0;
   double breathHoldDuration = 4.0;       
   double breathHoldTimer = 0.0;
   double breathHoldCooldown = 0.0;       
@@ -176,7 +178,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     });
   }
   
- void applyTeamColor(int teamId) {
+  void applyTeamColor(int teamId) {
     final teamColor = teamId == 1 ? const Color(0xFF0072B2) : const Color(0xFFE69F00);
     
     add(CircleComponent(
@@ -296,6 +298,16 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     hasInvisibilityCharge = false;
     isInvisible = true;
     invisibilityTimer = 15.0; 
+  }
+
+  void applyDissonance(double duration) {
+    if (isPhasing || isStunned) return; 
+    isDissonant = true;
+    dissonanceTimer = duration;
+    game.camera.viewport.add(FloatingText(
+      text: 'CONTROLS SCRAMBLED!', 
+      worldPosition: Vector2(position.x - 50, position.y - 60),
+    ));
   }
 
   void triggerPrivateHighlight() {
@@ -558,7 +570,15 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   bool onKeyEvent(KeyEvent event, Set<LogicalKeyboardKey> keysPressed) {
     keyboardDelta = Vector2.zero();
     if (game.isFpsMode) {
-      const double rotationSpeed = 2.2; 
+      double rotationSpeed = 2.2;
+
+      // If holding either turn key, double the rotation speed
+      if (keysPressed.contains(LogicalKeyboardKey.keyA) || 
+          keysPressed.contains(LogicalKeyboardKey.arrowLeft) ||
+          keysPressed.contains(LogicalKeyboardKey.keyD) || 
+          keysPressed.contains(LogicalKeyboardKey.arrowRight)) {
+        rotationSpeed *= 2.0; 
+      }
 
       if (keysPressed.contains(LogicalKeyboardKey.keyA) || keysPressed.contains(LogicalKeyboardKey.arrowLeft)) {
         facingAngle -= rotationSpeed * 0.016; 
@@ -617,7 +637,41 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     if (!game.gameStarted) return; 
     super.update(dt);
 
-    game.gameMap.revealRadius(position, radius: 2);
+    // --- REPLACED MAP DISCOVERY LOGIC ---
+    final double revealDist = 100.0; // Shorter distance, matching flashlight
+    final double fov = pi / 1.5;     // Roughly a 120-degree cone
+    final forward = Vector2(sin(facingAngle), -cos(facingAngle));
+
+    int px = (position.x / game.gameMap.tileSize).floor();
+    int py = (position.y / game.gameMap.tileSize).floor();
+    int tileRadius = (revealDist / game.gameMap.tileSize).ceil();
+
+    for (int y = py - tileRadius; y <= py + tileRadius; y++) {
+      for (int x = px - tileRadius; x <= px + tileRadius; x++) {
+        // Skip invalid grid coordinates early to prevent errors
+        if (x < 0 || x >= game.gameMap.gridWidth || y < 0 || y >= game.gameMap.gridHeight) continue;
+
+        Vector2 tileCenter = Vector2((x + 0.5) * game.gameMap.tileSize, (y + 0.5) * game.gameMap.tileSize);
+        Vector2 toTile = tileCenter - position;
+
+        // 1. Check distance
+        if (toTile.length < revealDist) {
+          toTile.normalize();
+          
+          // 2. Check angle (is it inside the forward cone?)
+          if (forward.dot(toTile) > cos(fov / 2)) {
+            // 3. Check line of sight (don't reveal through walls)
+            if (game.gameMap.hasLineOfSight(position, tileCenter)) {
+              game.gameMap.markDiscovered(x, y);
+            }
+          }
+        }
+      }
+    }
+    
+    // Always reveal the exact tile the player is standing on
+    game.gameMap.markDiscovered(px, py);
+    // ------------------------------------
 
     if (breathHoldCooldown > 0) breathHoldCooldown -= dt;
 
@@ -871,6 +925,18 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       if (!movementDelta.isZero()) {
         if (!game.isFpsMode && rightJoystick.delta.isZero()) {
           facingAngle = movementDelta.screenAngle();
+        }
+
+        // --- THE DISSONANCE EFFECT ---
+        if (isDissonant) {
+          dissonanceTimer -= dt;
+          movementDelta *= -1.0; // Inverts forward/backward and strafing controls
+          
+          if (game.isFpsMode) {
+             facingAngle += (_random.nextDouble() - 0.5) * 0.15; // Induces camera jitter
+          }
+          
+          if (dissonanceTimer <= 0) isDissonant = false;
         }
 
         double currentSpeed = isPoweredUp ? 280.0 : maxSpeed;
