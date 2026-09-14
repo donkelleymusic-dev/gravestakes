@@ -975,13 +975,26 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         }
 
         // --- THE "OOF!" WALL COLLISION RECOIL ---
+        // --- THE "OOF!" WALL COLLISION RECOIL ---
         if ((hitXWall || hitYWall) && wallStunTimer <= 0) {
           wallStunTimer = 0.5; // 0.5s stun
           starAnimTimer = 0.5; // Spin stars for 0.5s
 
-          // Bounce slightly backward away from the wall impact direction
+          // Safely bounce backward away from the wall impact direction
           Vector2 bounceDir = -movementDelta.normalized();
-          position += bounceDir * 25.0;
+          double distanceToBounce = 25.0; 
+          
+          while (distanceToBounce > 0) {
+            double step = min(5.0, distanceToBounce);
+            final testPos = position + (bounceDir * step);
+            // Only move backward if the space is actually empty
+            if (!game.gameMap.checkCollision(testPos, size)) { 
+              position = testPos; 
+              distanceToBounce -= step;
+            } else { 
+              break; 
+            }
+          }
 
           // Play placeholder "oof" / impact sound via SoLoud
           if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
@@ -995,6 +1008,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
             'y': position.y,
           });
         }
+        // ---------------------------------------------
 
         double actualVelocity = position.distanceTo(oldPosition) / dt; 
         if (actualVelocity > 5.0) {
