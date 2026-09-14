@@ -188,6 +188,12 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
       // 2. The Dissonance Aura (AoE Scramble)
       if (attackCooldown <= 0 && position.distanceTo(prey.position) < 250.0) {
+        // --- CONTEXTUAL AI FEEDBACK ---
+        game.camera.viewport.add(FloatingText(
+          text: 'DISRUPTED!', 
+          worldPosition: Vector2(position.x - 35, position.y - 60),
+        ));
+
         if (prey == game.player) {
           game.player.applyDissonance(3.0);
         } else {
@@ -243,13 +249,13 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       personality = pool[_random.nextInt(pool.length)];
     }
 
-    debugLabel = TextComponent(
+    /* debugLabel = TextComponent(
       text: isHunter ? '[GOLIATH]' : '[${personality.name.toUpperCase()}]',
       position: Vector2(size.x / 2, -20),
       anchor: Anchor.bottomCenter,
       textRenderer: TextPaint(style: TextStyle(color: isHunter ? Colors.redAccent : Colors.greenAccent, fontSize: 10, fontFamily: 'Courier')),
     );
-    add(debugLabel);
+    add(debugLabel); */
 
     try {
       final supabase = Supabase.instance.client;
@@ -733,6 +739,17 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
           if (game.gameMap.hasLineOfSight(position, currentTarget!.position)) {
             game.world.add(ScareBlast(position: position, angle: facingAngle - (pi / 2)));
             
+            // --- ONTEXTUAL AI FEEDBACK ---
+            String attackWord = 'SCARED!';
+            if (isHunter) attackWord = 'CRUSHED!';
+            else if (personality == BotPersonality.stalker) attackWord = 'STALKED!';
+            else if (personality == BotPersonality.trapdoor) attackWord = 'AMBUSHED!';
+
+            game.camera.viewport.add(FloatingText(
+              text: attackWord, 
+              worldPosition: Vector2(position.x - 30, position.y - 60),
+            ));
+
             AudioManager.instance.playSpatialScare('standard', position);
 
             // Fire the visual animation!
