@@ -13,6 +13,7 @@ class VoxelCharacterComponent extends PositionComponent {
   bool isStunned = false;
   bool isVisible = true;
   bool isInvisible = false;
+  bool showStars = false; // --- NEW: Toggle for wall collision stars ---
   double stunTimer = 0.0;
 
   double attackCooldown = 0.0;
@@ -56,7 +57,14 @@ class VoxelCharacterComponent extends PositionComponent {
     super.render(canvas);
 
     canvas.save();
+
+    // --- EXTRACT TORSO METRICS FIRST ---
+    final parts = rigData!['parts'];
+    final torsoW = parts['torso']['width'];
+    final torsoH = parts['torso']['height'];
+
     
+
     // Handle Stun Jiggle
     if (isStunned) {
       canvas.translate(sin(stunTimer * 50) * 4, 0);
@@ -64,6 +72,22 @@ class VoxelCharacterComponent extends PositionComponent {
 
     // Move drawing pivot to center of Flame Component
     canvas.translate(size.x / 2, size.y / 2);
+
+    // --- WALL COLLISION SPINNING STARS ---
+    if (showStars) {
+      canvas.save();
+      // Position safely above the top edge of the component's bounding box
+      canvas.translate(0, -size.y * 0.8); 
+      double time = DateTime.now().millisecondsSinceEpoch / 200.0;
+      for (int i = 0; i < 3; i++) {
+        double angle = time + (i * (2 * pi / 3));
+        double starX = cos(angle) * 14.0;
+        double starY = sin(angle) * 4.0;
+        
+        canvas.drawCircle(Offset(starX, starY), 3.0, Paint()..color = Colors.yellowAccent);
+      }
+      canvas.restore();
+    }
 
     double normAngle = targetAngle % (2 * pi);
     if (normAngle < 0) normAngle += 2 * pi;
@@ -81,10 +105,6 @@ class VoxelCharacterComponent extends PositionComponent {
     if (degrees > 112.5 && degrees <= 157.5) scaleX = -0.75;
     if (degrees > 202.5 && degrees <= 247.5) { scaleX = -0.75; showFront = false; }
     if (degrees > 292.5 && degrees <= 337.5) { scaleX = 0.75; showFront = false; }
-
-    final parts = rigData!['parts'];
-    final torsoW = parts['torso']['width'];
-    final torsoH = parts['torso']['height'];
 
     double globalScale = size.x / (torsoW * 1.5); 
     canvas.scale(globalScale * scaleX, globalScale);

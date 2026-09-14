@@ -39,6 +39,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     return 'standard';
   }
 
+  double wallStunTimer = 0.0;
+  double starAnimTimer = 0.0;
+
   double maxSpeed = 200.0;
   int score = 0;
 
@@ -57,6 +60,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   bool isLightFlickeringOut = false;
 
   double get flashlightScale {
+    if (game.isGlobalBlackout) return 0.0; // --- BLACKOUT OVERRIDE ---
     if (isLightFlickeringOut) return 0.0; 
     if (isFlashlightDead && flashlightBattery <= 0) return 0.0; 
     if (isRecharging || isFlashlightDead) return (flashlightBattery / 100.0).clamp(0.1, 1.0); 
@@ -523,7 +527,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     final masterSeed = DateTime.now().millisecondsSinceEpoch;
 
     if (currentMask.isFlying) {
-      game.scareManager.spawnBat(FlyingScareBlast(
+      // --- Add directly to the world for proper z-index sorting ---
+      game.world.add(FlyingScareBlast(
         position: position.clone(), 
         angle: facingAngle,
         ownerId: game.mySessionId,
@@ -637,6 +642,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     if (!game.gameStarted) return; 
     super.update(dt);
 
+    // --- WALL COLLISION TIMERS ---
+    if (wallStunTimer > 0) wallStunTimer -= dt;
+    if (starAnimTimer > 0) starAnimTimer -= dt;
+
     // --- REPLACED MAP DISCOVERY LOGIC ---
     final double revealDist = 100.0; // Shorter distance, matching flashlight
     final double fov = pi / 1.5;     // Roughly a 120-degree cone
@@ -715,6 +724,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     if (voxelComponent != null) {
       voxelComponent!.targetAngle = facingAngle - (pi / 2); 
       voxelComponent!.isMoving = isMoving;
+      voxelComponent!.showStars = (starAnimTimer > 0);
 
       voxelComponent!.attackCooldown = attackCooldown;
       try {
@@ -812,7 +822,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       }
     }
 
-   if (isDisguised) {
+    if (isDisguised) {
       if (_disguiseWall != null && _disguiseWall!.parent == null) add(_disguiseWall!);
     } else {
       if (_disguiseWall != null && _disguiseWall!.parent != null) _disguiseWall!.removeFromParent();
@@ -841,6 +851,12 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     if (isStunned) {
       stunTimer -= dt;
+      /* if (wallStunTimer > 0) {
+        wallStunTimer -= dt;
+      }
+      if (starAnimTimer > 0) {
+        starAnimTimer -= dt;
+      } */
       if (voxelComponent != null) {
         voxelComponent!.isStunned = true;
         voxelComponent!.stunTimer = stunTimer;
@@ -943,8 +959,42 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         final potentialPosition = position + (movementDelta * currentSpeed * dt);
         final oldPosition = position.clone();
 
-        if (!game.gameMap.checkCollision(Vector2(potentialPosition.x, position.y), size)) position.x = potentialPosition.x;
-        if (!game.gameMap.checkCollision(Vector2(position.x, potentialPosition.y), size)) position.y = potentialPosition.y;
+        bool hitXWall = false;
+        bool hitYWall = false;
+
+        if (!game.gameMap.checkCollision(Vector2(potentialPosition.x, position.y), size)) { 
+          position.x = potentialPosition.x; 
+        } else { 
+          hitXWall = true; 
+        }
+
+        if (!game.gameMap.checkCollision(Vector2(position.x, potentialPosition.y), size)) { 
+          position.y = potentialPosition.y; 
+        } else { 
+          hitYWall = true; 
+        }
+
+        // --- THE "OOF!" WALL COLLISION RECOIL ---
+        if ((hitXWall || hitYWall) && wallStunTimer <= 0) {
+          wallStunTimer = 0.5; // 0.5s stun
+          starAnimTimer = 0.5; // Spin stars for 0.5s
+
+          // Bounce slightly backward away from the wall impact direction
+          Vector2 bounceDir = -movementDelta.normalized();
+          position += bounceDir * 25.0;
+
+          // Play placeholder "oof" / impact sound via SoLoud
+          if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
+            SoLoud.instance.play(AudioManager.instance.impactSource!, volume: 0.8);
+          }
+
+          // Broadcast wall bump to network peers so they see your recoil and stars
+          channel.sendBroadcastMessage(event: 'wall_hit', payload: {
+            'id': game.mySessionId,
+            'x': position.x,
+            'y': position.y,
+          });
+        }
 
         double actualVelocity = position.distanceTo(oldPosition) / dt; 
         if (actualVelocity > 5.0) {

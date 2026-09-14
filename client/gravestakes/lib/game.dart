@@ -89,6 +89,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   final String? scrimmageMessageId;
   String guildActiveDoctrine = 'none';
 
+  bool isGlobalBlackout = false;
+  double blackoutTimer = 0.0;
+  double timeUntilNextBlackout = 45.0;
+
   bool isWaitingInLobby = true;
 
   bool matchHasHunter = false;
@@ -686,6 +690,26 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       return; 
     }
 
+    if (isHost && gameStarted && matchPhase == 'playing') {
+      timeUntilNextBlackout -= dt;
+      if (timeUntilNextBlackout <= 0 && !isGlobalBlackout) {
+        isGlobalBlackout = true;
+        blackoutTimer = 30.0;
+        timeUntilNextBlackout = 75.0 + Random().nextDouble() * 45.0; // Random interval
+
+        myChannel.sendBroadcastMessage(event: 'global_blackout', payload: {'active': true, 'duration': 30.0});
+        camera.viewport.add(FloatingText(text: 'TOTAL BLACKOUT!', worldPosition: Vector2(player.position.x - 40, player.position.y - 60)));
+      }
+
+      if (isGlobalBlackout) {
+        blackoutTimer -= dt;
+        if (blackoutTimer <= 0) {
+          isGlobalBlackout = false;
+          myChannel.sendBroadcastMessage(event: 'global_blackout', payload: {'active': false});
+        }
+      }
+    }
+
     if (matchPhase == 'countdown') {
       countdownTimer -= dt;
       int currentTick = countdownTimer.ceil();
@@ -1240,6 +1264,22 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         },
       )
       .onBroadcast(
+        event: 'wall_hit',
+        callback: (payload) {
+          final id = payload['id'] as String?;
+          if (id != null && networkPlayers.containsKey(id)) {
+            final remote = networkPlayers[id]!;
+            remote.position.x = payload['x'] as double;
+            remote.position.y = payload['y'] as double;
+            remote.triggerPrivateHighlight();
+            
+            if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
+              SoLoud.instance.play(AudioManager.instance.impactSource!, volume: 0.6);
+            }
+          }
+        },
+      )
+      .onBroadcast(
         event: 'move',
         callback: (payload) {
           final id = payload['id'] as String?;
@@ -1278,6 +1318,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         },
       )
       .onBroadcast(
+        event: 'global_blackout',
+        callback: (payload) {
+          isGlobalBlackout = payload['active'] as bool? ?? false;
+        },
+      )
+      .onBroadcast(
         event: 'scare',
         callback: (payload) {
           final id = payload['id'] as String?;
@@ -1300,7 +1346,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             AudioManager.instance.playSpatialScare(maskId, remote.position);
 
             if (maskId == 'flying') {
-              scareManager.spawnBat(FlyingScareBlast(position: remote.position.clone(), angle: remote.facingAngle, ownerId: payload['id']));
+              // --- Add directly to the world ---
+              world.add(FlyingScareBlast(position: remote.position.clone(), angle: remote.facingAngle, ownerId: payload['id']));
             } else if (maskId == 'vermin') {
               for (int i = 0; i < 15; i++) { 
                 scareManager.spawnCritter(Critter(

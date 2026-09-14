@@ -31,7 +31,7 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
     required this.ownerId,
   }) : super(
          position: position,
-         radius: 3.0, 
+         radius: 2, 
          paint: Paint()..color = Colors.greenAccent,
          anchor: Anchor.center,
        ) {

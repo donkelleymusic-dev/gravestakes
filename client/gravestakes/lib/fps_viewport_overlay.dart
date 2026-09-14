@@ -186,7 +186,8 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         entities.add(_RenderableEntity(pos: powerup.position, component: powerup));
       }
     }
-    for (var bat in game.scareManager.bats) {
+    // --- Read bats directly from the world ---
+    for (var bat in game.world.children.whereType<FlyingScareBlast>()) {
       if (!bat.isDead) entities.add(_RenderableEntity(pos: bat.position, component: bat));
     }
     for (var critter in game.scareManager.critters) {
@@ -240,7 +241,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       double wallHeightAtDist = min(screenHeight * 2.5, (gameMap.tileSize * focalLength) / camY);
 
       if (entity.component is FlyingScareBlast) {
-        renderY -= (wallHeightAtDist * 0.42);
+        renderY -= (wallHeightAtDist * 0.75);
       } else if (entity.component is Critter) {
         renderY += (wallHeightAtDist * 0.38);
       }
@@ -279,8 +280,26 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         canvas.drawCircle(Offset.zero, 16, Paint()..color = Colors.yellowAccent);
         canvas.drawCircle(Offset.zero, 8, Paint()..color = Colors.white);
       } else if (entity.component is FlyingScareBlast) {
-        canvas.drawCircle(Offset.zero, 24, Paint()..color = Colors.purpleAccent.withOpacity(0.9));
-        canvas.drawCircle(Offset.zero, 12, Paint()..color = Colors.white);
+        // --- 3D Procedural Flapping Bat ---
+        final bat = entity.component as FlyingScareBlast;
+        double flap = sin(bat.lifeTimer * 30);
+        
+        final path = Path();
+        path.addOval(const Rect.fromLTWH(-8, -12, 16, 24)); // Larger body for 3D visibility
+        
+        // Left Wing
+        path.moveTo(-6, -6);
+        path.quadraticBezierTo(-25, flap * -25 - 15, -45, flap * 15 - 8);
+        path.quadraticBezierTo(-25, flap * 15 + 8, -3, 9);
+        
+        // Right Wing
+        path.moveTo(6, -6);
+        path.quadraticBezierTo(25, flap * -25 - 15, 45, flap * 15 - 8);
+        path.quadraticBezierTo(25, flap * 15 + 8, 3, 9);
+
+        canvas.drawPath(path, Paint()..color = Colors.purpleAccent.withOpacity(0.9));
+        canvas.drawPath(path, Paint()..color = Colors.cyanAccent..style = PaintingStyle.stroke..strokeWidth = 2.0);
+        // -------------------------------------------
       } else if (entity.component is Critter) {
         canvas.drawCircle(Offset.zero, 5, Paint()..color = Colors.greenAccent);
       } else if (entity.component is ScareBlast) {
@@ -320,6 +339,45 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     // -------------------------------------------------------------
     // 4. ATTACK FLASH & FLASHLIGHT SPOTLIGHT
     // -------------------------------------------------------------
+    
+    // --- FPS WALL COLLISION STARS ---
+    if (player.starAnimTimer > 0) {
+      canvas.save();
+      // Position them high in the center of the camera view
+      canvas.translate(size.x / 2, size.y * 0.25); 
+      double time = DateTime.now().millisecondsSinceEpoch / 200.0;
+      for (int i = 0; i < 3; i++) {
+        double angle = time + (i * (2 * pi / 3));
+        // Wider orbit and larger stars for 1st-person perspective
+        double starX = cos(angle) * 45.0; 
+        double starY = sin(angle) * 12.0;
+        
+        canvas.drawCircle(Offset(starX, starY), 6.0, Paint()..color = Colors.yellowAccent);
+      }
+      canvas.restore();
+    }
+
+    // --- NEW: FPS SIREN SCREEN WAVES ---
+    final localSiren = player.children.whereType<SirenBlast>().firstOrNull;
+    if (localSiren != null) {
+      double fade = localSiren.lifeTimer > 2.0 ? 1.0 : (localSiren.lifeTimer / 2.0);
+      int alpha = (fade * 60).toInt().clamp(0, 255); // Gentle pink screen wash
+      
+      canvas.drawRect(size.toRect(), Paint()..color = Colors.pinkAccent.withAlpha(alpha));
+
+      final strokePaint = Paint()
+        ..color = Colors.white.withAlpha((alpha * 2).clamp(0, 255))
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 5.0;
+
+      for (int i = 0; i < 3; i++) {
+        // Expand concentric rings out from the center of the screen
+        double wavePhase = ((15.0 - localSiren.lifeTimer) * 2 + (i * 0.33)) % 1.0;
+        double rippleRadius = wavePhase * (size.x * 0.9);
+        canvas.drawCircle(Offset(size.x / 2, size.y / 2), rippleRadius, strokePaint);
+      }
+    }
+
     if (player.attackCooldown > 0.4) {
       final attackPaint = Paint()..color = Colors.redAccent.withOpacity(0.20);
       canvas.drawRect(size.toRect(), attackPaint);

@@ -25,8 +25,9 @@ class MapOverlay extends PositionComponent with HasGameReference<GraveStakesGame
     final gameMap = game.gameMap;
     if (gameMap.maxExploredX < 0) return; // Nothing revealed yet
 
-    // Dark semi-transparent background
-    final bgPaint = Paint()..color = Colors.black.withOpacity(0.85);
+    // --- BLACKOUT MODE OVERRIDE ---
+    // Dark semi-transparent normally, pitch black during a global blackout
+    final bgPaint = Paint()..color = game.isGlobalBlackout ? Colors.black : Colors.black.withOpacity(0.85);
     canvas.drawRect(size.toRect(), bgPaint);
 
     // Calculate bounding box for explored area
@@ -48,25 +49,27 @@ class MapOverlay extends PositionComponent with HasGameReference<GraveStakesGame
     final wallPaint = Paint()..color = Colors.grey[400]!;
     final floorPaint = Paint()..color = Colors.grey[900]!;
     final borderPaint = Paint()
-      ..color = Colors.cyanAccent.withOpacity(0.5)
+      ..color = game.isGlobalBlackout ? Colors.redAccent.withOpacity(0.3) : Colors.cyanAccent.withOpacity(0.5)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0;
 
-    // Draw explored tiles
-    for (int y = gameMap.minExploredY; y <= gameMap.maxExploredY; y++) {
-      for (int x = gameMap.minExploredX; x <= gameMap.maxExploredX; x++) {
-        if (!gameMap.visitedGrid[y][x]) continue;
+    // Only draw the explored walls and floors if the lights are on!
+    if (!game.isGlobalBlackout) {
+      for (int y = gameMap.minExploredY; y <= gameMap.maxExploredY; y++) {
+        for (int x = gameMap.minExploredX; x <= gameMap.maxExploredX; x++) {
+          if (!gameMap.visitedGrid[y][x]) continue;
 
-        double drawX = startX + ((x - gameMap.minExploredX) * cellScale);
-        double drawY = startY + ((y - gameMap.minExploredY) * cellScale);
-        Rect tileRect = Rect.fromLTWH(drawX, drawY, cellScale, cellScale);
+          double drawX = startX + ((x - gameMap.minExploredX) * cellScale);
+          double drawY = startY + ((y - gameMap.minExploredY) * cellScale);
+          Rect tileRect = Rect.fromLTWH(drawX, drawY, cellScale, cellScale);
 
-        bool isWall = gameMap.mapGrid[y][x] == 1;
-        canvas.drawRect(tileRect, isWall ? wallPaint : floorPaint);
+          bool isWall = gameMap.mapGrid[y][x] == 1;
+          canvas.drawRect(tileRect, isWall ? wallPaint : floorPaint);
+        }
       }
     }
 
-    // Draw Player's relative position on map
+    // Draw Player's relative position on map (Always visible so they know it's a map)
     int playerGridX = (game.player.position.x / gameMap.tileSize).floor();
     int playerGridY = (game.player.position.y / gameMap.tileSize).floor();
 

@@ -209,7 +209,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
           SoLoud.instance.play(AudioManager.instance.tickSource!, volume: 1.0);
         }
         
-        attackCooldown = 5.0; // Recasts the scramble every 5 seconds if they stay close
+        attackCooldown = 25.0; // Recasts the scramble every 25 seconds if they stay close
       }
     } else {
       _updateGruntLogic(dt);

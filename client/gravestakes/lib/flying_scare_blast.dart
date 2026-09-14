@@ -6,10 +6,10 @@ import 'game.dart';
 import 'floating_text.dart';
 import 'audio_manager.dart';
 
-class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakesGame> {
-  final double speed = 180.0; 
+class FlyingScareBlast extends PositionComponent with HasGameReference<GraveStakesGame> {
+  final double speed = 240.0; 
   late Vector2 direction;
-  double lifeTimer = 2.0; 
+  double lifeTimer = 4.0;     
   double spawnTimer = 0.15; 
   
   final String ownerId;
@@ -21,10 +21,10 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
   FlyingScareBlast({required Vector2 position, required double angle, required this.ownerId})
       : super(
           position: position,
-          radius: 20.0, 
-          paint: Paint()..color = Colors.purpleAccent,
+          size: Vector2.all(40.0), 
           anchor: Anchor.center,
           angle: angle,
+          priority: 200000, 
         ) {
     direction = Vector2(sin(angle), -cos(angle));
   }
@@ -32,6 +32,8 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
   @override
   Future<void> onLoad() async {
     super.onLoad();
+    if (parent != null) parent!.priority = 200000; 
+
     if (AudioManager.instance.isInitialized && AudioManager.instance.maskScareSounds['flying'] != null) {
       final posX = position.x / _audioScale;
       final posY = position.y / _audioScale;
@@ -42,6 +44,7 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
 
   @override
   void update(double dt) {
+    priority = 999999; 
     super.update(dt);
     
     position += direction * speed * dt;
@@ -56,6 +59,7 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
     if (lifeTimer <= 0) {
       _stopAudio();
       isDead = true; 
+      removeFromParent();
       return;
     }
 
@@ -66,7 +70,7 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
 
     if (game.isHost) {
       for (var bot in game.bots) {
-        if (game.matchMode == '2v2' && game.getEntityTeam(ownerId) == game.getEntityTeam(bot)) continue; // SKIP ALLIES
+        if (game.matchMode == '2v2' && game.getEntityTeam(ownerId) == game.getEntityTeam(bot)) continue; 
         if (bot.localImmunityToMe > 0) continue;
         
         if (position.distanceTo(bot.position) < 30.0) {
@@ -75,18 +79,17 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
           bot.triggerPrivateHighlight();
           _stopAudio();
           isDead = true; 
+          removeFromParent();
           return; 
         }
       }
 
       for (var entry in game.networkPlayers.entries) {
-        if (game.matchMode == '2v2' && game.getEntityTeam(ownerId) == game.getEntityTeam(entry.key)) continue; // SKIP ALLIES
+        if (game.matchMode == '2v2' && game.getEntityTeam(ownerId) == game.getEntityTeam(entry.key)) continue; 
         var remote = entry.value;
         if (remote.localImmunityToMe > 0) continue;
         
         if (position.distanceTo(remote.position) < 30.0) {
-          // --- ANECHOIC BRACERS CHECK (REMOTE/PLAYER) ---
-          // Note: If remote player has activeCounters containing 'flying', the bat absorbs!
           remote.applyStun(3.0);
           remote.localImmunityToMe = 5.0;
           remote.triggerPrivateHighlight();
@@ -98,14 +101,13 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
           
           _stopAudio();
           isDead = true; 
+          removeFromParent();
           return;
         }
       }
 
-      // --- LOCAL PLAYER CHECK FOR HOST ---
       if (ownerId != game.mySessionId && !game.player.isStunned) {
         if (position.distanceTo(game.player.position) < 30.0) {
-          // Check if local player is wearing Anechoic Bracers!
           if (game.player.activeCounters.contains('flying')) {
             game.camera.viewport.add(FloatingText(
               text: 'BLAST ABSORBED!', 
@@ -125,6 +127,42 @@ class FlyingScareBlast extends CircleComponent with HasGameReference<GraveStakes
         }
       }
     }
+  }
+
+  // --- NEW: PROCEDURAL FLAPPING BAT RENDERER ---
+  @override
+  void render(Canvas canvas) {
+    super.render(canvas);
+    canvas.save();
+    canvas.translate(size.x / 2, size.y / 2);
+
+    // Creates a rapid sine wave between -1.0 and 1.0 based on how long it's been alive
+    double flap = sin(lifeTimer * 30); 
+    final path = Path();
+
+    // Core Body
+    path.addOval(const Rect.fromLTWH(-5, -8, 10, 16));
+
+    // Left Wing (Dynamic Bezier Curves)
+    path.moveTo(-4, -4);
+    path.quadraticBezierTo(-20, flap * -20 - 10, -35, flap * 10 - 5); 
+    path.quadraticBezierTo(-20, flap * 10 + 5, -2, 6); 
+
+    // Right Wing (Dynamic Bezier Curves)
+    path.moveTo(4, -4);
+    path.quadraticBezierTo(20, flap * -20 - 10, 35, flap * 10 - 5);
+    path.quadraticBezierTo(20, flap * 10 + 5, 2, 6);
+
+    canvas.drawPath(path, Paint()..color = Colors.purpleAccent.withOpacity(0.9));
+    canvas.drawPath(
+      path, 
+      Paint()
+        ..color = Colors.cyanAccent
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+    );
+
+    canvas.restore();
   }
 
   @override
