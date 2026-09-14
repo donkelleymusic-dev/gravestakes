@@ -78,6 +78,8 @@ class ScareSnapshot {
 
 class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
   static List<ScareSnapshot> lastMatchPhotos = [];
+  // --- Lumen Delta Tracking ---
+  int matchLumenDelta = 0;
   String roomId;
   final bool isGunner;
   final String matchMode; 
@@ -852,9 +854,25 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   Future<void> endGame() async {
     gameStarted = false; 
 
-    // RESTORE THE SUMMARY OVERLAY
     overlays.add('summary');
     
+    // --- 1. CALCULATE LUMEN PLACEMENT ---
+    List<int> allScores = [player.score];
+    networkPlayers.forEach((id, remote) => allScores.add(remote.score));
+    allScores.sort((a, b) => b.compareTo(a)); 
+    
+    int highestScore = allScores.first;
+    bool isTie = allScores.where((s) => s == highestScore).length > 1;
+    
+    int baseStake = 27 + Random().nextInt(16); // Random win between 27 and 42
+
+    if (player.score == highestScore) {
+      matchLumenDelta = isTie ? 2 : baseStake;
+    } else {
+      matchLumenDelta = -(baseStake - 2); // Lose 2 points less than the win value
+    }
+
+    // --- 2. EXISTING TEAM SCORING LOGIC ---
     int myTeamScore = player.score;
     int enemyTeamScore = 0;
     
@@ -876,6 +894,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           text: 'VICTORY BONUS! +1500', 
           worldPosition: Vector2(player.position.x - 40, player.position.y - 80)
         ));
+        // If playing squads, winning the match overrides individual placements for Lumen
+        matchLumenDelta = baseStake; 
+      } else if (myTeamScore < enemyTeamScore) {
+        matchLumenDelta = -(baseStake - 2);
+      } else {
+        matchLumenDelta = 2; // Tie
       }
     }
 
@@ -883,14 +907,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       final xpEarned = (player.score * 0.1).toInt();
       final shadowsEarned = (player.score * 0.05).toInt();
 
-      if (player.score > 0 || player.coinsEarned > 0) {
+      // --- 3. SEND LUMEN TO DATABASE ---
+      if (player.score > 0 || player.coinsEarned > 0 || matchLumenDelta != 0) {
         try {
           await Supabase.instance.client.rpc(
             'process_match_rewards',
             params: {
               'xp_earned': xpEarned, 
               'shadows_earned': shadowsEarned, 
-              'coins_earned': player.coinsEarned
+              'coins_earned': player.coinsEarned,
+              'p_lumen_delta': matchLumenDelta, // NEW PARAMETER
             },
           );
         } catch (e) {
@@ -971,9 +997,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       }
     }
 
-    if (!isGuildScrimmage && buildContext != null) {
+    /* if (!isGuildScrimmage && buildContext != null) {
       VesselOpenerOverlay.show(buildContext!, 'shadow_reliquary');
-    }
+    } */
   }
 
   void claimSpookyBox(String boxId) {

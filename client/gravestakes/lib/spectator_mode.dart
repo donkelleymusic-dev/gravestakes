@@ -33,14 +33,12 @@ class _SpectatorLobbyScreenState extends State<SpectatorLobbyScreen> {
 
   Future<void> _fetchRooms() async {
     try {
-      // 1. Calculate the cutoff time for 5 minutes ago (UTC)
       final fiveMinutesAgo = DateTime.now().toUtc().subtract(const Duration(minutes: 5)).toIso8601String();
 
-      // 2. Query Supabase, filtering for rooms modified or created within the last 5 minutes
       final response = await supabase
           .from('active_matches')
           .select('id, player_count, status, created_at, updated_at, map_name')
-          .gte('created_at', fiveMinutesAgo) // Ignore anything older than 5 mins
+          .gte('created_at', fiveMinutesAgo) 
           .order('created_at', ascending: false)
           .limit(20);
       
@@ -84,13 +82,11 @@ class _SpectatorLobbyScreenState extends State<SpectatorLobbyScreen> {
                   subtitle: Text('Players: ${room['player_count']} | Status: ${room['status']}', style: const TextStyle(color: Colors.grey)),
                   trailing: const Icon(Icons.remove_red_eye, color: Colors.redAccent),
                   onTap: () {
-                    // NEW: The Stack implementation with the Back Button Overlay
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (context) => Scaffold(
                           body: Stack(
                             children: [
-                              // Layer 1: The Flame Game
                               GameWidget<SpectatorGame>(
                                 game: SpectatorGame(
                                   roomId: room['id'], 
@@ -100,9 +96,8 @@ class _SpectatorLobbyScreenState extends State<SpectatorLobbyScreen> {
                                   'spectator_summary': (context, SpectatorGame game) => SpectatorSummaryOverlay(game: game),
                                 },
                               ),
-                              // Layer 2: The Flutter Back Button
                               Positioned(
-                                top: 40, // Keeps it below the physical notch on most phones
+                                top: 40, 
                                 left: 20,
                                 child: Container(
                                   decoration: const BoxDecoration(
@@ -133,9 +128,8 @@ class _SpectatorLobbyScreenState extends State<SpectatorLobbyScreen> {
 // ==========================================
 class SpectatorGame extends FlameGame with PanDetector {
   final String roomId;
-  final String mapName; // 1. Add the variable
+  final String mapName; 
 
-  // 2. Add it to the constructor (Default to Map 1 for now)
   SpectatorGame({required this.roomId, this.mapName = 'L1T1V1.0.0'});
 
   late final GameMap gameMap;
@@ -146,21 +140,15 @@ class SpectatorGame extends FlameGame with PanDetector {
 
   @override
   Future<void> onLoad() async {
-    // 3. Pass BOTH variables to GameMap
     gameMap = GameMap(roomId: roomId, mapName: mapName);
     await world.add(gameMap);
     
-    // ... the rest of the onLoad method stays exactly the same!
-
     final mapWidth = gameMap.gridWidth * gameMap.tileSize;
     final mapHeight = gameMap.gridHeight * gameMap.tileSize;
     camera.viewfinder.position = Vector2(mapWidth / 2, mapHeight / 2);
     camera.viewfinder.anchor = Anchor.center;
-    
-    // NEW: Zoom out to see the map
     camera.viewfinder.zoom = 0.35; 
 
-    // Connect as a silent ghost (Do not send presence sync events)
     ghostChannel = Supabase.instance.client.channel('room_$roomId');
 
     ghostChannel
@@ -205,16 +193,23 @@ class SpectatorGame extends FlameGame with PanDetector {
         },
       )
       .onBroadcast(
+        event: 'hunter_emerge',
+        callback: (payload) {
+          final index = payload['bot_index'] as int?;
+          if (index != null && botPlayers.containsKey(index)) {
+            botPlayers[index]!.transformToHunter();
+          }
+        },
+      )
+      .onBroadcast(
         event: 'stun',
         callback: (payload) {
           final victimId = payload['id'] as String?;
           final attackerId = payload['attacker_id'] as String?;
 
-          // Flash the victim Cyan
           if (victimId != null && humanPlayers.containsKey(victimId)) {
             humanPlayers[victimId]!.triggerFlash(Colors.cyanAccent);
           }
-          // Flash the successful attacker Yellow!
           if (attackerId != null && humanPlayers.containsKey(attackerId)) {
             humanPlayers[attackerId]!.triggerFlash(Colors.yellowAccent);
           }
@@ -226,7 +221,6 @@ class SpectatorGame extends FlameGame with PanDetector {
           final id = payload['id'] as String?;
           final attackerId = payload['attacker_id'] as String?;
 
-          // Spawning the blasts for spectators!
           if (id != null && humanPlayers.containsKey(id)) {
             final remote = humanPlayers[id]!;
             final angle = payload['a'] as double;
@@ -243,7 +237,7 @@ class SpectatorGame extends FlameGame with PanDetector {
                   seed: seed,
                   index: i,
                   initialAngle: angle,
-                  ownerId: id, // Assign ownership
+                  ownerId: id,
                 ));
               }
             } else {
@@ -251,7 +245,6 @@ class SpectatorGame extends FlameGame with PanDetector {
             }
           }
 
-          // Visual flashes for the dots
           final victimId = payload['id'] as String?;
           if (victimId != null && humanPlayers.containsKey(victimId)) {
             humanPlayers[victimId]!.triggerFlash(Colors.cyanAccent);
@@ -269,7 +262,6 @@ class SpectatorGame extends FlameGame with PanDetector {
             overlays.add('spectator_summary');
           } else if (action == 'start') {
             overlays.remove('spectator_summary');
-            // Clear the scores for the new round
             for (var human in humanPlayers.values) {
               human.updateScore(0);
             }
@@ -281,7 +273,6 @@ class SpectatorGame extends FlameGame with PanDetector {
 
   @override
   void onPanUpdate(DragUpdateInfo info) {
-    // NEW: Divide by zoom so the pan speed matches the finger exactly
     camera.viewfinder.position -= (info.delta.global / camera.viewfinder.zoom);
   }
 
@@ -351,6 +342,14 @@ class SpectatorDot extends CircleComponent {
   void triggerFlash(Color flashColor) {
     paint.color = flashColor;
     flashTimer = 0.5; 
+  }
+
+  // --- NEW: Handle The Goliath visual swap ---
+  void transformToHunter() {
+    if (!isBot) return;
+    baseColor = Colors.red[900]!;
+    radius = 28.0; 
+    paint.color = baseColor;
   }
 
   @override

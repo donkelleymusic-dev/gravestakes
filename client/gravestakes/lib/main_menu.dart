@@ -27,6 +27,7 @@ import 'inbox_screen.dart';
 import 'settings_screen.dart';
 import 'theme.dart';
 import 'cinematic_trailer_game.dart';
+import 'lumen_tier_system.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -46,9 +47,11 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   int _shadows = 0;
   int _coins = 0; 
   int _unclaimedPassTiers = 0;
+  int _freeMarketItems = 0;
   bool _isLoading = true;
   bool _isSearchingForMatch = false;
   String? _errorMessage;
+  int _lumen = 0;
 
   // first run menu tutorial
   final GlobalKey _loadoutKey = GlobalKey();
@@ -157,7 +160,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     for (int i = 0; i < maxRetries; i++) {
       try {
         final responses = await Future.wait<dynamic>([
-          supabase.from('profiles').select('username, level').eq('id', user.id).single(),
+          supabase.from('profiles').select('username, level, lumen').eq('id', user.id).single(),
           supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(),
         ]);
 
@@ -204,6 +207,22 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         final prefs = await SharedPreferences.getInstance();
         int lastSeenLevel = prefs.getInt('last_seen_level') ?? serverLevel;
 
+        // --- CHECK FREE DROP TIMER ---
+        int freeMarketItems = 0;
+        final lastClaimIso = prefs.getString('last_free_drop_${user.id}');
+
+        if (lastClaimIso == null) {
+          // If they have never claimed it, it is ready!
+          freeMarketItems = 1;
+        } else {
+          // If they have claimed it, check if 12 hours have passed
+          final lastClaimTime = DateTime.parse(lastClaimIso);
+          final nextAvailable = lastClaimTime.add(const Duration(hours: 12));
+          if (nextAvailable.difference(DateTime.now()).isNegative) {
+            freeMarketItems = 1;
+          }
+        }
+
         if (serverLevel > lastSeenLevel) {
           await prefs.setInt('last_seen_level', serverLevel);
           
@@ -220,9 +239,11 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           setState(() {
             _username = responses[0]['username'] ?? 'Ghost';
             _level = serverLevel;
+            _lumen = responses[0]['lumen'] ?? 0;
             _shadows = responses[1]['shadows'] ?? 0;
             _coins = responses[1]['coins'] ?? 0; 
             _unclaimedPassTiers = unclaimedTiers;
+            _freeMarketItems = freeMarketItems;
             _isLoading = false;
             _checkTutorialPhase();
           });
@@ -455,6 +476,18 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(LumenSystem.getTier(_lumen).icon, color: LumenSystem.getTier(_lumen).color, size: 16),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${LumenSystem.getTier(_lumen).name} ($_lumen)', 
+                                  style: TextStyle(color: LumenSystem.getTier(_lumen).color, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
                             Text('Shadows: $_shadows', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 4),
                             Text('Coins: $_coins', style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold)),
@@ -627,24 +660,25 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   const SizedBox(height: 10),
                   Showcase(
   key: _marketKey,
-                    description: 'STEP 1: Enter the Black Market for your first supply drop.',
-                    disposeOnTap: true,
+  description: 'STEP 1: Enter the Black Market for your first supply drop.',
+  disposeOnTap: true,
   onTargetClick: () {
     Navigator.of(context).push(MaterialPageRoute(builder: (context) => const StoreScreen())).then((_) {
       _fetchPlayerData();
-      _checkTutorialPhase(); // Re-check phase when returning
+      _checkTutorialPhase(); 
     });
   },
-  child:_buildMenuButton(
-                    icon: Icons.store,
-                    label: 'btn_black_market'.tr(),
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const StoreScreen()),
-                      ).then((_) => _fetchPlayerData());
-                    },
-                  ),
-                  ),
+  child: _buildMenuButton(
+    icon: Icons.store,
+    label: 'btn_black_market'.tr(),
+    badgeCount: _freeMarketItems, // <--- ADD THIS LINE HERE
+    onPressed: () {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (context) => const StoreScreen()),
+      ).then((_) => _fetchPlayerData());
+    },
+  ),
+),
                   const SizedBox(height: 10),
                   Showcase(
   key: _loadoutKey,

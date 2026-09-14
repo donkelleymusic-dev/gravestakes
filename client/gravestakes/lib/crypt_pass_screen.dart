@@ -34,6 +34,12 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
     _loadPassData();
   }
 
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadPassData() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;

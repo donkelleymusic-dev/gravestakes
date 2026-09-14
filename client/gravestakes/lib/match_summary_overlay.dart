@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'game.dart';
 import 'vessel_opener_overlay.dart';
 import 'match_summary_screen.dart';
+import 'lumen_tier_system.dart'; 
 
 class MatchSummaryOverlay extends StatelessWidget {
   final GraveStakesGame game;
@@ -126,23 +127,49 @@ class MatchSummaryOverlay extends StatelessWidget {
                 );
               }),
               
-              const SizedBox(height: 32),
-              // --- NEW: THE HIGHLIGHT REEL BUTTON ---
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Colors.white54, width: 2),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                ),
-                icon: const Icon(Icons.camera_alt, color: Colors.white),
-                label: const Text('VIEW HIGHLIGHTS', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => MatchSummaryScreen(photos: game.matchPhotos),
+              const SizedBox(height: 24),
+              const Divider(color: Colors.white24),
+              const SizedBox(height: 16),
+              
+              // --- NEW: LUMEN UI FEEDBACK ---
+              if (!game.isGuildScrimmage)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.flash_on, color: Colors.yellowAccent, size: 28),
+                    const SizedBox(width: 8),
+                    Text(
+                      'LUMEN ${game.matchLumenDelta > 0 ? '+' : ''}${game.matchLumenDelta}', 
+                      style: TextStyle(
+                        color: game.matchLumenDelta > 0 ? Colors.yellowAccent : Colors.redAccent, 
+                        fontSize: 22, 
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2,
+                        fontFamily: 'Courier'
+                      ),
                     ),
-                  );
-                },
-              ),
+                  ],
+                ),
+              const SizedBox(height: 24),
+
+              // --- EXISTING HIGHLIGHT REEL BUTTON ---
+              if (game.matchPhotos.isNotEmpty) ...[
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.white54, width: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  ),
+                  icon: const Icon(Icons.camera_alt, color: Colors.white),
+                  label: const Text('VIEW HIGHLIGHTS', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => MatchSummaryScreen(photos: game.matchPhotos),
+                      ),
+                    );
+                  },
+                ),
+              ],
               const SizedBox(height: 16),
               // --------------------------------------
 
