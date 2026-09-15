@@ -124,8 +124,24 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   }
 
   Future<void> _initMenuAudio() async {
-    await AudioManager.instance.init();
-    AudioManager.instance.playMenuMusic();
+    debugPrint('MainMenu: _initMenuAudio() started.');
+    
+    try {
+      // Future.wait forces both managers to initialize at the exact same time.
+      // If one freezes, the other will still boot.
+      await Future.wait([
+        AudioManager.instance.init(),
+        SynthManager.instance.init(),
+      ]);
+      
+      debugPrint('MainMenu: Both Audio and Synth managers initialized successfully.');
+      
+      // Play the background music now that both engines are ready
+      AudioManager.instance.playMenuMusic();
+      
+    } catch (e) {
+      debugPrint('MainMenu ERROR: Something crashed inside _initMenuAudio(): $e');
+    }
   }
 
   Future<void> _loadSavedPreferences() async {
@@ -802,7 +818,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
     return OutlinedButton(
       onPressed: () {
-        SynthManager.instance.playMagicTap();
+        debugPrint('UI: Menu Button Tapped -> $label');
+        SynthManager.instance.playMagicTap(); 
         onPressed();
       },
       style: OutlinedButton.styleFrom(
