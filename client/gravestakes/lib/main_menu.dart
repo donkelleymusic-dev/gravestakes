@@ -442,375 +442,417 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         key: _scaffoldKey,
         backgroundColor: Colors.black,
         body: _isLoading
-        ? const Center(child: CircularProgressIndicator(color: Colors.red))
-        : _errorMessage != null
-            ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.wifi_off, color: Colors.redAccent, size: 48),
-                    const SizedBox(height: 16),
-                    Text(_errorMessage!, style: const TextStyle(color: Colors.white, fontSize: 16)),
-                    const SizedBox(height: 24),
-                    ElevatedButton.icon(
-                      onPressed: _fetchPlayerData,
-                      icon: const Icon(Icons.refresh, color: Colors.white),
-                      label: const Text('RETRY CONNECTION', style: TextStyle(color: Colors.white)),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800]),
-                    ),
-                    const SizedBox(height: 24),
-                    TextButton(
-                      onPressed: _logout,
-                      child: const Text('LOGOUT', style: TextStyle(color: Colors.grey)),
-                    ),
-                  ],
-                ),
-              )
-        : SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[900],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            ? const Center(child: CircularProgressIndicator(color: Colors.red))
+            : _errorMessage != null
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(_username, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 4),
-                            Text('${supabase.auth.currentUser?.email ?? 'Unknown'}', style: const TextStyle(color: Colors.yellowAccent, fontSize: 12)),
-                            const SizedBox(height: 4),
-                            Text('Level $_level', style: const TextStyle(color: Colors.grey, fontSize: 14)),
-                          ],
+                        const Icon(Icons.wifi_off, color: Colors.redAccent, size: 48),
+                        const SizedBox(height: 16),
+                        Text(_errorMessage!, style: const TextStyle(color: Colors.white, fontSize: 16)),
+                        const SizedBox(height: 24),
+                        ElevatedButton.icon(
+                          onPressed: _fetchPlayerData,
+                          icon: const Icon(Icons.refresh, color: Colors.white),
+                          label: const Text('RETRY CONNECTION', style: TextStyle(color: Colors.white)),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800]),
                         ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
+                        const SizedBox(height: 24),
+                        TextButton(
+                          onPressed: _logout,
+                          child: const Text('LOGOUT', style: TextStyle(color: Colors.grey)),
+                        ),
+                      ],
+                    ),
+                  )
+                : SafeArea(
+                    child: Stack(
+                      children: [
+                        // --- TOP LEFT: PLAYER PROFILE ---
+                        Positioned(
+                          top: 16,
+                          left: 16,
+                          child: _buildProfileBadge(),
+                        ),
+
+                        // --- TOP RIGHT: WALLET & LOGOUT ---
+                        Positioned(
+                          top: 16,
+                          right: 16,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildWalletBadge(),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                icon: const Icon(Icons.logout, color: Colors.white54),
+                                onPressed: _logout,
+                                tooltip: 'Logout',
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // --- LEFT EDGE: SOCIAL & RANKING ---
+                        Positioned(
+                          top: 120,
+                          left: 16,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildSidebarIcon(icon: Icons.people, color: Colors.cyanAccent, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FriendsScreen()))),
+                              _buildSidebarIcon(icon: Icons.shield, color: Colors.blueAccent, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GuildScreen()))),
+                              _buildSidebarIcon(icon: Icons.leaderboard, color: Colors.yellowAccent, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LeaderboardScreen()))),
+                            ],
+                          ),
+                        ),
+
+                        // --- RIGHT EDGE: EVENTS, SETTINGS & INBOX ---
+                        Positioned(
+                          top: 120,
+                          right: 16,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildSidebarIcon(icon: Icons.mail_outline, color: Colors.white, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InboxScreen()))),
+                              _buildSidebarIcon(icon: Icons.settings, color: Colors.grey, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+                              _buildSidebarIcon(icon: Icons.local_fire_department, color: Colors.orangeAccent, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GuildWarMapScreen()))),
+                              _buildSidebarIcon(icon: Icons.card_membership, color: Colors.purpleAccent, badgeCount: _unclaimedPassTiers, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CryptPassScreen())).then((_) => _fetchPlayerData())),
+                            ],
+                          ),
+                        ),
+
+                        // --- SECRET DEV BUTTON (Top Center) ---
+                        if (supabase.auth.currentUser?.email == 'donkelleymusic@gmail.com')
+                          Positioned(
+                            top: 16,
+                            left: 0,
+                            right: 0,
+                            child: Center(
+                              child: IconButton(
+                                icon: const Icon(Icons.movie_creation, color: Colors.greenAccent, size: 24),
+                                onPressed: () {
+                                  SynthManager.instance.playMagicTap();
+                                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => Scaffold(body: GameWidget(game: GraveStakesGame(matchMode: 'cinematic')))));
+                                },
+                              ),
+                            ),
+                          ),
+
+                        // --- BOTTOM LEFT: SECONDARY ACTIONS ---
+                        Positioned(
+                          bottom: 130,
+                          left: 16,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildSidebarIcon(icon: Icons.group, color: Colors.white70, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PartyScreen())).then((_) => _fetchPlayerData())),
+                              _buildSidebarIcon(icon: Icons.remove_red_eye, color: Colors.white70, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SpectatorLobbyScreen()))),
+                              if (GraveStakesGame.lastMatchPhotos.isNotEmpty)
+                                _buildSidebarIcon(icon: Icons.photo_library, color: Colors.pinkAccent, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => MatchSummaryScreen(photos: GraveStakesGame.lastMatchPhotos)))),
+                            ],
+                          ),
+                        ),
+
+                        // --- BOTTOM CENTER: THE ACTION HUB ---
+                        Align(
+                          alignment: Alignment.bottomCenter,
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 24.0, left: 16, right: 16),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Icon(LumenSystem.getTier(_lumen).icon, color: LumenSystem.getTier(_lumen).color, size: 16),
-                                const SizedBox(width: 4),
-                                Text(
-                                  '${LumenSystem.getTier(_lumen).name} ($_lumen)', 
-                                  style: TextStyle(color: LumenSystem.getTier(_lumen).color, fontWeight: FontWeight.bold),
+                                // LEFT: THE CRYPT (LOADOUT)
+                                Showcase(
+                                  key: _loadoutKey,
+                                  description: 'STEP 3: Enter The Crypt to equip your new mask.',
+                                  disposeOnTap: true,
+                                  onTargetClick: () {
+                                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LoadoutScreen())).then((_) => _checkTutorialPhase());
+                                  },
+                                  child: _buildChunkyButton(
+                                    icon: Icons.backpack, 
+                                    label: 'btn_crypt'.tr(), 
+                                    color: Colors.cyanAccent, 
+                                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LoadoutScreen())),
+                                  ),
+                                ),
+
+                                // CENTER: MATCHMAKING
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // Mode Dropdown
+                                        Container(
+                                          height: 36,
+                                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black87,
+                                            borderRadius: BorderRadius.circular(18),
+                                            border: Border.all(color: Colors.purpleAccent.withOpacity(0.5)),
+                                          ),
+                                          child: DropdownButtonHideUnderline(
+                                            child: DropdownButton<String>(
+                                              value: _selectedMatchMode,
+                                              dropdownColor: Colors.black,
+                                              icon: const Icon(Icons.arrow_drop_down, color: Colors.purpleAccent),
+                                              style: const TextStyle(color: Colors.purpleAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold, fontSize: 12),
+                                              items: const [
+                                                DropdownMenuItem(value: 'casual', child: Text('CASUAL FFA')),
+                                                DropdownMenuItem(value: '1v1', child: Text('1v1 RANKED')),
+                                                DropdownMenuItem(value: '2v2', child: Text('2v2 SQUAD')),
+                                              ],
+                                              onChanged: (String? newValue) async {
+                                                if (newValue != null) {
+                                                  SynthManager.instance.playMagicTap();
+                                                  final prefs = await SharedPreferences.getInstance();
+                                                  await prefs.setString('last_match_mode', newValue);
+                                                  setState(() => _selectedMatchMode = newValue);
+                                                }
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        
+                                        // Giant Play Button
+                                        Showcase(
+                                          key: _startKey,
+                                          description: 'STEP 8: Select Casual Mode and Enter the Darkness!',
+                                          disposeOnTap: true,
+                                          onTargetClick: () async {
+                                            final prefs = await SharedPreferences.getInstance();
+                                            await prefs.setString('tutorial_phase', 'completed');
+                                            try {
+                                              if (supabase.auth.currentUser?.id != null) {
+                                                await supabase.from('profiles').update({'completed_tutorial': true}).eq('id', supabase.auth.currentUser!.id);
+                                                _completedTutorial = true;
+                                              }
+                                            } catch (e) {}
+                                            if (mounted) _findMatchAndStart(context);
+                                          },
+                                          child: GestureDetector(
+                                            onTap: () async {
+                                              SynthManager.instance.playMagicTap();
+                                              try {
+                                                final prefs = await SharedPreferences.getInstance();
+                                                if (prefs.getString('tutorial_phase') == 'match') await prefs.setString('tutorial_phase', 'completed');
+                                              } catch (e) {}
+                                              if (mounted) _findMatchAndStart(context);
+                                            },
+                                            child: Container(
+                                              height: 70,
+                                              decoration: BoxDecoration(
+                                                gradient: LinearGradient(colors: [Colors.red.shade900, Colors.redAccent]),
+                                                borderRadius: BorderRadius.circular(12),
+                                                border: Border.all(color: Colors.white54, width: 2),
+                                                boxShadow: [BoxShadow(color: Colors.redAccent.withOpacity(0.5), blurRadius: 15)],
+                                              ),
+                                              child: Center(
+                                                child: Text(
+                                                  _isSearchingForMatch ? 'btn_searching'.tr() : 'btn_find_match'.tr(),
+                                                  style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 2, fontFamily: 'Courier', shadows: [Shadow(color: Colors.black, blurRadius: 4)]),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+
+                                // RIGHT: MARKET (STORE)
+                                Showcase(
+                                  key: _marketKey,
+                                  description: 'STEP 1: Enter the Black Market for your first supply drop.',
+                                  disposeOnTap: true,
+                                  onTargetClick: () {
+                                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StoreScreen())).then((_) {
+                                      _fetchPlayerData();
+                                      _checkTutorialPhase();
+                                    });
+                                  },
+                                  child: _buildChunkyButton(
+                                    icon: Icons.store, 
+                                    label: 'btn_black_market'.tr(), 
+                                    color: Colors.amberAccent, 
+                                    badgeCount: _freeMarketItems,
+                                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StoreScreen())).then((_) => _fetchPlayerData()),
+                                  ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 4),
-                            Text('Shadows: $_shadows', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 4),
-                            Text('Coins: $_coins', style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold)),
-                          ],
+                          ),
                         ),
                       ],
                     ),
                   ),
-                  
-                  const SizedBox(height: 32),
+      ),
+    );
+  }
 
-                  // MATCH MODE SELECTOR DROPDOWN
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[900],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.purpleAccent),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _selectedMatchMode,
-                        dropdownColor: Colors.black87,
-                        isExpanded: true,
-                        style: const TextStyle(color: Colors.purpleAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold),
-                        items: const [
-                          DropdownMenuItem(value: 'casual', child: Text('MODE: CASUAL FREE FOR ALL')),
-                          DropdownMenuItem(value: '1v1', child: Text('MODE: 1v1 COMPETITIVE')),
-                          DropdownMenuItem(value: '2v2', child: Text('MODE: 2v2 SQUAD BRAWL')),
-                        ],
-                        onChanged: (String? newValue) async {
-                          if (newValue != null) {
-                            final prefs = await SharedPreferences.getInstance();
-                            await prefs.setString('last_match_mode', newValue);
-                            
-                            setState(() {
-                              _selectedMatchMode = newValue;
-                            });
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 16),
+  // --- UI WIDGET BUILDERS ---
 
-                  Showcase(
-                    key: _startKey,
-                    description: 'STEP 8: Select Casual Mode and Enter the Darkness!',
-                    targetShapeBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    disposeOnTap: true,
-                    onTargetClick: () async {
-                      final prefs = await SharedPreferences.getInstance();
-                      await prefs.setString('tutorial_phase', 'completed');
-                      
-                      // --- Lock it in the database permanently ---
-                      try {
-                        final userId = supabase.auth.currentUser?.id;
-                        if (userId != null) {
-                          await supabase.from('profiles').update({'completed_tutorial': true}).eq('id', userId);
-                          _completedTutorial = true;
-                        }
-                      } catch (e) {
-                        debugPrint('Failed to sync tutorial completion: $e');
-                      }
-                      
-                      if (mounted) _findMatchAndStart(context);
-                    },
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        // Also catch it for standard taps
-                        try {
-                          final prefs = await SharedPreferences.getInstance();
-                          if (prefs.getString('tutorial_phase') == 'match') {
-                            await prefs.setString('tutorial_phase', 'completed');
-                          }
-                          } catch (e) {
-                          debugPrint('Failed to sync tutorial completion: $e');
-                        }
-                        
-                        if (mounted) _findMatchAndStart(context);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red[800],
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: Text(
-                        _isSearchingForMatch ? 'btn_searching'.tr() : 'btn_find_match'.tr(),
-                        style: AppTheme.getLocalizedStyle(context.locale.languageCode, color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const PartyScreen()),
-                      ).then((_) => _fetchPlayerData());
-                    },
-                    icon: const Icon(Icons.group, color: Colors.white),
-                    label: Text('btn_squad_party'.tr(), style: TextStyle(color: Colors.white, fontSize: 16)),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      side: const BorderSide(color: Colors.grey),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const SpectatorLobbyScreen()),
-                      );
-                    },
-                    icon: const Icon(Icons.remove_red_eye, color: Colors.white),
-                    label: Text('btn_spectate_matches'.tr(), style: TextStyle(color: Colors.white, fontSize: 16)),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      side: const BorderSide(color: Colors.grey),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                  ),
-
-                  // --- NEW: LAST MATCH HIGHLIGHTS BUTTON ---
-                  if (GraveStakesGame.lastMatchPhotos.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => MatchSummaryScreen(photos: GraveStakesGame.lastMatchPhotos)
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.photo_library, color: Colors.purpleAccent),
-                      label: Text('btn_last_match_highlights'.tr(), style: TextStyle(color: Colors.purpleAccent, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        backgroundColor: Colors.purpleAccent.withOpacity(0.1),
-                        side: const BorderSide(color: Colors.purpleAccent, width: 2),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                    ),
-                  ],
-
-                  const SizedBox(height: 24),
-                  const Text('COMMUNITY & MANAGEMENT', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                  const SizedBox(height: 12),
-
-                  _buildMenuButton(
-                    icon: Icons.mail_outline,
-                    label: 'INBOX',
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const InboxScreen()),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _buildMenuButton(
-                    icon: Icons.local_fire_department,
-                    label: 'btn_crypt_war_map'.tr(),
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const GuildWarMapScreen()),
-                      );
-                    },
-                  ),
-                  
-                  const SizedBox(height: 10),
-                  _buildMenuButton(
-                    icon: Icons.card_membership,
-                    label: 'btn_crypt_pass'.tr(),
-                    badgeCount: _unclaimedPassTiers, // <--- ADD THIS
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const CryptPassScreen()),
-                      ).then((_) => _fetchPlayerData()); 
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  Showcase(
-  key: _marketKey,
-  description: 'STEP 1: Enter the Black Market for your first supply drop.',
-  disposeOnTap: true,
-  onTargetClick: () {
-    Navigator.of(context).push(MaterialPageRoute(builder: (context) => const StoreScreen())).then((_) {
-      _fetchPlayerData();
-      _checkTutorialPhase(); 
-    });
-  },
-  child: _buildMenuButton(
-    icon: Icons.store,
-    label: 'btn_black_market'.tr(),
-    badgeCount: _freeMarketItems, // <--- ADD THIS LINE HERE
-    onPressed: () {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (context) => const StoreScreen()),
-      ).then((_) => _fetchPlayerData());
-    },
-  ),
-),
-                  const SizedBox(height: 10),
-                  Showcase(
-  key: _loadoutKey,
-                    description: 'STEP 3: Enter The Crypt to equip your new mask.',
-                    disposeOnTap: true,
-  onTargetClick: () {
-    Navigator.of(context).push(MaterialPageRoute(builder: (context) => const LoadoutScreen())).then((_) {
-      _checkTutorialPhase();
-    });
-  },
-  child:_buildMenuButton(
-                    icon: Icons.backpack,
-                    label:'btn_crypt'.tr(),
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const LoadoutScreen()),
-                      );
-                    },
-                  ),
-                  ),
-                  const SizedBox(height: 10),
-                  _buildMenuButton(
-                    icon: Icons.people,
-                    label: 'btn_friends'.tr(),
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const FriendsScreen()),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _buildMenuButton(
-                    icon: Icons.shield,
-                    label: 'btn_guilds'.tr(),
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const GuildScreen()),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _buildMenuButton(
-                    icon: Icons.leaderboard,
-                    label: 'btn_leaderboard'.tr(),
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const LeaderboardScreen()),
-                      );
-                    },
-                  ),
-
-                  const SizedBox(height: 32),
-
-                  _buildMenuButton(
-                    icon: Icons.settings,
-                    label: 'SETTINGS',
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const SettingsScreen()),
-                      );
-                    },
-                  ),
-
-                  
-                  const SizedBox(height: 32),
-
-                  // --- SECRET DIRECTOR MODE (Master Account Only) ---
-                  if (supabase.auth.currentUser?.email == 'donkelleymusic@gmail.com') ...[
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => Scaffold(
-                              body: GameWidget(game: GraveStakesGame(matchMode: 'cinematic')),
-                            ),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.movie_creation, color: Colors.greenAccent),
-                      label: const Text('RECORD CINEMATIC SEQUENCE', style: TextStyle(color: Colors.greenAccent, fontSize: 16, fontWeight: FontWeight.bold)),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        side: const BorderSide(color: Colors.greenAccent, width: 2),
-                      ),
-                    ),
-                  ],
-
-                  TextButton(
-                    onPressed: _logout,
-                    child: const Text('LOGOUT', style: TextStyle(color: Colors.grey)),
-                  ),
-                  const SizedBox(height: 20),
-                ],
+  Widget _buildSidebarIcon({required IconData icon, required Color color, required VoidCallback onTap, int badgeCount = 0}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0),
+      child: GestureDetector(
+        onTap: () {
+          SynthManager.instance.playMagicTap();
+          onTap();
+        },
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: Colors.grey[900]?.withOpacity(0.8),
+                shape: BoxShape.circle,
+                border: Border.all(color: color.withOpacity(0.5), width: 2),
+                boxShadow: [BoxShadow(color: color.withOpacity(0.1), blurRadius: 8)],
+              ),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            if (badgeCount > 0)
+              Positioned(
+                top: -4,
+                right: -4,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+                  child: Text('$badgeCount', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                 ),
               ),
-            ), // Closes Scaffold
-          ), // Closes Builder
-        ); // Closes ShowCaseWidget
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChunkyButton({required IconData icon, required String label, required Color color, required VoidCallback onTap, int badgeCount = 0}) {
+    return GestureDetector(
+      onTap: () {
+        SynthManager.instance.playMagicTap();
+        onTap();
+      },
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: 75,
+            height: 75,
+            decoration: BoxDecoration(
+              color: Colors.grey[900],
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: color.withOpacity(0.8), width: 2),
+              boxShadow: [BoxShadow(color: color.withOpacity(0.2), blurRadius: 10)],
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, color: color, size: 28),
+                const SizedBox(height: 4),
+                Text(
+                  label, 
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.bold, fontFamily: 'Courier'),
+                ),
+              ],
+            ),
+          ),
+          if (badgeCount > 0)
+            Positioned(
+              top: -6,
+              right: -6,
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+                child: Text('$badgeCount', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 32, height: 32,
+            decoration: BoxDecoration(color: Colors.grey[800], shape: BoxShape.circle, border: Border.all(color: Colors.cyanAccent)),
+            child: Center(child: Text('$_level', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_username, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+              Row(
+                children: [
+                  Icon(LumenSystem.getTier(_lumen).icon, color: LumenSystem.getTier(_lumen).color, size: 10),
+                  const SizedBox(width: 4),
+                  Text('${LumenSystem.getTier(_lumen).name} ($_lumen)', style: TextStyle(color: LumenSystem.getTier(_lumen).color, fontSize: 10, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWalletBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('$_shadows', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+              const SizedBox(width: 4),
+              const Icon(Icons.dark_mode, color: Colors.redAccent, size: 14),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('$_coins', style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+              const SizedBox(width: 4),
+              const Icon(Icons.monetization_on, color: Colors.amberAccent, size: 14),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildMenuButton({required IconData icon, required String label, required VoidCallback onPressed, int badgeCount = 0}) {
