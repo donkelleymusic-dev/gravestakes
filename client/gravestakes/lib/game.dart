@@ -91,7 +91,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
   bool isGlobalBlackout = false;
   double blackoutTimer = 0.0;
-  double timeUntilNextBlackout = 45.0;
+
+  // Triggers somewhere between 60 and 120 seconds into the match
+  double timeUntilNextBlackout = 60.0 + Random().nextDouble() * 60.0;
+  bool willBlackoutHappen = Random().nextBool(); // 50% chance per match
+  bool hasBlackoutFired = false;
 
   bool isWaitingInLobby = true;
 
@@ -691,14 +695,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
 
     if (isHost && gameStarted && matchPhase == 'playing') {
-      timeUntilNextBlackout -= dt;
-      if (timeUntilNextBlackout <= 0 && !isGlobalBlackout) {
-        isGlobalBlackout = true;
-        blackoutTimer = 30.0;
-        timeUntilNextBlackout = 75.0 + Random().nextDouble() * 45.0; // Random interval
-
-        myChannel.sendBroadcastMessage(event: 'global_blackout', payload: {'active': true, 'duration': 30.0});
-        camera.viewport.add(FloatingText(text: 'TOTAL BLACKOUT!', worldPosition: Vector2(player.position.x - 40, player.position.y - 60)));
+      // --- 50/50 Chance, Once Per Match ---
+      if (willBlackoutHappen && !hasBlackoutFired) {
+        timeUntilNextBlackout -= dt;
+        if (timeUntilNextBlackout <= 0) {
+          hasBlackoutFired = true;
+          isGlobalBlackout = true;
+          blackoutTimer = 30.0;
+          
+          myChannel.sendBroadcastMessage(event: 'global_blackout', payload: {'active': true, 'duration': 30.0});
+          camera.viewport.add(FloatingText(text: 'TOTAL BLACKOUT!', worldPosition: Vector2(player.position.x - 40, player.position.y - 60)));
+        }
       }
 
       if (isGlobalBlackout) {

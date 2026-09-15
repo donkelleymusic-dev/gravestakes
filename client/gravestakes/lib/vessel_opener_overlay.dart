@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'progression_screen.dart';
+import 'synth_manager.dart';
 
 class VesselOpenerOverlay extends StatefulWidget {
   final String vesselId;
@@ -32,6 +33,8 @@ class VesselOpenerOverlay extends StatefulWidget {
 class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerProviderStateMixin {
   late AnimationController _pressureController;
   late AnimationController _shakeController;
+
+  List<dynamic> _crescendoHandles = [];
   
   bool _isOpened = false;
   bool _isFetching = false;
@@ -70,6 +73,9 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
   }
 
   Future<void> _triggerBurst() async {
+    SynthManager.instance.resolveChestOpen(_crescendoHandles);
+    _crescendoHandles.clear();
+
     setState(() {
       _isFetching = true;
       _isOpened = true;
@@ -106,15 +112,24 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
   }
 
   void _onPointerDown(PointerDownEvent details) {
-    if (!_isOpened) _pressureController.forward();
+    if (!_isOpened) {
+     _pressureController.forward();
+     _crescendoHandles = SynthManager.instance.startChestCrescendo(_pressureController.duration!.inMilliseconds);
+    }
   }
 
   void _onPointerUp(PointerUpEvent details) {
-    if (!_isOpened) _pressureController.reverse();
+    if (!_isOpened) {
+      _pressureController.reverse();
+      SynthManager.instance.stopChestCrescendo(_crescendoHandles);
+    }
   }
 
   void _onPointerCancel(PointerCancelEvent details) {
-    if (!_isOpened) _pressureController.reverse();
+    if (!_isOpened) {
+      _pressureController.reverse();
+      SynthManager.instance.stopChestCrescendo(_crescendoHandles);
+    }
   }
 
   @override

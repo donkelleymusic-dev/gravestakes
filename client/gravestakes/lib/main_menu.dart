@@ -28,6 +28,7 @@ import 'settings_screen.dart';
 import 'theme.dart';
 import 'cinematic_trailer_game.dart';
 import 'lumen_tier_system.dart';
+import 'synth_manager.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -800,7 +801,10 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     String currentLang = context.locale.languageCode; // Grab active language
 
     return OutlinedButton(
-      onPressed: onPressed,
+      onPressed: () {
+        SynthManager.instance.playMagicTap();
+        onPressed();
+      },
       style: OutlinedButton.styleFrom(
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
