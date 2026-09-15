@@ -33,27 +33,24 @@ class SynthManager {
 
   // --- MENU INTERACTIONS ---
   void playMagicTap() {
-    debugPrint('SynthManager: playMagicTap() triggered.');
-    
-    if (!isInitialized) {
-      debugPrint('SynthManager WARNING: Cannot play, manager is not initialized.');
-      return;
-    }
-    if (_sineWave == null) {
-      debugPrint('SynthManager WARNING: Cannot play, _sineWave is null.');
-      return;
-    }
+    if (!isInitialized || _sineWave == null) return;
     
     try {
-      final handle = SoLoud.instance.play(_sineWave!, volume: 0.6);
-      debugPrint('SynthManager: Sound playing. Handle ID: $handle');
+      // 1. Maximize the volume so it competes with the MP3 track
+      final handle = SoLoud.instance.play(_sineWave!, volume: 1.0);
       
-      SoLoud.instance.setRelativePlaySpeed(handle, 4.0);
-      SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 150));
+      // 2. Pitch it even higher (6 octaves up) so it sits above the music's frequency range
+      SoLoud.instance.setRelativePlaySpeed(handle, 6.0);
       
-      Future.delayed(const Duration(milliseconds: 150), () {
+      // 3. SUSTAIN: Wait 50ms at full volume to give it a solid "strike" impact
+      Future.delayed(const Duration(milliseconds: 50), () {
+        // 4. RELEASE: Now fade it out smoothly over 250ms
+        SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 250));
+      });
+      
+      // 5. Cleanup: Free the voice after sustain + fade time (50ms + 250ms)
+      Future.delayed(const Duration(milliseconds: 300), () {
         SoLoud.instance.stop(handle);
-        debugPrint('SynthManager: Voice freed for Handle ID: $handle');
       });
     } catch (e) {
       debugPrint('SynthManager ERROR during playback: $e');
