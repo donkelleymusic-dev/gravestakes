@@ -26,19 +26,29 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
     super.onDragStart(event);
     if (!game.gameStarted || game.player.isStunned) return;
 
-    // --- NEW: Contextual Puzzle Interaction ---
+    // --- NEW: Magnetic Puzzle Interaction ---
     if (game.player.isInPuzzleRoom) {
-      // Trigger a raycast forward to find and interact with a door
-      _triggerFlash(0); // Flash the center button
+      _triggerFlash(0); 
+      
+      PuzzleDoor? closestDoor;
+      // 150.0 is very generous (the hallway is only 64px wide!)
+      double closestDist = 150.0; 
+
+      // Find the absolute closest door to the player
       game.world.children.whereType<PuzzleDoor>().forEach((door) {
-        if (game.player.position.distanceTo(door.position) < 100.0) {
-          door.onInteract();
+        double dist = game.player.position.distanceTo(door.position);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestDoor = door;
         }
       });
-      return; // Skip normal mask attack logic
+
+      // If we found one in range, interact with it instantly
+      closestDoor?.onInteract();
+      return; 
     }
 
-    // --- EXISTING LOGIC: Standard Z-Grid reading order[cite: 3] ---
+    // --- EXISTING LOGIC: Standard Z-Grid reading order ---
     final localPos = event.localPosition;
     final dx = localPos.x - buttonRadius;
     final dy = localPos.y - buttonRadius;
@@ -109,23 +119,37 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
   void render(Canvas canvas) {
     if (!game.gameStarted) return;
     
-    final player = game.player; // <-- Restored this line!
+    final player = game.player; 
     final center = Offset(buttonRadius, buttonRadius);
 
     // --- NEW: Puzzle Room UI Override ---
     if (player.isInPuzzleRoom) {
-      // Draw a solid, creepy interact button instead of the quadrants
-      final bgPaint = Paint()..color = Colors.black87;
+      // 1. Check if we are physically close enough to any door
+      bool isNearDoor = false;
+      for (var door in game.world.children.whereType<PuzzleDoor>()) {
+        if (player.position.distanceTo(door.position) < 150.0) {
+          isNearDoor = true;
+          break;
+        }
+      }
+
+      // 2. Change colors based on proximity
+      final bgPaint = Paint()..color = isNearDoor ? Colors.black87 : Colors.black54;
       final borderPaint = Paint()
-        ..color = _flashedSlot == 0 ? Colors.white : Colors.red[900]!
+        ..color = _flashedSlot == 0 
+            ? Colors.white 
+            : (isNearDoor ? Colors.amberAccent : Colors.red[900]!) // Glows Gold when in range!
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.0;
+        ..strokeWidth = isNearDoor ? 4.0 : 3.0;
 
       canvas.drawCircle(center, buttonRadius, bgPaint);
       canvas.drawCircle(center, buttonRadius, borderPaint);
       
-      // Draw a basic "Keyhole" icon
-      final keyholePaint = Paint()..color = Colors.grey..style = PaintingStyle.fill;
+      // 3. Draw the Keyhole (Glows white if in range, grey if not)
+      final keyholePaint = Paint()
+        ..color = isNearDoor ? Colors.white : Colors.grey
+        ..style = PaintingStyle.fill;
+        
       canvas.drawCircle(Offset(center.dx, center.dy - 5), 8, keyholePaint);
       canvas.drawPath(Path()
         ..moveTo(center.dx - 6, center.dy)
