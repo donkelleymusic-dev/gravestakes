@@ -26,15 +26,14 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
     super.onDragStart(event);
     if (!game.gameStarted || game.player.isStunned) return;
 
-    // --- NEW: Magnetic Puzzle Interaction ---
+    // --- NEW: Forgiving Magnetic Puzzle Interaction ---
     if (game.player.isInPuzzleRoom) {
       _triggerFlash(0); 
       
       PuzzleDoor? closestDoor;
-      // 150.0 is very generous (the hallway is only 64px wide!)
-      double closestDist = 150.0; 
+      // MASSIVELY increased radius so you don't have to perfectly align
+      double closestDist = 250.0; 
 
-      // Find the absolute closest door to the player
       game.world.children.whereType<PuzzleDoor>().forEach((door) {
         double dist = game.player.position.distanceTo(door.position);
         if (dist < closestDist) {
@@ -43,7 +42,7 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
         }
       });
 
-      // If we found one in range, interact with it instantly
+      // If one is in range, interact!
       closestDoor?.onInteract();
       return; 
     }
@@ -124,28 +123,26 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
 
     // --- NEW: Puzzle Room UI Override ---
     if (player.isInPuzzleRoom) {
-      // 1. Check if we are physically close enough to any door
       bool isNearDoor = false;
       for (var door in game.world.children.whereType<PuzzleDoor>()) {
-        if (player.position.distanceTo(door.position) < 150.0) {
+        // MATCH THE MASSIVE RADIUS HERE TOO
+        if (player.position.distanceTo(door.position) < 250.0) {
           isNearDoor = true;
           break;
         }
       }
 
-      // 2. Change colors based on proximity
       final bgPaint = Paint()..color = isNearDoor ? Colors.black87 : Colors.black54;
       final borderPaint = Paint()
         ..color = _flashedSlot == 0 
             ? Colors.white 
-            : (isNearDoor ? Colors.amberAccent : Colors.red[900]!) // Glows Gold when in range!
+            : (isNearDoor ? Colors.amberAccent : Colors.red[900]!) // Glows Gold!
         ..style = PaintingStyle.stroke
         ..strokeWidth = isNearDoor ? 4.0 : 3.0;
 
       canvas.drawCircle(center, buttonRadius, bgPaint);
       canvas.drawCircle(center, buttonRadius, borderPaint);
       
-      // 3. Draw the Keyhole (Glows white if in range, grey if not)
       final keyholePaint = Paint()
         ..color = isNearDoor ? Colors.white : Colors.grey
         ..style = PaintingStyle.fill;
