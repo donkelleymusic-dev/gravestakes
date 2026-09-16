@@ -3,6 +3,7 @@ import 'package:flame/components.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import 'game.dart';
+import 'puzzle_door.dart';
 
 class AttackButton extends PositionComponent with HasGameReference<GraveStakesGame>, DragCallbacks {
   final double buttonRadius = 55.0;
@@ -25,30 +26,35 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
     super.onDragStart(event);
     if (!game.gameStarted || game.player.isStunned) return;
 
+    // --- NEW: Contextual Puzzle Interaction ---
+    if (game.player.isInPuzzleRoom) {
+      // Trigger a raycast forward to find and interact with a door
+      _triggerFlash(0); // Flash the center button
+      game.world.children.whereType<PuzzleDoor>().forEach((door) {
+        if (game.player.position.distanceTo(door.position) < 100.0) {
+          door.onInteract();
+        }
+      });
+      return; // Skip normal mask attack logic
+    }
+
+    // --- EXISTING LOGIC: Standard Z-Grid reading order[cite: 3] ---
     final localPos = event.localPosition;
     final dx = localPos.x - buttonRadius;
     final dy = localPos.y - buttonRadius;
 
-    // Fixed Mapping: Standard Z-Grid reading order
     int targetSlot = 0;
-    if (dx < 0 && dy < 0) {
-      targetSlot = 0; // Top-Left
-    } else if (dx >= 0 && dy < 0) {
-      targetSlot = 1; // Top-Right
-    } else if (dx < 0 && dy >= 0) {
-      targetSlot = 2; // Bottom-Left
-    } else {
-      targetSlot = 3; // Bottom-Right
-    }
+    if (dx < 0 && dy < 0) targetSlot = 0;
+    else if (dx >= 0 && dy < 0) targetSlot = 1;
+    else if (dx < 0 && dy >= 0) targetSlot = 2;
+    else targetSlot = 3;
 
     if (targetSlot < game.player.equippedMasks.length && game.player.equippedMasks[targetSlot] != null) {
       final mask = game.player.equippedMasks[targetSlot]!;
-      // Only flash if the player actually has enough energy to fire it
       if (game.player.energy >= mask.energyCost || mask.id == 'standard') {
         _triggerFlash(targetSlot);
       }
     }
-
     game.player.triggerAttack(forceMaskIndex: targetSlot);
   }
 
@@ -103,9 +109,34 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
   void render(Canvas canvas) {
     if (!game.gameStarted) return;
     
-    final player = game.player;
+    final player = game.player; // <-- Restored this line!
     final center = Offset(buttonRadius, buttonRadius);
 
+    // --- NEW: Puzzle Room UI Override ---
+    if (player.isInPuzzleRoom) {
+      // Draw a solid, creepy interact button instead of the quadrants
+      final bgPaint = Paint()..color = Colors.black87;
+      final borderPaint = Paint()
+        ..color = _flashedSlot == 0 ? Colors.white : Colors.red[900]!
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0;
+
+      canvas.drawCircle(center, buttonRadius, bgPaint);
+      canvas.drawCircle(center, buttonRadius, borderPaint);
+      
+      // Draw a basic "Keyhole" icon
+      final keyholePaint = Paint()..color = Colors.grey..style = PaintingStyle.fill;
+      canvas.drawCircle(Offset(center.dx, center.dy - 5), 8, keyholePaint);
+      canvas.drawPath(Path()
+        ..moveTo(center.dx - 6, center.dy)
+        ..lineTo(center.dx + 6, center.dy)
+        ..lineTo(center.dx + 10, center.dy + 15)
+        ..lineTo(center.dx - 10, center.dy + 15)
+        ..close(), keyholePaint);
+      return;
+    }
+
+    // --- EXISTING LOGIC: Draw the 4 quadrants ---
     final bgPaint = Paint()..color = Colors.black54;
     canvas.drawCircle(center, buttonRadius, bgPaint);
 
@@ -125,10 +156,8 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
       if (mask != null) {
         final fillRatio = (player.energy / mask.energyCost).clamp(0.0, 1.0);
         
-        // Determine the base color
         Color activeColor = fillRatio >= 1.0 ? Colors.redAccent : Colors.red.withOpacity(0.3);
         
-        // Override with a bright white flash if this slot was just tapped
         if (_flashedSlot == i) {
           activeColor = Colors.white;
         }

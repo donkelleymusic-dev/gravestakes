@@ -7,25 +7,16 @@ class SynthManager {
   SynthManager._internal();
 
   bool isInitialized = false;
-  AudioSource? _sineWave;
+  AudioSource? _synthWave;
 
   Future<void> init() async {
-    if (isInitialized) {
-      debugPrint('SynthManager: Already initialized.');
-      return;
-    }
-    
-    debugPrint('SynthManager: Starting initialization...');
+    if (isInitialized) return;
     try {
-      if (!SoLoud.instance.isInitialized) {
-        debugPrint('SynthManager ERROR: SoLoud engine is not initialized yet!');
-        return;
-      }
+      if (!SoLoud.instance.isInitialized) return;
       
-      // Initialize a pure sine wave oscillator
-      _sineWave = await SoLoud.instance.loadWaveform(WaveForm.sin, true, 0.25, 1.0);
+      // Changed to a SQUARE wave so it cuts through mobile speakers easily
+      _synthWave = await SoLoud.instance.loadWaveform(WaveForm.square, true, 0.25, 1.0);
       isInitialized = true;
-      debugPrint('SynthManager: Initialization SUCCESS. Waveform loaded.');
     } catch (e) {
       debugPrint('SynthManager ERROR during init: $e');
     }
@@ -33,35 +24,30 @@ class SynthManager {
 
   // --- MENU INTERACTIONS ---
   void playMagicTap() {
-    if (!isInitialized || _sineWave == null) return;
+    if (!isInitialized || _synthWave == null) return;
     
     try {
-      // 1. Maximize the volume so it competes with the MP3 track
-      final handle = SoLoud.instance.play(_sineWave!, volume: 1.0);
+      // ADDED looping: true! Square waves are loud, so we drop the base volume to 0.15
+      final handle = SoLoud.instance.play(_synthWave!, volume: 0.15, looping: true);
       
-      // 2. Pitch it even higher (6 octaves up) so it sits above the music's frequency range
-      SoLoud.instance.setRelativePlaySpeed(handle, 6.0);
+      SoLoud.instance.setRelativePlaySpeed(handle, 4.0);
       
-      // 3. SUSTAIN: Wait 50ms at full volume to give it a solid "strike" impact
-      Future.delayed(const Duration(milliseconds: 50), () {
-        // 4. RELEASE: Now fade it out smoothly over 250ms
-        SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 250));
+      // Sustain for 30ms, then fade out over 200ms
+      Future.delayed(const Duration(milliseconds: 30), () {
+        SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 200));
       });
       
-      // 5. Cleanup: Free the voice after sustain + fade time (50ms + 250ms)
-      Future.delayed(const Duration(milliseconds: 300), () {
+      // Free the voice
+      Future.delayed(const Duration(milliseconds: 230), () {
         SoLoud.instance.stop(handle);
       });
-    } catch (e) {
-      debugPrint('SynthManager ERROR during playback: $e');
-    }
+    } catch (e) {}
   }
 
   // --- CHEST OPENING SEQUENCE ---
   
   List<dynamic> startChestCrescendo(int durationMs) {
-    debugPrint('SynthManager: startChestCrescendo() triggered.');
-    if (!isInitialized || _sineWave == null) return [];
+    if (!isInitialized || _synthWave == null) return [];
 
     double root = 1.0 + (Random().nextDouble() * 0.5); 
     List<double> diminishedTriad = [
@@ -73,27 +59,27 @@ class SynthManager {
     List<dynamic> activeHandles = []; 
 
     for (double pitch in diminishedTriad) {
-      final handle = SoLoud.instance.play(_sineWave!, volume: 0.0); 
+      // ADDED looping: true!
+      final handle = SoLoud.instance.play(_synthWave!, volume: 0.0, looping: true); 
       SoLoud.instance.setRelativePlaySpeed(handle, pitch);
-      SoLoud.instance.fadeVolume(handle, 0.7, Duration(milliseconds: durationMs));
+      
+      // Fade up to a low rumble volume over the hold duration
+      SoLoud.instance.fadeVolume(handle, 0.1, Duration(milliseconds: durationMs));
       activeHandles.add(handle);
     }
-    debugPrint('SynthManager: Chest crescendo started with handles: $activeHandles');
     return activeHandles;
   }
 
   void stopChestCrescendo(List<dynamic> handles) { 
-    debugPrint('SynthManager: stopChestCrescendo() stopping handles: $handles');
     for (var handle in handles) {
       SoLoud.instance.stop(handle);
     }
   }
 
   void resolveChestOpen(List<dynamic> handles) { 
-    debugPrint('SynthManager: resolveChestOpen() triggered.');
     stopChestCrescendo(handles); 
     
-    if (!isInitialized || _sineWave == null) return;
+    if (!isInitialized || _synthWave == null) return;
     
     double root = 2.0; 
     List<double> majorTriad = [
@@ -103,7 +89,8 @@ class SynthManager {
     ];
 
     for (double pitch in majorTriad) {
-      final handle = SoLoud.instance.play(_sineWave!, volume: 0.8);
+      // ADDED looping: true! 
+      final handle = SoLoud.instance.play(_synthWave!, volume: 0.15, looping: true);
       SoLoud.instance.setRelativePlaySpeed(handle, pitch);
       
       SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 800));

@@ -654,11 +654,19 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                                 boxShadow: [BoxShadow(color: Colors.redAccent.withOpacity(0.5), blurRadius: 15)],
                                               ),
                                               child: Center(
-                                                child: Text(
-                                                  _isSearchingForMatch ? 'btn_searching'.tr() : 'btn_find_match'.tr(),
-                                                  style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 2, fontFamily: 'Courier', shadows: [Shadow(color: Colors.black, blurRadius: 4)]),
-                                                ),
-                                              ),
+  child: Text(
+    _isSearchingForMatch ? 'btn_searching'.tr() : 'btn_find_match'.tr(),
+    textAlign: TextAlign.center, // Forces multi-line text to center
+    style: const TextStyle(
+      color: Colors.white, 
+      fontSize: 18, // Shrunk from 24 to fit mobile screens
+      fontWeight: FontWeight.bold, 
+      letterSpacing: 2, 
+      fontFamily: 'Courier', 
+      shadows: [Shadow(color: Colors.black, blurRadius: 4)]
+    ),
+  ),
+),
                                             ),
                                           ),
                                         ),

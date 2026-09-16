@@ -62,8 +62,25 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     // -------------------------------------------------------------
     // CEILING AND FLOOR
     // -------------------------------------------------------------
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.x, screenHeight / 2), Paint()..color = const Color(0xFF0A0A10));
-    canvas.drawRect(Rect.fromLTWH(0, screenHeight / 2, size.x, screenHeight / 2), Paint()..color = const Color(0xFF14141E));
+    if (player.isInPuzzleRoom) {
+      // 1. Creepy dark ceiling
+      final ceilingRect = Rect.fromLTWH(0, 0, size.x, screenHeight / 2);
+      canvas.drawRect(ceilingRect, Paint()..color = const Color(0xFF080000));
+      
+      // 2. Procedural Flicker Trick
+      double time = game.currentTime();
+      if (sin(time * 15) * cos(time * 7) > 0.85) {
+        // Boosted from 0.04 to 0.15, and changed to a sickly yellow/white
+        canvas.drawRect(ceilingRect, Paint()..color = Colors.amber[100]!.withOpacity(0.15));
+      }
+      
+      // Floor
+      canvas.drawRect(Rect.fromLTWH(0, screenHeight / 2, size.x, screenHeight / 2), Paint()..color = const Color(0xFF110000));
+    } else {
+      // Normal map ceiling and floor
+      canvas.drawRect(Rect.fromLTWH(0, 0, size.x, screenHeight / 2), Paint()..color = const Color(0xFF0A0A10));
+      canvas.drawRect(Rect.fromLTWH(0, screenHeight / 2, size.x, screenHeight / 2), Paint()..color = const Color(0xFF14141E));
+    }
 
     // -------------------------------------------------------------
     // 2. RAYCAST WALLS & LIMITED VISIBILITY
@@ -78,6 +95,8 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       bool hitWall = false;
       Vector2 impactPos = Vector2.zero();
 
+      int hitGridValue = 1; // Default to standard wall if out of bounds
+
       while (!hitWall && dist < maxRayDistance) {
         dist += 4.0;
         Vector2 checkPos = playerPos + Vector2(sinRay * dist, -cosRay * dist);
@@ -87,9 +106,10 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         if (gridX < 0 || gridX >= gameMap.gridWidth || gridY < 0 || gridY >= gameMap.gridHeight) {
           hitWall = true;
           impactPos = checkPos;
-        } else if (gameMap.mapGrid[gridY][gridX] == 1) {
+        } else if (gameMap.mapGrid[gridY][gridX] > 0) { // CHANGED FROM == 1
           hitWall = true;
           impactPos = checkPos;
+          hitGridValue = gameMap.mapGrid[gridY][gridX]; // STORE WHAT WE HIT
         }
       }
 
@@ -112,9 +132,23 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       bool isTileEdge = (hitX < 3.0 || hitX > gameMap.tileSize - 3.0) || 
                         (hitY < 3.0 || hitY > gameMap.tileSize - 3.0);
 
-      Color wallColor = isTileEdge 
-        ? Color.fromARGB(255, (brightness * 0.2).toInt(), (brightness * 0.1).toInt(), (brightness * 0.5).toInt())
-        : Color.fromARGB(255, (brightness * 0.45).toInt(), (brightness * 0.2).toInt(), brightness);
+      Color wallColor;
+      if (hitGridValue == 3) {
+        // Dark Wooden Door
+        wallColor = isTileEdge 
+          ? Color.fromARGB(255, (brightness * 0.2).toInt(), (brightness * 0.1).toInt(), 0)
+          : Color.fromARGB(255, (brightness * 0.4).toInt(), (brightness * 0.25).toInt(), (brightness * 0.1).toInt());
+      } else if (hitGridValue == 2) {
+        // Red Flesh Wall
+        wallColor = isTileEdge 
+          ? Color.fromARGB(255, (brightness * 0.3).toInt(), 0, 0)
+          : Color.fromARGB(255, (brightness * 0.7).toInt(), (brightness * 0.1).toInt(), (brightness * 0.1).toInt());
+      } else {
+        // Standard Purple Maze (Your original math)
+        wallColor = isTileEdge 
+          ? Color.fromARGB(255, (brightness * 0.2).toInt(), (brightness * 0.1).toInt(), (brightness * 0.5).toInt())
+          : Color.fromARGB(255, (brightness * 0.45).toInt(), (brightness * 0.2).toInt(), brightness);
+      }
 
       // --- CORNER SHADOWS ---
       bool isNearCorner = (hitX < 4.0 || hitX > gameMap.tileSize - 4.0) &&

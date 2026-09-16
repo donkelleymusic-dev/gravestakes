@@ -59,8 +59,12 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   double _flickerDuration = 0.0;
   bool isLightFlickeringOut = false;
 
+  bool isInPuzzleRoom = false;
+
   double get flashlightScale {
-    if (game.isGlobalBlackout) return 0.0; // --- BLACKOUT OVERRIDE ---
+    // --- BLACKOUT OVERRIDE (IGNORED IN PUZZLE ROOM) ---
+    if (game.isGlobalBlackout && !isInPuzzleRoom) return 0.0; 
+    
     if (isLightFlickeringOut) return 0.0; 
     if (isFlashlightDead && flashlightBattery <= 0) return 0.0; 
     if (isRecharging || isFlashlightDead) return (flashlightBattery / 100.0).clamp(0.1, 1.0); 
@@ -1053,7 +1057,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         isRecharging = false;
         isFlashlightDead = false;
       }
-    } else if (!isFlashlightDead) {
+    } else if (!isFlashlightDead && !isInPuzzleRoom) {
       flashlightBattery -= (100.0 / 70.0) * dt;
       
       if (flashlightBattery <= 0.0) {

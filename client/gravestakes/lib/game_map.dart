@@ -4,6 +4,8 @@ import 'package:flame/components.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart' hide Image;
 import 'game.dart';
+import 'hallway_triggers.dart';
+import 'puzzle_door.dart';
 
 class GameMap extends Component with HasGameReference<FlameGame> {
   final String roomId;
@@ -14,8 +16,8 @@ class GameMap extends Component with HasGameReference<FlameGame> {
   final List<Vector2> potentialBoxSpawns = [];
   final List<Vector2> playerSpawns = []; 
 
-  final int gridWidth = 30;
-  final int gridHeight = 30;
+  final int gridWidth = 50;
+  final int gridHeight = 50;
   final double tileSize = 64.0; 
 
   int minDiscoveredX = 99999;
@@ -55,6 +57,37 @@ class GameMap extends Component with HasGameReference<FlameGame> {
 
   void initExplorationGrid() {
     visitedGrid = List.generate(gridHeight, (_) => List.filled(gridWidth, false));
+  }
+
+  void _carveInfiniteHallway() {
+    int hallX = 46; 
+    int startY = 5; 
+
+    // INCREASED FROM 25 TO 35 to create a visual buffer!
+    for (int i = 0; i < 35; i++) { 
+      int y = startY + i;
+      
+      mapGrid[y][hallX] = 0; 
+      mapGrid[y][hallX - 1] = 2; 
+      mapGrid[y][hallX + 1] = 2; 
+
+      if (i % 4 == 0 && i > 0 && i < 24) {
+         int doorIndex = (i / 4).floor(); 
+         mapGrid[y][hallX - 1] = 3; 
+
+         game.world.add(PuzzleDoor(
+           doorId: doorIndex,
+           position: Vector2((hallX - 1) * tileSize + (tileSize / 2), y * tileSize + (tileSize / 2)), 
+         ));
+      }
+
+      if (i == 20) {
+        game.world.add(InfiniteLoopTrigger(
+          position: Vector2(hallX * tileSize + (tileSize / 2), y * tileSize + (tileSize / 2)),
+          tileOffsetCount: 16.0, 
+        ));
+      }
+    }
   }
 
   /* void revealRadius(Vector2 worldPos, {int radius = 2}) {
@@ -100,6 +133,9 @@ class GameMap extends Component with HasGameReference<FlameGame> {
     // 1. Generate the Procedural 30x30 Dungeon!
     _generateDrunkenWalkGrid();
 
+    // 1.5
+    _carveInfiniteHallway();
+
     // 2. Initialize the visited memory grid right after the map dimensions exist
     initExplorationGrid();
 
@@ -111,28 +147,26 @@ class GameMap extends Component with HasGameReference<FlameGame> {
   }
 
   void _generateDrunkenWalkGrid() {
-    // Fill the map with walls (1)
     mapGrid = List.generate(gridHeight, (_) => List.filled(gridWidth, 1));
     
-    int x = gridWidth ~/ 2;
-    int y = gridHeight ~/ 2;
-    mapGrid[y][x] = 0; // 0 = Floor
+    int x = 25; // Start in the center of the new 50x50 grid
+    int y = 25;
+    mapGrid[y][x] = 0; 
     
-    int targetEmptySpaces = (gridWidth * gridHeight * 0.45).toInt(); 
+    // Target the same amount of open space as the old 30x30 map
+    int targetEmptySpaces = (30 * 30 * 0.45).toInt(); 
     int currentEmpty = 1;
     
-    // Call the updated stable seed generator
     int mapSeed = getProgressionSeed(roomId);
     final rand = Random(mapSeed);
     
-    // The "Drunkard" carves out the dungeon
     while (currentEmpty < targetEmptySpaces) {
       int dir = rand.nextInt(4);
-      // Move, but keep a 2-block padding around the absolute edges
-      if (dir == 0 && x > 2) x--;
-      else if (dir == 1 && x < gridWidth - 3) x++;
-      else if (dir == 2 && y > 2) y--;
-      else if (dir == 3 && y < gridHeight - 3) y++;
+      // Restrict the maze generation to the inner 30x30 area (indices 10 to 40)
+      if (dir == 0 && x > 10) x--;
+      else if (dir == 1 && x < 40) x++;
+      else if (dir == 2 && y > 10) y--;
+      else if (dir == 3 && y < 40) y++;
       
       if (mapGrid[y][x] == 1) {
         mapGrid[y][x] = 0;
@@ -141,12 +175,8 @@ class GameMap extends Component with HasGameReference<FlameGame> {
     }
   }
 
-  // Remove the MapRow class entirely and update _buildMapFromGrid in game_map.dart:
-
   void _buildMapFromGrid() {
     List<Vector2> allOpenTiles = [];
-
-    // Master floor
     game.world.add(RectangleComponent(
       size: Vector2(gridWidth * tileSize, gridHeight * tileSize),
       position: Vector2.zero(),
@@ -160,18 +190,21 @@ class GameMap extends Component with HasGameReference<FlameGame> {
         final worldY = y * tileSize;
 
         if (mapGrid[y][x] == 0) {
-          allOpenTiles.add(Vector2(worldX + (tileSize / 2), worldY + (tileSize / 2)));
-        } else if (mapGrid[y][x] == 1) {
-          // Spawn each wall tile individually with its own true 2.5D depth!
+          // Keep normal spawns away from the secret hallway
+          if (x < 40) allOpenTiles.add(Vector2(worldX + (tileSize / 2), worldY + (tileSize / 2)));
+        } else if (mapGrid[y][x] == 1) { // Normal Purple Wall
+          game.world.add(WallComponent(position: Vector2(worldX, worldY), tileSize: tileSize));
+          obstacles.add(Rect.fromLTWH(worldX, worldY, tileSize, tileSize));
+        } else if (mapGrid[y][x] == 2) { // Secret Red Wall
           game.world.add(WallComponent(
-            position: Vector2(worldX, worldY),
-            tileSize: tileSize,
+            position: Vector2(worldX, worldY), tileSize: tileSize,
+            wallColor: Colors.red[900]!, borderColor: Colors.black87,
           ));
           obstacles.add(Rect.fromLTWH(worldX, worldY, tileSize, tileSize));
         }
       }
     }
-
+    
     allOpenTiles.shuffle();
     for (int i = 0; i < allOpenTiles.length; i++) {
       if (i < 8) playerSpawns.add(allOpenTiles[i]);
@@ -179,10 +212,6 @@ class GameMap extends Component with HasGameReference<FlameGame> {
       else break;
     }
   }
-
-  // ==========================================================
-  // YOUR EXISTING MATH (Untouched so gameplay doesn't break!)
-  // ==========================================================
 
   Vector2 getSafeSpawnLocation(Vector2 intendedPos, Vector2 entitySize) {
     if (!checkCollision(intendedPos, entitySize)) return intendedPos;
@@ -270,7 +299,7 @@ class GameMap extends Component with HasGameReference<FlameGame> {
 
     for (int y = startY; y <= endY; y++) {
       for (int x = startX; x <= endX; x++) {
-        if (mapGrid[y][x] == 1) return true; // It's a wall!
+        if (mapGrid[y][x] > 0) return true; // It's a wall!
       }
     }
     return false;
@@ -289,7 +318,7 @@ class GameMap extends Component with HasGameReference<FlameGame> {
       int gridY = (checkPos.y / tileSize).floor();
       
       if (gridX < 0 || gridX >= gridWidth || gridY < 0 || gridY >= gridHeight) return false;
-      if (mapGrid[gridY][gridX] == 1) return false; // Laser hit a wall
+      if (mapGrid[gridY][gridX] > 0) return false; // Laser hit a wall
     }
     return true;
   }
@@ -373,25 +402,30 @@ class MapRow extends PositionComponent {
 
 class WallComponent extends PositionComponent {
   final double tileSize;
-  static final Paint _fillPaint = Paint()..color = Colors.deepPurpleAccent;
-  static final Paint _strokePaint = Paint()..color = Colors.purpleAccent
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 2;
+  final Color wallColor; // NEW: Allows custom colors for the 3D raycaster
+  final Color borderColor; // NEW
 
-  WallComponent({required Vector2 position, required this.tileSize})
-      : super(
+  WallComponent({
+    required Vector2 position, 
+    required this.tileSize,
+    this.wallColor = Colors.deepPurpleAccent, // Defaults to the standard dungeon look
+    this.borderColor = Colors.purpleAccent,
+  }) : super(
           position: position, 
           size: Vector2.all(tileSize),
-          // True 2.5D sorting based on the absolute bottom edge of this tile, multiplied for precision
           priority: ((position.y + tileSize) * 10).toInt(),
         );
-
-  // NO update() method = Zero CPU overhead per frame!
 
   @override
   void render(Canvas canvas) {
     final rect = Rect.fromLTWH(0, 0, tileSize, tileSize);
-    canvas.drawRect(rect, _fillPaint);
-    canvas.drawRect(rect, _strokePaint);
+    final fillPaint = Paint()..color = wallColor;
+    final strokePaint = Paint()
+      ..color = borderColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+      
+    canvas.drawRect(rect, fillPaint);
+    canvas.drawRect(rect, strokePaint);
   }
 }

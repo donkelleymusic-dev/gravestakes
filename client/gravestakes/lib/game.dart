@@ -51,6 +51,8 @@ import 'mode_toggle_button.dart';
 import 'fps_touch_controls.dart';
 import 'audio_manager.dart';
 import 'character_asset_manager.dart';
+import 'hallway_triggers.dart';
+import 'puzzle_manager.dart';
 
 class ScareSnapshot {
   final String attackerName;
@@ -162,6 +164,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   late final JoystickComponent rightJoystick;
   late final Player player;
   late final ScareManager scareManager;
+  late final PuzzleManager puzzleManager;
 
   late final String mySessionId; 
   bool isHost = false; 
@@ -344,6 +347,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     scareManager = ScareManager();
     await world.add(scareManager);
 
+    puzzleManager = PuzzleManager();
+    await world.add(puzzleManager);
+
     List<Vector2> availableSpawns = gameMap.playerSpawns.isNotEmpty 
         ? List<Vector2>.from(gameMap.playerSpawns)
         : [Vector2(150, 150), Vector2(400, 400)]; 
@@ -357,6 +363,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     world.add(player);
     camera.follow(player);
+
+    // --- TEMP: INJECT BLATANT TEST TRAPDOOR ---
+    world.add(Trapdoor(position: safeSpawnPoint + Vector2(100, 0)));
 
     camera.viewport.add(jumpScareEffect);
     camera.viewport.add(DarknessOverlay(player));
@@ -704,7 +713,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           blackoutTimer = 30.0;
           
           myChannel.sendBroadcastMessage(event: 'global_blackout', payload: {'active': true, 'duration': 30.0});
-          camera.viewport.add(FloatingText(text: 'TOTAL BLACKOUT!', worldPosition: Vector2(player.position.x - 40, player.position.y - 60)));
+          if (!player.isInPuzzleRoom) {
+            camera.viewport.add(FloatingText(
+              text: 'TOTAL BLACKOUT!', 
+              worldPosition: Vector2(player.position.x - 40, player.position.y - 60)
+            ));
+          }
         }
       }
 
@@ -908,7 +922,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     
     int baseStake = 27 + Random().nextInt(16); // Random win between 27 and 42
 
-    if (player.score == highestScore) {
+    // --- NEW: The "Participation" Threshold ---
+    if (player.score == 0) {
+      // You did nothing. You lose Lumen, no free rides!
+      matchLumenDelta = -(baseStake - 2); 
+    } else if (player.score == highestScore) {
       matchLumenDelta = isTie ? 2 : baseStake;
     } else {
       matchLumenDelta = -(baseStake - 2); // Lose 2 points less than the win value
