@@ -34,9 +34,9 @@ class PuzzleDoor extends PositionComponent with HasGameReference<GraveStakesGame
         // (You can replace this with your VoidParticle class later)
         
         // AUDIO CLUE: Faint heartbeat using your 3D spatial audio
-        if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
+        if (AudioManager.instance.isInitialized && AudioManager.instance.tickSource != null) {
           // Setting the volume low so they have to physically hunt for the sound
-          SoLoud.instance.play(AudioManager.instance.impactSource!, volume: 0.2);
+          SoLoud.instance.play(AudioManager.instance.tickSource!, volume: 0.3);
         }
       }
     }
