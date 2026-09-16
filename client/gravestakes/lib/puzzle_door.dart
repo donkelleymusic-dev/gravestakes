@@ -24,19 +24,28 @@ class PuzzleDoor extends PositionComponent with HasGameReference<GraveStakesGame
   void update(double dt) {
     super.update(dt);
     
+    // 1. SILENCE THE LOBBY & MAIN MAP
+    // Do not run any door logic if the match hasn't started or the player isn't in the hallway!
+    if (!game.gameStarted || !game.player.isInPuzzleRoom) return;
+    
     // Only emit clues if this door is the next one they need to find
     if (isNextInSequence) {
       _clueTimer += dt;
       if (_clueTimer >= 2.0) { // Emit a clue every 2 seconds
         _clueTimer = 0.0;
         
-        // VISUAL CLUE: Spawn creepy pixel dust floating up from the bottom
-        // (You can replace this with your VoidParticle class later)
+        // 2. SPATIAL AUDIO CALCULATION (Distance Attenuation)
+        double distanceToPlayer = game.player.position.distanceTo(position);
         
-        // AUDIO CLUE: Faint heartbeat using your 3D spatial audio
-        if (AudioManager.instance.isInitialized && AudioManager.instance.tickSource != null) {
-          // Setting the volume low so they have to physically hunt for the sound
-          SoLoud.instance.play(AudioManager.instance.tickSource!, volume: 0.3);
+        // Only play the sound if the player is within ~4.5 tiles of this specific door
+        if (distanceToPlayer < 300.0) { 
+          if (AudioManager.instance.isInitialized && AudioManager.instance.tickSource != null) {
+            
+            // The closer you get, the louder it ticks (Max volume clamped at 0.6)
+            double spatialVolume = (1.0 - (distanceToPlayer / 300.0)) * 0.6;
+            
+            SoLoud.instance.play(AudioManager.instance.tickSource!, volume: spatialVolume);
+          }
         }
       }
     }
