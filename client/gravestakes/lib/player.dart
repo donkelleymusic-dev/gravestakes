@@ -20,6 +20,7 @@ import 'voxel_character_component.dart';
 import 'audio_manager.dart';
 import 'game_map.dart';
 import 'fps_mask_effect.dart';
+import 'puzzle_door.dart';
 
 class Player extends PositionComponent with KeyboardHandler, HasGameReference<GraveStakesGame> {
   final JoystickComponent leftJoystick;
@@ -28,6 +29,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   final bool isGunner; 
   
   double glanceOffset = 0.0;
+
+  double _railCooldown = 0.0;
 
   int selectedMaskIndex = 0; 
   List<MaskData?> equippedMasks = List.filled(4, null);
@@ -644,6 +647,46 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   void update(double dt) {    
     priority = ((position.y + 16) * 10).toInt();
     if (!game.gameStarted) return; 
+
+    // --- THE AUTO-RAILS SYSTEM ---
+    if (isInPuzzleRoom) {
+      if (_railCooldown > 0) {
+        _railCooldown -= dt;
+      } else {
+        Component? nearDoor;
+        for (var door in game.world.children.whereType<PuzzleDoor>()) {
+          if (position.distanceTo(door.position) < 140.0) {
+            nearDoor = door;
+            break;
+          }
+        }
+        
+        if (nearDoor != null) {
+          // 1. Breakout Condition: Any significant joystick movement breaks the lock
+          bool isTryingToMove = leftJoystick.relativeDelta.length > 0.2 || keyboardDelta.length > 0;
+          
+          if (isTryingToMove) {
+            _railCooldown = 2.0; 
+          } else {
+            // 2. PERFECT CENTER: Changed from +40.0 to +32.0 to stop wall collision tug-of-war!
+            double perfectX = (46 * 64.0) + 32.0; 
+            Vector2 targetPos = Vector2(perfectX, (nearDoor as PositionComponent).position.y);
+            position.lerp(targetPos, dt * 6.0);
+            
+            // 3. BULLETPROOF ROTATION: Safe angular math to prevent camera snapping
+            double targetAngle = -pi / 2;
+            double diff = targetAngle - facingAngle;
+            
+            while (diff > pi) diff -= 2 * pi;
+            while (diff < -pi) diff += 2 * pi;
+            
+            facingAngle += diff * (dt * 8.0);
+          }
+        }
+      }
+    }
+    // -----------------------------------
+
     super.update(dt);
 
     // --- WALL COLLISION TIMERS ---

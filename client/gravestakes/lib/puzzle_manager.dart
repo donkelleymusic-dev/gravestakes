@@ -18,24 +18,50 @@ class PuzzleManager extends Component with HasGameReference<GraveStakesGame> {
   TrailingEmbers? _embers;
 
   void handleDoorTap(int doorId, Vector2 doorPosition) {
-    // 1. DUMMY DOOR (IDs 2 and 5) -> Rattle and ignore
+    // --- Prevent spamming the same door ---
+    if (currentInput.contains(doorId)) {
+      // Play a dull thud so they know the button worked but was rejected
+      if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
+        SoLoud.instance.play(AudioManager.instance.impactSource!, volume: 0.3);
+      }
+      // Give them obvious text feedback to move on
+      game.camera.viewport.add(FloatingText(
+        text: 'ALREADY LOGGED!', 
+        worldPosition: Vector2(game.player.position.x - 40, game.player.position.y - 60)
+      ));
+      return; 
+    }
+    // -------------------------------------------
+
+    // If starting a new sequence, clear the old embers off the screen!
+    if (currentInput.isEmpty && _embers != null) {
+      _embers!.clearFeedback();
+    }
+
     if (doorId == 2 || doorId == 5) {
       if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
         SoLoud.instance.play(AudioManager.instance.impactSource!, volume: 0.6);
       }
-      // Micro-recoil backwards
       game.player.position.y -= 15.0; 
       return;
     }
 
-    // 2. REAL DOOR -> Log input and evaluate
     if (AudioManager.instance.isInitialized && AudioManager.instance.tickSource != null) {
       SoLoud.instance.play(AudioManager.instance.tickSource!, volume: 1.0);
     }
     
+    // 3D VISUAL FLASH
+    int gridX = (doorPosition.x / 64.0).floor();
+    int gridY = (doorPosition.y / 64.0).floor();
+    game.gameMap.mapGrid[gridY][gridX] = 4; // Set to "Glowing" ID
+    
+    // Turn it back to a normal wooden door after 400ms
+    Future.delayed(const Duration(milliseconds: 400), () {
+      game.gameMap.mapGrid[gridY][gridX] = 3; 
+    });
+
     currentInput.add(doorId);
 
-    // Wait until they have confidently tapped 3 real doors before judging them
     if (currentInput.length == correctSequence.length) {
       _evaluateSequence(doorPosition);
     }

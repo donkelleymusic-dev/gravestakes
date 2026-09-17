@@ -133,7 +133,10 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
                         (hitY < 3.0 || hitY > gameMap.tileSize - 3.0);
 
       Color wallColor;
-      if (hitGridValue == 3) {
+      if (hitGridValue == 4) {
+        // NEW: Bright activated gold flash!
+        wallColor = Colors.amberAccent;
+      } else if (hitGridValue == 3) {
         // Dark Wooden Door
         wallColor = isTileEdge 
           ? Color.fromARGB(255, (brightness * 0.2).toInt(), (brightness * 0.1).toInt(), 0)
