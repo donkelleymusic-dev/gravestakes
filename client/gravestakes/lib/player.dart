@@ -668,19 +668,24 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           if (isTryingToMove) {
             _railCooldown = 2.0; 
           } else {
-            // 2. PERFECT CENTER: Changed from +40.0 to +32.0 to stop wall collision tug-of-war!
-            double perfectX = (46 * 64.0) + 32.0; 
+            // BACK UP TO SEE THE DOOR
+            double perfectX = (46 * 64.0) + 50.0; 
             Vector2 targetPos = Vector2(perfectX, (nearDoor as PositionComponent).position.y);
-            position.lerp(targetPos, dt * 6.0);
             
-            // 3. BULLETPROOF ROTATION: Safe angular math to prevent camera snapping
+            // FIX: Clamp the movement factor so it never exceeds 100% of the distance
+            double moveFactor = (dt * 6.0).clamp(0.0, 1.0);
+            position.lerp(targetPos, moveFactor);
+            
+            // BULLETPROOF ROTATION
             double targetAngle = -pi / 2;
             double diff = targetAngle - facingAngle;
             
             while (diff > pi) diff -= 2 * pi;
             while (diff < -pi) diff += 2 * pi;
             
-            facingAngle += diff * (dt * 8.0);
+            // FIX: Clamp the rotation factor so it never overshoots the angle
+            double rotFactor = (dt * 8.0).clamp(0.0, 1.0);
+            facingAngle += diff * rotFactor;
           }
         }
       }

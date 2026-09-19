@@ -18,34 +18,38 @@ class PuzzleManager extends Component with HasGameReference<GraveStakesGame> {
   TrailingEmbers? _embers;
 
   void handleDoorTap(int doorId, Vector2 doorPosition) {
-    // --- Prevent spamming the same door ---
+    // 1. DUPLICATE CHECK
     if (currentInput.contains(doorId)) {
-      // Play a dull thud so they know the button worked but was rejected
       if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
         SoLoud.instance.play(AudioManager.instance.impactSource!, volume: 0.3);
       }
-      // Give them obvious text feedback to move on
       game.camera.viewport.add(FloatingText(
         text: 'ALREADY LOGGED!', 
         worldPosition: Vector2(game.player.position.x - 40, game.player.position.y - 60)
       ));
       return; 
     }
-    // -------------------------------------------
 
-    // If starting a new sequence, clear the old embers off the screen!
     if (currentInput.isEmpty && _embers != null) {
       _embers!.clearFeedback();
     }
 
+    // 2. DUMMY DOOR (IDs 2 and 5)
     if (doorId == 2 || doorId == 5) {
       if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
         SoLoud.instance.play(AudioManager.instance.impactSource!, volume: 0.6);
       }
       game.player.position.y -= 15.0; 
+      
+      // NEW: Explicitly tell them the door is a dud!
+      game.camera.viewport.add(FloatingText(
+        text: 'JAMMED...', 
+        worldPosition: Vector2(game.player.position.x - 40, game.player.position.y - 60)
+      ));
       return;
     }
 
+    // 3. REAL DOOR (IDs 1, 3, 4)
     if (AudioManager.instance.isInitialized && AudioManager.instance.tickSource != null) {
       SoLoud.instance.play(AudioManager.instance.tickSource!, volume: 1.0);
     }
@@ -53,15 +57,21 @@ class PuzzleManager extends Component with HasGameReference<GraveStakesGame> {
     // 3D VISUAL FLASH
     int gridX = (doorPosition.x / 64.0).floor();
     int gridY = (doorPosition.y / 64.0).floor();
-    game.gameMap.mapGrid[gridY][gridX] = 4; // Set to "Glowing" ID
-    
-    // Turn it back to a normal wooden door after 400ms
+    game.gameMap.mapGrid[gridY][gridX] = 4; // Flash Gold
     Future.delayed(const Duration(milliseconds: 400), () {
       game.gameMap.mapGrid[gridY][gridX] = 3; 
     });
 
+    // LOG IT
     currentInput.add(doorId);
 
+    // NEW: Immediate step-by-step progress text!
+    game.camera.viewport.add(FloatingText(
+      text: 'LOGGED: ${currentInput.length} / 3', 
+      worldPosition: Vector2(game.player.position.x - 40, game.player.position.y - 80),
+    ));
+
+    // EVALUATE IF FULL
     if (currentInput.length == correctSequence.length) {
       _evaluateSequence(doorPosition);
     }
