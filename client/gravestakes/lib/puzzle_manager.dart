@@ -158,18 +158,58 @@ class PuzzleManager extends Component with HasGameReference<GraveStakesGame> {
     currentInput.clear();
     strikes = 0;
 
-    // 2. Punish (The Phantom Debuff)
+    // 2. Punish
     player.applyDissonance(5.0);
 
     // 3. Snap out of FPS
     player.isInPuzzleRoom = false;
     game.isFpsMode = false;
 
-    // 4. Crash land back at main spawn (fallback to 150,150)
-    player.position = Vector2(150, 150);
+    // --- NEW: THE "OPEN ROOM" EJECTION SCANNER ---
+    // 4. Kill any leftover joystick momentum
+    player.leftJoystick.delta.setZero();
+    
+    // 5. Scan the map for a 3x3 block of pure floor (ID 0)
+    bool foundSafeSpot = false;
+    // Scan safely within the map bounds (ignoring the outer edges)
+    for (int r = 10; r < game.gameMap.mapGrid.length - 10; r++) {
+      for (int c = 10; c < game.gameMap.mapGrid[0].length - 10; c++) {
+        
+        // Check the center tile and all 8 surrounding tiles
+        bool isClearRoom = true;
+        for (int y = r - 1; y <= r + 1; y++) {
+          for (int x = c - 1; x <= c + 1; x++) {
+            if (game.gameMap.mapGrid[y][x] != 0) { // If ANY tile is a wall, abort
+              isClearRoom = false;
+              break;
+            }
+          }
+          if (!isClearRoom) break;
+        }
+
+        // If we found a 3x3 open room, drop them perfectly in the center tile
+        if (isClearRoom) {
+          player.position = Vector2((c * 64.0) + 32.0, (r * 64.0) + 32.0);
+          foundSafeSpot = true;
+          break;
+        }
+      }
+      if (foundSafeSpot) break;
+    }
+
+    // Fallback if no 3x3 rooms exist (should never happen, but just in case)
+    if (!foundSafeSpot) {
+      player.position = Vector2((25 * 64.0) + 32.0, (25 * 64.0) + 32.0);
+    }
+    // ---------------------------------------------
 
     if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
       SoLoud.instance.play(AudioManager.instance.impactSource!, volume: 1.5);
+    }
+    
+    // Restart match music upon ejection
+    if (AudioManager.instance.isInitialized) {
+      AudioManager.instance.playRandomInGameTrack();
     }
   }
 }
