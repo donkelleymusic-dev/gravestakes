@@ -21,6 +21,7 @@ import 'audio_manager.dart';
 import 'game_map.dart';
 import 'fps_mask_effect.dart';
 import 'puzzle_door.dart';
+import 'vanity_screen.dart';
 
 class Player extends PositionComponent with KeyboardHandler, HasGameReference<GraveStakesGame> {
   final JoystickComponent leftJoystick;
@@ -57,6 +58,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   bool isCharmed = false;
   double charmTimer = 0.0;
   Vector2? charmTargetPos;
+
+  String equippedTrail = 'default';
   
   double _timeUntilNextFlicker = 0.0;
   double _flickerDuration = 0.0;
@@ -123,6 +126,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   bool get isMoving => !keyboardDelta.isZero() || (!isGunner && !leftJoystick.delta.isZero());
 
   double _footstepTimer = 0.0;
+  double _particleTimer = 0.0;
   final Random _random = Random();
 
   bool hasInvisibilityCharge = false;
@@ -427,6 +431,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   }
 
   Future<void> _fetchEquippedCosmetics() async {
+    // Temporary hardcode for testing cosmetics without buying them yet
+    equippedTrail = 'trail_ash';
+
     final user = Supabase.instance.client.auth.currentUser;
     String? mask1Id; String? mask2Id; String? mask3Id; String? mask4Id;
     
@@ -449,6 +456,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           else if (slot == 'mask_3') mask3Id = val;
           else if (slot == 'mask_4') mask4Id = val;
           else if (slot == 'character') equippedCharacterId = val;
+          else if (slot == 'particle_trail') equippedTrail = val;
         }
 
         final charRes = await Supabase.instance.client
@@ -746,6 +754,22 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         breathExertionLevel = (breathExertionLevel + (dt * 0.25)).clamp(0.0, 1.0);
       } else {
         breathExertionLevel = (breathExertionLevel - (dt * 0.15)).clamp(0.0, 1.0);
+      }
+
+      // Cosmetic Particle Trail Emitter
+      if (isMoving && equippedTrail != 'default') {
+        _particleTimer += dt;
+        if (_particleTimer >= 0.15) { // Drops a footprint 6 times a second
+          _particleTimer = 0.0;
+          
+          // Spawn the fading sprite directly into the game world, physically beneath the player
+          game.world.add(
+            CosmeticTrailParticle(
+              spritePath: equippedTrail == 'trail_ash' ? 'ash.png' : 'soul.png',
+              position: position.clone() + Vector2(0, 16), // At their feet
+            )
+          );
+        }
       }
 
       if (breathExertionLevel > 0.4 && _breathingHandle == null && AudioManager.instance.heavyBreathingSource != null) {
@@ -1136,6 +1160,40 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       networkTick = 0;
       channel.sendBroadcastMessage(event: 'move', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': facingAngle, 'c': equippedColorString, 's': score, 'd': isDisguised, 'm': isMoving, 'i': isInvisible,
               'f': flashlightScale, 'mask_id': currentMaskId, 'sp': species});
+    }
+  }
+}
+
+class CosmeticTrailParticle extends SpriteComponent with HasGameReference<GraveStakesGame> {
+  final String spritePath;
+  double life = 1.5; // Disappears completely in 1.5 seconds
+
+  CosmeticTrailParticle({required this.spritePath, required Vector2 position})
+      : super(size: Vector2.all(16), position: position, anchor: Anchor.center) {
+    // Priority ensures it draws ON TOP of the floor, but BEHIND the player model
+    priority = (position.y * 10).toInt() - 1;
+  }
+
+  @override
+  Future<void> onLoad() async {
+    super.onLoad();
+    try { 
+      // game.images.load() fetches from assets, caches it, and returns the image safely
+      final image = await game.images.load(spritePath);
+      sprite = Sprite(image);
+    } catch (e) {
+      debugPrint('Failed to load particle sprite [$spritePath]: $e');
+    }
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    life -= dt;
+    if (life <= 0) {
+      removeFromParent();
+    } else {
+      paint.color = Colors.white.withOpacity((life / 1.5).clamp(0.0, 1.0));
     }
   }
 }
