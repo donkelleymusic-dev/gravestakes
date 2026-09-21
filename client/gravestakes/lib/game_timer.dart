@@ -8,6 +8,9 @@ class GameTimer extends TextComponent with HasGameReference<GraveStakesGame> {
   double timeLeft = 180.0; 
   bool isRunning = false;
   double syncTick = 0;
+  
+  // --- NEW: Absolute End Time ---
+  late DateTime matchEndTime; 
 
   GameTimer() : super(
     anchor: Anchor.topCenter, 
@@ -26,7 +29,8 @@ class GameTimer extends TextComponent with HasGameReference<GraveStakesGame> {
     super.update(dt); 
     
     if (isRunning) {
-      timeLeft -= dt;
+      // --- NEW: Calculate against the real world clock ---
+      timeLeft = matchEndTime.difference(DateTime.now()).inMilliseconds / 1000.0;
       
       if (game.isHost) {
         syncTick += dt;
@@ -43,9 +47,8 @@ class GameTimer extends TextComponent with HasGameReference<GraveStakesGame> {
         timeLeft = 0;
         isRunning = false;
         
-        // --- FINAL MATCH SOUND ---
         if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
-          SoLoud.instance.play(AudioManager.instance.impactSource!, volume: 2.0); // Loud end bell!
+          SoLoud.instance.play(AudioManager.instance.impactSource!, volume: 2.0); 
         }
         
         if (game.isHost) {
@@ -55,7 +58,6 @@ class GameTimer extends TextComponent with HasGameReference<GraveStakesGame> {
       }
     }
 
-    // --- FORMAT MM:SS AND TURN RED AT 15 SECONDS ---
     if (isRunning) {
       int minutes = timeLeft ~/ 60;
       int seconds = (timeLeft % 60).toInt();
@@ -75,7 +77,8 @@ class GameTimer extends TextComponent with HasGameReference<GraveStakesGame> {
   }
 
   void start() {
-    timeLeft = 180.0;
+    // Set the absolute end time 3 minutes into the future
+    matchEndTime = DateTime.now().add(const Duration(seconds: 180));
     isRunning = true;
   }
 }

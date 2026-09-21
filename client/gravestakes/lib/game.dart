@@ -185,6 +185,24 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
   final int maxMatchPhotos = Random().nextDouble() < 0.20 ? 2 : 1;
 
+  @override
+  void lifecycleStateChange(AppLifecycleState state) {
+    super.lifecycleStateChange(state);
+
+    if (!gameStarted || matchPhase != 'playing') return;
+
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      // Punish them instantly with inverted controls and camera scramble
+      player.applyDissonance(10.0);
+      
+      // Optional: Broadcast the scramble so other players see the debuff effects
+      myChannel.sendBroadcastMessage(
+        event: 'dissonance', 
+        payload: {'id': mySessionId, 'duration': 10.0}
+      );
+    }
+  }
+
   void logScareSnapshot(ScareSnapshot snapshot, {required bool isHuman}) {
     // 1. One snapshot max per victim ID to prevent duplicates of the same player
     if (matchPhotos.any((p) => p.victimName == snapshot.victimName)) return;
@@ -1557,7 +1575,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           if (!isHost) {
             final isRunning = payload['gameStarted'] as bool;
             final time = (payload['timeLeft'] as num).toDouble();
+            
             gameTimer.timeLeft = time; 
+            // --- NEW: Sync the absolute clock to match the host ---
+            gameTimer.matchEndTime = DateTime.now().add(Duration(milliseconds: (time * 1000).toInt()));
+            
             if (isRunning && !gameStarted) {
               triggerLocalStart();
             } else if (!isRunning && gameStarted) {
