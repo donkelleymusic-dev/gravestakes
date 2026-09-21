@@ -432,7 +432,16 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
   Future<void> _fetchEquippedCosmetics() async {
     // Temporary hardcode for testing cosmetics without buying them yet
-    equippedTrail = 'trail_ash';
+    //equippedTrail = 'trail_soul';//trail_soul,trail_ash,wall_void,taunt_train,taunt_scrape
+
+    /*
+      INSERT INTO public.cosmetics_catalog (id, name, category, rarity, price, currency, asset_path) VALUES
+        ('trail_ash', 'Ashen Footprints', 'particle_trail', 'common', 8000, 'shadows', 'assets/particles/ash.png'),
+        ('trail_soul', 'Soul Leech Wisps', 'particle_trail', 'rare', 300, 'coins', 'assets/particles/soul.png'),
+        ('taunt_train', 'Distant Train', 'audio_taunt', 'common', 5000, 'shadows', 'assets/audio/taunts/train.wav'),
+        ('taunt_scrape', 'Violin Scrape', 'audio_taunt', 'rare', 12000, 'shadows', 'assets/audio/taunts/violin_scrape.wav'),
+        ('wall_void', 'Vantablack Void', 'wall_skin', 'legendary', 500, 'coins', 'assets/images/walls/void.png');
+    */
 
     final user = Supabase.instance.client.auth.currentUser;
     String? mask1Id; String? mask2Id; String? mask3Id; String? mask4Id;

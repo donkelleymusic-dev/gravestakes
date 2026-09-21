@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'synth_manager.dart';
 
 class VanityScreen extends StatefulWidget {
@@ -17,6 +18,10 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
   List<Map<String, dynamic>> _inventory = [];
   Map<String, Map<String, dynamic>> _catalog = {};
   
+  // Wallets
+  int _playerShadows = 0;
+  int _playerCoins = 0;
+
   // Committed Database State
   Map<String, String> _committedLoadout = {};
   // UI Draft State
@@ -34,10 +39,11 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
     if (userId == null) return;
 
     try {
-      final responses = await Future.wait([
+      final responses = await Future.wait<dynamic>([
         supabase.from('cosmetics_catalog').select(),
         supabase.from('user_inventory').select('item_id').eq('user_id', userId).eq('item_type', 'cosmetic'),
         supabase.from('user_loadouts').select('slot_type, item_value').eq('user_id', userId),
+        supabase.from('wallets').select('shadows, coins').eq('id', userId).single(), 
       ]);
 
       _catalog.clear();
@@ -50,17 +56,97 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
       _committedLoadout.clear();
       for (var row in List<Map<String, dynamic>>.from(responses[2])) {
         final slot = row['slot_type'] as String;
-        // Only track vanity slots here
         if (['taunt_1', 'particle_trail', 'wall_skin'].contains(slot)) {
           _committedLoadout[slot] = row['item_value'] as String;
         }
       }
+
+      final walletData = responses[3] as Map<String, dynamic>;
+      _playerShadows = walletData['shadows'] ?? 0;
+      _playerCoins = walletData['coins'] ?? 0;
       
       _revertDraft();
       if (mounted) setState(() => _isLoading = false);
     } catch (e) {
       debugPrint('Vanity Fetch Error: $e');
     }
+  }
+
+  Future<void> _buyCosmetic(String itemId, int price, String currency) async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+
+    int currentBalance = currency == 'coins' ? _playerCoins : _playerShadows;
+    if (currentBalance < price) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Not enough ${currency.toUpperCase()}!'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    try {
+      await supabase.rpc('buy_item', params: {
+        'p_item_type': 'cosmetic', // Route it as a cosmetic item
+        'p_item_id': itemId,
+        'p_price': price,
+        'p_currency': currency,
+      });
+
+      Sentry.addBreadcrumb(Breadcrumb(
+        message: 'Purchased cosmetic $itemId for $price $currency',
+        category: 'vanity_purchase',
+      ));
+
+      setState(() {
+        if (currency == 'coins') {
+          _playerCoins -= price;
+        } else {
+          _playerShadows -= price;
+        }
+        _inventory.add({'item_id': itemId});
+      });
+
+      SynthManager.instance.playMagicTap();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Cosmetic acquired!'), backgroundColor: Colors.green),
+      );
+    } catch (e) {
+      debugPrint('Cosmetic Purchase Error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Purchase failed: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  void _showPurchaseConfirm(String itemId, String name, int price, String currency) {
+    SynthManager.instance.playMagicTap();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: Text('Acquire $name?', style: const TextStyle(color: Colors.white)),
+        content: Text(
+          'Unlock this cosmetic for $price ${currency.toUpperCase()}?',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('CANCEL', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: currency == 'coins' ? Colors.amber[800] : Colors.red[800],
+            ),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _buyCosmetic(itemId, price, currency);
+            },
+            child: Text('BUY ($price ${currency.toUpperCase()})', style: const TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _revertDraft() {
@@ -85,6 +171,7 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
       }
       _committedLoadout = Map.from(_draftLoadout);
       setState(() => _isLoading = false);
+      SynthManager.instance.playMagicTap();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cosmetics Saved!', style: TextStyle(color: Colors.purpleAccent))));
     } catch (e) {
       setState(() => _isLoading = false);
@@ -106,11 +193,20 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
         title: const Text('THE ECHO CHAMBER', style: TextStyle(color: Colors.purpleAccent, letterSpacing: 2.0, fontSize: 16)),
         backgroundColor: Colors.black,
         actions: [
-          if (_draftLoadout.toString() != _committedLoadout.toString())
-            TextButton(
-              onPressed: _commitDraft, 
-              child: const Text('SAVE', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold))
-            )
+          Padding(
+            padding: const EdgeInsets.only(right: 16.0),
+            child: Row(
+              children: [
+                const Icon(Icons.dark_mode, color: Colors.redAccent, size: 14),
+                const SizedBox(width: 4),
+                Text('$_playerShadows', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(width: 12),
+                const Icon(Icons.monetization_on, color: Colors.amber, size: 14),
+                const SizedBox(width: 4),
+                Text('$_playerCoins', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 13)),
+              ],
+            ),
+          ),
         ],
         bottom: TabBar(
           controller: _tabController,
@@ -122,12 +218,40 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
+      body: Column(
         children: [
-          _buildCategoryGrid('audio_taunt', 'taunt_1'),
-          _buildCategoryGrid('particle_trail', 'particle_trail'),
-          _buildCategoryGrid('wall_skin', 'wall_skin'),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildCategoryGrid('audio_taunt', 'taunt_1'),
+                _buildCategoryGrid('particle_trail', 'particle_trail'),
+                _buildCategoryGrid('wall_skin', 'wall_skin'),
+              ],
+            ),
+          ),
+          if (_draftLoadout.toString() != _committedLoadout.toString())
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+              color: Colors.black,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      SynthManager.instance.playMagicTap();
+                      _revertDraft();
+                    },
+                    child: const Text('DISMISS', style: TextStyle(color: Colors.redAccent, letterSpacing: 1.5, fontSize: 13)),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
+                    onPressed: _commitDraft,
+                    child: const Text('SAVE COSMETICS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2, fontSize: 13)),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -136,44 +260,70 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
   Widget _buildCategoryGrid(String targetCategory, String slotType) {
     final items = _catalog.values.where((c) => c['category'] == targetCategory).toList();
 
+    if (items.isEmpty) {
+      return const Center(child: Text('No cosmetics available.', style: TextStyle(color: Colors.white54)));
+    }
+
     return GridView.builder(
       padding: const EdgeInsets.all(16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3, crossAxisSpacing: 12, mainAxisSpacing: 12,
+        crossAxisCount: 3, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 0.85
       ),
       itemCount: items.length,
       itemBuilder: (context, index) {
         final item = items[index];
-        final isOwned = _inventory.any((i) => i['item_id'] == item['id']);
-        final isEquipped = _draftLoadout[slotType] == item['id'];
+        final itemId = item['id'];
+        final name = item['name'].toString().toUpperCase();
+        final price = item['price'] ?? 0;
+        final currency = item['currency'] ?? 'shadows';
+        
+        final isOwned = _inventory.any((i) => i['item_id'] == itemId);
+        final isEquipped = _draftLoadout[slotType] == itemId;
 
         return GestureDetector(
-          onTap: isOwned ? () => _equipItem(slotType, item['id']) : null,
+          onTap: () {
+            if (isOwned) {
+              _equipItem(slotType, itemId);
+            } else {
+              _showPurchaseConfirm(itemId, name, price, currency);
+            }
+          },
           child: Container(
             decoration: BoxDecoration(
               color: isEquipped ? Colors.purpleAccent.withOpacity(0.2) : Colors.black45,
-              border: Border.all(color: isEquipped ? Colors.purpleAccent : Colors.white24, width: 2),
+              border: Border.all(
+                color: isEquipped ? Colors.purpleAccent : (isOwned ? Colors.white24 : Colors.redAccent.withOpacity(0.4)), 
+                width: 2
+              ),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(
-                  targetCategory == 'audio_taunt' ? Icons.music_note : Icons.auto_awesome, 
+                  targetCategory == 'audio_taunt' ? Icons.music_note : (targetCategory == 'wall_skin' ? Icons.wallpaper : Icons.auto_awesome), 
                   color: isOwned ? Colors.white : Colors.white38,
                   size: 28
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  item['name'].toString().toUpperCase(),
+                  name,
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 10, color: isOwned ? Colors.white : Colors.white38, fontWeight: FontWeight.bold),
+                  maxLines: 2,
+                  style: TextStyle(fontSize: 9, color: isOwned ? Colors.white : Colors.white38, fontWeight: FontWeight.bold),
                 ),
+                const SizedBox(height: 6),
                 if (!isOwned)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 4.0),
-                    child: Icon(Icons.lock, size: 14, color: Colors.redAccent),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(currency == 'coins' ? Icons.monetization_on : Icons.dark_mode, size: 10, color: currency == 'coins' ? Colors.amber : Colors.redAccent),
+                      const SizedBox(width: 4),
+                      Text('$price', style: TextStyle(color: currency == 'coins' ? Colors.amber : Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                    ],
                   )
+                else if (isEquipped)
+                  const Text('EQUIPPED', style: TextStyle(color: Colors.greenAccent, fontSize: 9, fontWeight: FontWeight.bold))
               ],
             ),
           ),
