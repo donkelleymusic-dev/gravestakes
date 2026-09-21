@@ -1003,7 +1003,6 @@ class MenuFog extends PositionComponent with HasGameReference<AmbientMenuGame> {
   }
 }
 
-// --- EXISTING: THE 3D MONSTER RUNNER ---
 class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame> {
   final Map<String, ui.Image> images;
   final Map<String, dynamic> rig;
@@ -1035,10 +1034,26 @@ class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame
     speedZ = speed * 1.5; 
   }
 
+  // --- NEW: LOCAL TIME DILATION ---
+  @override
+  void updateTree(double dt) {
+    // 1. Calculate progress from 0.0 (distant) to 1.0 (at camera)
+    double progress = ((1000.0 - worldZ) / 1050.0).clamp(0.0, 1.0);
+    
+    // 2. The Semi-Exponential Curve
+    // math.pow(progress, 2.0) curves gently at the start, then spikes.
+    // 1.0 base speed + up to 1.0 extra speed = 2.0x max speed!
+    double timeMultiplier = 1.0 + math.pow(progress, 2.0);
+    
+    // 3. Pass the accelerated time to this component and its Voxel child
+    super.updateTree(dt * timeMultiplier);
+  }
+
   @override
   void update(double dt) {
     super.update(dt);
     
+    // dt is ALREADY scaled by updateTree, so travel speed naturally increases!
     worldZ -= speedZ * dt;
     
     if (worldZ <= -50.0) {
@@ -1066,25 +1081,20 @@ class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame
 
   @override
   void render(Canvas canvas) {
-    // 1. The Phantom Fade Math
-    // Fade IN from Z=1000 to Z=700
-    double fadeIn = ((1000.0 - worldZ) / 300.0).clamp(0.0, 1.0);
-    // Fade OUT from Z=200 down to Z=-50
+    // Fades IN slowly from Z=1000 down to Z=300 (A long, 700-unit fade)
+    double fadeIn = ((1000.0 - worldZ) / 700.0).clamp(0.0, 1.0);
+    
+    // Fades OUT quickly from Z=200 down to Z=-50
     double fadeOut = ((worldZ + 50.0) / 250.0).clamp(0.0, 1.0);
     
-    // Overall opacity is the lowest of the two, creating a smooth plateau in the middle
     double ghostOpacity = math.min(fadeIn, fadeOut);
 
-    // 2. The Darkness Distance Math
     double darknessAmount = ((worldZ - 400) / 600).clamp(0.0, 1.0);
     
-    // 3. Apply both effects simultaneously via a single Canvas layer
     canvas.saveLayer(
       Rect.fromLTWH(-1000, -1000, 2000, 2000), 
       Paint()
-        // This alpha value makes the entire composited character transparent
         ..color = Colors.white.withOpacity(ghostOpacity)
-        // This filter tints whatever is visible toward pitch black in the distance
         ..colorFilter = ColorFilter.mode(
           Colors.black.withOpacity(darknessAmount), 
           BlendMode.srcATop
