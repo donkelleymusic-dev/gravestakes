@@ -232,21 +232,31 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   Future<void> onLoad() async {
     priority = ((position.y + 16) * 10).toInt(); 
 
-    // --- ASSIGN PERSONALITY (Strict Limit of 1 per Special Type) ---
+    // --- ASSIGN PERSONALITY (1 in 10 chance for specialty, max 1 per special type) ---
     if (!isHunter) {
-      // 1. Scan the current game roster to see what is already taken
-      bool hasStalker = game.bots.any((b) => b != this && b.personality == BotPersonality.stalker);
-      bool hasPhantom = game.bots.any((b) => b != this && b.personality == BotPersonality.phantom);
-      bool hasTrapdoor = game.bots.any((b) => b != this && b.personality == BotPersonality.trapdoor);
+      // 1 in 10 chance (10%) to attempt rolling a specialty personality
+      if (_random.nextInt(10) == 0) {
+        // 1. Scan the current game roster to see what specialty types are already taken
+        bool hasStalker = game.bots.any((b) => b != this && b.personality == BotPersonality.stalker);
+        bool hasPhantom = game.bots.any((b) => b != this && b.personality == BotPersonality.phantom);
+        bool hasTrapdoor = game.bots.any((b) => b != this && b.personality == BotPersonality.trapdoor);
 
-      // 2. Build the available pool (We add Grunt twice so it remains the most common bot)
-      List<BotPersonality> pool = [BotPersonality.grunt, BotPersonality.grunt];
-      if (!hasStalker) pool.add(BotPersonality.stalker);
-      if (!hasPhantom) pool.add(BotPersonality.phantom);
-      if (!hasTrapdoor) pool.add(BotPersonality.trapdoor);
+        // 2. Build the available specialty pool
+        List<BotPersonality> specialtyPool = [];
+        if (!hasStalker) specialtyPool.add(BotPersonality.stalker);
+        if (!hasPhantom) specialtyPool.add(BotPersonality.phantom);
+        if (!hasTrapdoor) specialtyPool.add(BotPersonality.trapdoor);
 
-      // 3. Roll the dice from the remaining available options
-      personality = pool[_random.nextInt(pool.length)];
+        // 3. Select an available specialty, or fallback to grunt if all slots are occupied
+        if (specialtyPool.isNotEmpty) {
+          personality = specialtyPool[_random.nextInt(specialtyPool.length)];
+        } else {
+          personality = BotPersonality.grunt;
+        }
+      } else {
+        // 9 in 10 chance (90%) to remain a standard grunt
+        personality = BotPersonality.grunt;
+      }
     }
 
     /* debugLabel = TextComponent(
