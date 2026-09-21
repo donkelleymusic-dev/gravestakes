@@ -867,10 +867,10 @@ class CountdownOverlay extends StatelessWidget {
   }
 }
 
-// --- NEW: THE TRUE 3D FPS PERSPECTIVE ENGINE ---
+// --- NEW: THE TRUE 3D FPS PERSPECTIVE ENGINE (WITH FOG) ---
 class AmbientMenuGame extends FlameGame {
-  // Start with a slight delay so the menu settles before the first scare
   double _spawnTimer = 3.0; 
+  double _fogTimer = 0.0;
   final math.Random random = math.Random();
   List<Map<String, dynamic>> availableCharacters = [];
 
@@ -883,17 +883,29 @@ class AmbientMenuGame extends FlameGame {
       final res = await Supabase.instance.client.from('characters').select('id, base_speed');
       availableCharacters = List<Map<String, dynamic>>.from(res);
     } catch (e) {}
+
+    // Pre-warm the environment with fog so it isn't empty on load
+    for (int i = 0; i < 25; i++) {
+      add(MenuFog(initialZ: random.nextDouble() * 1000.0));
+    }
   }
 
   @override
   void update(double dt) {
     super.update(dt);
-    _spawnTimer -= dt;
     
+    // 1. Monster Spawner
+    _spawnTimer -= dt;
     if (_spawnTimer <= 0) {
       _spawnRunner();
-      // LESS FREQUENT: Wait anywhere from 8 to 15 seconds between spawns
       _spawnTimer = 8.0 + random.nextDouble() * 7.0; 
+    }
+
+    // 2. Fog Spawner (Continuously rolls in from the horizon)
+    _fogTimer -= dt;
+    if (_fogTimer <= 0) {
+      add(MenuFog(initialZ: 1000.0));
+      _fogTimer = 0.2 + random.nextDouble() * 0.4; 
     }
   }
 
@@ -918,13 +930,86 @@ class AmbientMenuGame extends FlameGame {
   }
 }
 
+// --- NEW: 3D VOLUMETRIC FOG ---
+class MenuFog extends PositionComponent with HasGameReference<AmbientMenuGame> {
+  double worldX = 0;        
+  double worldZ;   
+  double speedZ = 30.0;
+  double driftX = 0.0;
+  double baseRadius = 150.0;
+
+  MenuFog({required double initialZ}) : worldZ = initialZ;
+
+  @override
+  Future<void> onLoad() async {
+    anchor = Anchor.center;
+    // Spread them widely across the horizon
+    worldX = (game.random.nextDouble() * 1200.0) - 600.0;
+    
+    // Slow, drifting speeds
+    speedZ = 20.0 + game.random.nextDouble() * 30.0;
+    driftX = (game.random.nextDouble() * 20.0) - 10.0;
+    
+    // Massive cloud sizes
+    baseRadius = 150.0 + game.random.nextDouble() * 200.0;
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    
+    worldZ -= speedZ * dt;
+    worldX += driftX * dt;
+    
+    // Despawn when it flows past the camera
+    if (worldZ <= -50.0) {
+      removeFromParent();
+      return;
+    }
+
+    double z = math.max(worldZ, 10.0); 
+    double fov = 400.0; 
+    double perspective = fov / z;
+
+    double horizonY = game.size.y * 0.25; 
+    double cameraHeight = 100.0; // Slightly lower than monsters to hug the ground         
+
+    double screenX = (game.size.x / 2) + (worldX * perspective);
+    double screenY = horizonY + (cameraHeight * perspective);
+
+    position = Vector2(screenX, screenY);
+    scale = Vector2.all(perspective); 
+    
+    // Exactly matches the monster priority math for perfect depth sorting!
+    priority = (perspective * 1000).toInt();
+  }
+
+  @override
+  void render(Canvas canvas) {
+    // Fade in from the deep black horizon, and fade out slightly as it hits the camera
+    double distanceFade = ((worldZ - 50) / 500).clamp(0.0, 1.0);
+    double opacity = 0.12 * distanceFade;
+
+    // A radial gradient is incredibly cheap to render compared to a blur filter
+    final paint = Paint()
+      ..shader = ui.Gradient.radial(
+        Offset.zero,
+        baseRadius,
+        [Colors.grey.withOpacity(opacity), Colors.grey.withOpacity(0.0)],
+        [0.0, 1.0],
+      );
+      
+    canvas.drawCircle(Offset.zero, baseRadius, paint);
+  }
+}
+
+// --- EXISTING: THE 3D MONSTER RUNNER ---
 class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame> {
   final Map<String, ui.Image> images;
   final Map<String, dynamic> rig;
   final double speed;
   late VoxelCharacterComponent voxel;
 
-  // 3D Perspective Coordinates
   double worldX = 0;        
   double worldZ = 1000.0;   
   double speedZ = 200.0;    
@@ -939,19 +1024,14 @@ class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame
       hitboxSize: Vector2.all(32),
     );
     voxel.isMoving = true;
-    
-    // Force them to face the camera (South)
     voxel.targetAngle = math.pi; 
     
     add(voxel);
     anchor = Anchor.bottomCenter;
 
     worldZ = 1000.0; 
-    
-    // Pick a lane left or right so they pass you on the sides
     double side = game.random.nextBool() ? 1.0 : -1.0;
     worldX = side * (50.0 + game.random.nextDouble() * 200.0);
-
     speedZ = speed * 1.5; 
   }
 
@@ -967,11 +1047,9 @@ class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame
     }
 
     double z = math.max(worldZ, 10.0); 
-
     double fov = 400.0; 
     double perspective = fov / z;
 
-    // START HIGHER: Pushed the horizon up from 0.45 to 0.25 (top quarter of the screen)
     double horizonY = game.size.y * 0.25; 
     double cameraHeight = 120.0;          
 
@@ -980,7 +1058,6 @@ class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame
 
     position = Vector2(screenX, screenY);
     
-    // DRAMATICALLY BIGGER: Tripled the base scale, plus an exponential kick as they hit the camera
     double baseScale = perspective * 3.5;
     scale = Vector2.all(baseScale + math.pow(perspective, 2.0) * 0.1); 
     
@@ -989,22 +1066,33 @@ class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame
 
   @override
   void render(Canvas canvas) {
-    double darknessOpacity = ((worldZ - 400) / 600).clamp(0.0, 1.0);
+    // 1. The Phantom Fade Math
+    // Fade IN from Z=1000 to Z=700
+    double fadeIn = ((1000.0 - worldZ) / 300.0).clamp(0.0, 1.0);
+    // Fade OUT from Z=200 down to Z=-50
+    double fadeOut = ((worldZ + 50.0) / 250.0).clamp(0.0, 1.0);
     
-    if (darknessOpacity > 0.0) {
-      canvas.saveLayer(
-        Rect.fromLTWH(-1000, -1000, 2000, 2000), 
-        Paint()..colorFilter = ColorFilter.mode(
-          Colors.black.withOpacity(darknessOpacity), 
+    // Overall opacity is the lowest of the two, creating a smooth plateau in the middle
+    double ghostOpacity = math.min(fadeIn, fadeOut);
+
+    // 2. The Darkness Distance Math
+    double darknessAmount = ((worldZ - 400) / 600).clamp(0.0, 1.0);
+    
+    // 3. Apply both effects simultaneously via a single Canvas layer
+    canvas.saveLayer(
+      Rect.fromLTWH(-1000, -1000, 2000, 2000), 
+      Paint()
+        // This alpha value makes the entire composited character transparent
+        ..color = Colors.white.withOpacity(ghostOpacity)
+        // This filter tints whatever is visible toward pitch black in the distance
+        ..colorFilter = ColorFilter.mode(
+          Colors.black.withOpacity(darknessAmount), 
           BlendMode.srcATop
         ),
-      );
-    }
+    );
     
     super.render(canvas);
     
-    if (darknessOpacity > 0.0) {
-      canvas.restore();
-    }
+    canvas.restore();
   }
 }
