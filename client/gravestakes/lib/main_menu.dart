@@ -32,6 +32,7 @@ import 'theme.dart';
 import 'cinematic_trailer_game.dart';
 import 'lumen_tier_system.dart';
 import 'synth_manager.dart';
+import 'vanity_screen.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -482,6 +483,13 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                               _buildSidebarIcon(icon: Icons.settings, color: Colors.grey, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()))),
                               _buildSidebarIcon(icon: Icons.local_fire_department, color: Colors.orangeAccent, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GuildWarMapScreen()))),
                               _buildSidebarIcon(icon: Icons.card_membership, color: Colors.purpleAccent, badgeCount: _unclaimedPassTiers, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CryptPassScreen())).then((_) => _fetchPlayerData())),
+                              
+                              // --- NEW: LINK TO THE ECHO CHAMBER (VANITY HUB) ---
+                              _buildSidebarIcon(
+                                icon: Icons.auto_awesome, 
+                                color: Colors.pinkAccent, 
+                                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const VanityScreen())).then((_) => _fetchPlayerData()),
+                              ),
                             ],
                           ),
                         ),
