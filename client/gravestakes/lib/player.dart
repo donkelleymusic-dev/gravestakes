@@ -60,6 +60,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   Vector2? charmTargetPos;
 
   String equippedTrail = 'default';
+  String equippedWallSkin = 'default';
   
   double _timeUntilNextFlicker = 0.0;
   double _flickerDuration = 0.0;
@@ -466,6 +467,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           else if (slot == 'mask_4') mask4Id = val;
           else if (slot == 'character') equippedCharacterId = val;
           else if (slot == 'particle_trail') equippedTrail = val;
+          else if (slot == 'wall_skin') equippedWallSkin = val;
         }
 
         final charRes = await Supabase.instance.client

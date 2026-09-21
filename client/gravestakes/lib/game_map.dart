@@ -7,7 +7,7 @@ import 'game.dart';
 import 'hallway_triggers.dart';
 import 'puzzle_door.dart';
 
-class GameMap extends Component with HasGameReference<FlameGame> {
+class GameMap extends Component with HasGameReference<GraveStakesGame> {
   final String roomId;
   final String mapName;
   
@@ -192,13 +192,18 @@ class GameMap extends Component with HasGameReference<FlameGame> {
         if (mapGrid[y][x] == 0) {
           // Keep normal spawns away from the secret hallway
           if (x < 40) allOpenTiles.add(Vector2(worldX + (tileSize / 2), worldY + (tileSize / 2)));
-        } else if (mapGrid[y][x] == 1) { // Normal Purple Wall
-          game.world.add(WallComponent(position: Vector2(worldX, worldY), tileSize: tileSize));
+        } else if (mapGrid[y][x] == 1) { // Normal Wall
+          game.world.add(WallComponent(
+            position: Vector2(worldX, worldY), 
+            tileSize: tileSize,
+            equippedSkin: game.player.equippedWallSkin, // PASS THE SKIN HERE!
+          ));
           obstacles.add(Rect.fromLTWH(worldX, worldY, tileSize, tileSize));
         } else if (mapGrid[y][x] == 2) { // Secret Red Wall
           game.world.add(WallComponent(
             position: Vector2(worldX, worldY), tileSize: tileSize,
             wallColor: Colors.red[900]!, borderColor: Colors.black87,
+            equippedSkin: game.player.equippedWallSkin, // PASS THE SKIN HERE!
           ));
           obstacles.add(Rect.fromLTWH(worldX, worldY, tileSize, tileSize));
         }
@@ -422,14 +427,16 @@ class MapRow extends PositionComponent {
 
 class WallComponent extends PositionComponent {
   final double tileSize;
-  final Color wallColor; // NEW: Allows custom colors for the 3D raycaster
-  final Color borderColor; // NEW
+  final Color wallColor; 
+  final Color borderColor; 
+  final String equippedSkin; // Tracks the vanity domain
 
   WallComponent({
     required Vector2 position, 
     required this.tileSize,
-    this.wallColor = Colors.deepPurpleAccent, // Defaults to the standard dungeon look
+    this.wallColor = Colors.deepPurpleAccent, 
     this.borderColor = Colors.purpleAccent,
+    this.equippedSkin = 'default',
   }) : super(
           position: position, 
           size: Vector2.all(tileSize),
@@ -439,13 +446,31 @@ class WallComponent extends PositionComponent {
   @override
   void render(Canvas canvas) {
     final rect = Rect.fromLTWH(0, 0, tileSize, tileSize);
-    final fillPaint = Paint()..color = wallColor;
-    final strokePaint = Paint()
-      ..color = borderColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
+
+    if (equippedSkin == 'wall_void') {
+      // --- THE VANTABLACK VOID ---
+      // Pure black core, deleting all depth perception
+      final voidPaint = Paint()..color = const Color(0xFF000000)..style = PaintingStyle.fill;
+      canvas.drawRect(rect, voidPaint);
+
+      // The Event Horizon (Subtle purple bleeding exclusively from the bottom edge)
+      final bottomEdge = Rect.fromLTRB(rect.left, rect.bottom - 4, rect.right, rect.bottom + 4);
+      final glowPaint = Paint()
+        ..color = Colors.purpleAccent.withOpacity(0.3)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0);
+        
+      canvas.drawRect(bottomEdge, glowPaint);
       
-    canvas.drawRect(rect, fillPaint);
-    canvas.drawRect(rect, strokePaint);
+    } else {
+      // --- THE STANDARD LUMEN BREACH WALLS ---
+      final fillPaint = Paint()..color = wallColor;
+      final strokePaint = Paint()
+        ..color = borderColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+        
+      canvas.drawRect(rect, fillPaint);
+      canvas.drawRect(rect, strokePaint);
+    }
   }
 }
