@@ -143,6 +143,10 @@ class PuzzleManager extends Component with HasGameReference<GraveStakesGame> {
     final chestPos = Vector2(lastDoorPosition.x + 32, lastDoorPosition.y + 300);
     game.world.add(SpookyBox(id: 'flesh_casket_${DateTime.now().millisecondsSinceEpoch}', position: chestPos));
 
+    // --- NEW: SURRENDER THE ROOM LOCK ---
+    game.isPuzzleRoomOccupied = false;
+    game.myChannel.sendBroadcastMessage(event: 'puzzle_lock', payload: {'locked': false});
+    
     game.camera.viewport.add(FloatingText(
       text: 'THE LOOP IS BROKEN', 
       worldPosition: Vector2(game.player.position.x - 40, game.player.position.y - 60),
@@ -164,6 +168,10 @@ class PuzzleManager extends Component with HasGameReference<GraveStakesGame> {
     // 3. Snap out of FPS
     player.isInPuzzleRoom = false;
     game.isFpsMode = false;
+
+    // --- NEW: SURRENDER THE ROOM LOCK ---
+    game.isPuzzleRoomOccupied = false;
+    game.myChannel.sendBroadcastMessage(event: 'puzzle_lock', payload: {'locked': false});
 
     // --- NEW: THE "OPEN ROOM" EJECTION SCANNER ---
     // 4. Kill any leftover joystick momentum

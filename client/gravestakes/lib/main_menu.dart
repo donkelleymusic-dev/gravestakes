@@ -43,6 +43,9 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final GlobalKey _marketKey = GlobalKey();
 
+  // --- The Static Session Flag ---
+  static bool _hasCheckedLoginRewards = false;
+
   String _username = 'Loading...';
   int _level = 1;
   int _shadows = 0;
@@ -118,8 +121,14 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   void initState() {
     super.initState();
     _loadSavedPreferences();
+
+    // --- Only check for guild rewards ONCE per app session ---
+    if (!_hasCheckedLoginRewards) {
+      _hasCheckedLoginRewards = true;
+      _checkPendingGuildWarRewards();
+    }
+
     _fetchPlayerData();
-    _checkPendingGuildWarRewards();
     _initMenuAudio(); // Initialize and play menu music
   }
 
@@ -181,24 +190,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           supabase.from('profiles').select('username, level, lumen, completed_tutorial').eq('id', user.id).single(),
           supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(),
         ]);
-
-        // Inside _fetchPlayerData() in main_menu.dart, add this query check after fetching wallets/profiles:
-        final rewardsRes = await supabase
-            .from('guild_war_rewards_queue')
-            .select('*')
-            .eq('user_id', user.id)
-            .eq('claimed', false)
-            .maybeSingle();
-
-        if (rewardsRes != null) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              GuildWarResultsOverlay.show(context, rewardsRes, () {
-                _fetchPlayerData(); // Refresh player wallet after claiming
-              });
-            }
-          });
-        }
 
         // --- CHECK FOR UNCLAIMED CRYPT PASS TIERS ---
         final seasonRes = await supabase.from('season_config').select('id').eq('is_active', true).maybeSingle();

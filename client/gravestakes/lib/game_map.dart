@@ -211,6 +211,26 @@ class GameMap extends Component with HasGameReference<FlameGame> {
       else if (i < 20) potentialBoxSpawns.add(allOpenTiles[i]);
       else break;
     }
+
+    // --- NEW: SPAWN THE MINIGAME ENTRANCE ---
+    bool doorPlaced = false;
+    // Scan the middle chunks of the map to ensure it's accessible
+    for (int y = 15; y < 35; y++) {
+      for (int x = 15; x < 35; x++) {
+        // Look for a floor tile (0) that has a wall (1) directly above it
+        if (!doorPlaced && mapGrid[y][x] == 0 && mapGrid[y - 1][x] == 1) {
+          
+          // Place the door at the top edge of the floor tile, flush against the wall
+          game.world.add(MinigameEntrance(
+            position: Vector2(x * tileSize + (tileSize / 2), y * tileSize + 16.0),
+          ));
+          doorPlaced = true;
+          break;
+        }
+      }
+      if (doorPlaced) break;
+    }
+    // -----------------------------------------
   }
 
   Vector2 getSafeSpawnLocation(Vector2 intendedPos, Vector2 entitySize) {

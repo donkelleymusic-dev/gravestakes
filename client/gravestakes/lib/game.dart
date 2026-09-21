@@ -91,6 +91,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   final String? scrimmageMessageId;
   String guildActiveDoctrine = 'none';
 
+  bool isPuzzleRoomOccupied = false;
+
   bool isGlobalBlackout = false;
   double blackoutTimer = 0.0;
 
@@ -383,7 +385,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     camera.follow(player);
 
     // --- TEMP: INJECT BLATANT TEST TRAPDOOR ---
-    world.add(Trapdoor(position: safeSpawnPoint + Vector2(100, 0)));
+    //world.add(Trapdoor(position: safeSpawnPoint + Vector2(100, 0)));
 
     camera.viewport.add(jumpScareEffect);
     camera.viewport.add(DarknessOverlay(player));
