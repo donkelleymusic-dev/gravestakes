@@ -111,10 +111,11 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
     }
   }
 
-  void _onPointerDown(PointerDownEvent details) {
+  void _onPointerDown(PointerDownEvent details) async {
     if (!_isOpened) {
      _pressureController.forward();
-     _crescendoHandles = SynthManager.instance.startChestCrescendo(_pressureController.duration!.inMilliseconds);
+     // Await the asynchronous crescendo to receive the active handles
+     _crescendoHandles = await SynthManager.instance.startChestCrescendo(_pressureController.duration!.inMilliseconds);
     }
   }
 

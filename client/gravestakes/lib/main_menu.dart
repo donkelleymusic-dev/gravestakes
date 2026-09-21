@@ -497,7 +497,9 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                 icon: const Icon(Icons.movie_creation, color: Colors.greenAccent, size: 24),
                                 onPressed: () {
                                   SynthManager.instance.playMagicTap();
-                                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => Scaffold(body: GameWidget(game: GraveStakesGame(matchMode: 'cinematic')))));
+                                  Future.delayed(const Duration(milliseconds: 25), () {
+                                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => Scaffold(body: GameWidget(game: GraveStakesGame(matchMode: 'cinematic')))));
+                                  });
                                 },
                               ),
                             ),
@@ -533,7 +535,10 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                   description: 'STEP 3: Enter The Crypt to equip your new mask.',
                                   disposeOnTap: true,
                                   onTargetClick: () {
-                                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LoadoutScreen())).then((_) => _checkTutorialPhase());
+                                    SynthManager.instance.playMagicTap();
+                                    Future.delayed(const Duration(milliseconds: 25), () {
+                                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LoadoutScreen())).then((_) => _checkTutorialPhase());
+                                    });
                                   },
                                   child: _buildChunkyButton(
                                     icon: Icons.backpack, 
@@ -587,24 +592,29 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                           description: 'STEP 8: Select Casual Mode and Enter the Darkness!',
                                           disposeOnTap: true,
                                           onTargetClick: () async {
-                                            final prefs = await SharedPreferences.getInstance();
-                                            await prefs.setString('tutorial_phase', 'completed');
-                                            try {
-                                              if (supabase.auth.currentUser?.id != null) {
-                                                await supabase.from('profiles').update({'completed_tutorial': true}).eq('id', supabase.auth.currentUser!.id);
-                                                _completedTutorial = true;
-                                              }
-                                            } catch (e) {}
-                                            if (mounted) _findMatchAndStart(context);
+                                            SynthManager.instance.playMagicTap();
+                                            Future.delayed(const Duration(milliseconds: 25), () async {
+                                              final prefs = await SharedPreferences.getInstance();
+                                              await prefs.setString('tutorial_phase', 'completed');
+                                              try {
+                                                if (supabase.auth.currentUser?.id != null) {
+                                                  await supabase.from('profiles').update({'completed_tutorial': true}).eq('id', supabase.auth.currentUser!.id);
+                                                  _completedTutorial = true;
+                                                }
+                                              } catch (e) {}
+                                              if (mounted) _findMatchAndStart(context);
+                                            });
                                           },
                                           child: GestureDetector(
                                             onTap: () async {
                                               SynthManager.instance.playMagicTap();
-                                              try {
-                                                final prefs = await SharedPreferences.getInstance();
-                                                if (prefs.getString('tutorial_phase') == 'match') await prefs.setString('tutorial_phase', 'completed');
-                                              } catch (e) {}
-                                              if (mounted) _findMatchAndStart(context);
+                                              Future.delayed(const Duration(milliseconds: 25), () async {
+                                                try {
+                                                  final prefs = await SharedPreferences.getInstance();
+                                                  if (prefs.getString('tutorial_phase') == 'match') await prefs.setString('tutorial_phase', 'completed');
+                                                } catch (e) {}
+                                                if (mounted) _findMatchAndStart(context);
+                                              });
                                             },
                                             child: Container(
                                               height: 70,
@@ -642,9 +652,12 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                   description: 'STEP 1: Enter the Black Market for your first supply drop.',
                                   disposeOnTap: true,
                                   onTargetClick: () {
-                                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StoreScreen())).then((_) {
-                                      _fetchPlayerData();
-                                      _checkTutorialPhase();
+                                    SynthManager.instance.playMagicTap();
+                                    Future.delayed(const Duration(milliseconds: 25), () {
+                                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StoreScreen())).then((_) {
+                                        _fetchPlayerData();
+                                        _checkTutorialPhase();
+                                      });
                                     });
                                   },
                                   child: _buildChunkyButton(
@@ -673,7 +686,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       child: GestureDetector(
         onTap: () {
           SynthManager.instance.playMagicTap();
-          onTap();
+          Future.delayed(const Duration(milliseconds: 25), onTap);
         },
         child: Stack(
           clipBehavior: Clip.none,
@@ -709,7 +722,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     return GestureDetector(
       onTap: () {
         SynthManager.instance.playMagicTap();
-        onTap();
+        Future.delayed(const Duration(milliseconds: 25), onTap);
       },
       child: Stack(
         clipBehavior: Clip.none,

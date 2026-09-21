@@ -14,8 +14,8 @@ class SynthManager {
     try {
       if (!SoLoud.instance.isInitialized) return;
       
-      // Changed to a SQUARE wave so it cuts through mobile speakers easily
-      _synthWave = await SoLoud.instance.loadWaveform(WaveForm.square, true, 0.25, 1.0);
+      // SINE WAVE: Smooth math completely eliminates the DC voltage pop
+      _synthWave = await SoLoud.instance.loadWaveform(WaveForm.sin, true, 0.25, 1.0);
       isInitialized = true;
     } catch (e) {
       debugPrint('SynthManager ERROR during init: $e');
@@ -23,22 +23,22 @@ class SynthManager {
   }
 
   // --- MENU INTERACTIONS ---
-  void playMagicTap() {
+  Future<void> playMagicTap() async {
     if (!isInitialized || _synthWave == null) return;
     
     try {
-      // ADDED looping: true! Square waves are loud, so we drop the base volume to 0.15
-      final handle = SoLoud.instance.play(_synthWave!, volume: 0.15, looping: true);
-      
+      // THE ATTACK ENVELOPE: Start at 0.0 and fade up over 10ms
+      final handle = SoLoud.instance.play(_synthWave!, volume: 0.0, looping: true);
       SoLoud.instance.setRelativePlaySpeed(handle, 4.0);
+      SoLoud.instance.fadeVolume(handle, 0.15, const Duration(milliseconds: 10));
       
-      // Sustain for 30ms, then fade out over 200ms
-      Future.delayed(const Duration(milliseconds: 30), () {
-        SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 200));
+      // THE RELEASE ENVELOPE: Sustain briefly, then fade out over 150ms
+      Future.delayed(const Duration(milliseconds: 40), () {
+        SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 150));
       });
       
-      // Free the voice
-      Future.delayed(const Duration(milliseconds: 230), () {
+      // Free the voice ONLY after the volume is safely at 0.0
+      Future.delayed(const Duration(milliseconds: 200), () {
         SoLoud.instance.stop(handle);
       });
     } catch (e) {}
@@ -46,7 +46,7 @@ class SynthManager {
 
   // --- CHEST OPENING SEQUENCE ---
   
-  List<dynamic> startChestCrescendo(int durationMs) {
+  Future<List<dynamic>> startChestCrescendo(int durationMs) async {
     if (!isInitialized || _synthWave == null) return [];
 
     double root = 1.0 + (Random().nextDouble() * 0.5); 
@@ -59,12 +59,10 @@ class SynthManager {
     List<dynamic> activeHandles = []; 
 
     for (double pitch in diminishedTriad) {
-      // ADDED looping: true!
       final handle = SoLoud.instance.play(_synthWave!, volume: 0.0, looping: true); 
       SoLoud.instance.setRelativePlaySpeed(handle, pitch);
       
-      // Fade up to a low rumble volume over the hold duration
-      SoLoud.instance.fadeVolume(handle, 0.1, Duration(milliseconds: durationMs));
+      SoLoud.instance.fadeVolume(handle, 0.15, Duration(milliseconds: durationMs));
       activeHandles.add(handle);
     }
     return activeHandles;
@@ -72,11 +70,15 @@ class SynthManager {
 
   void stopChestCrescendo(List<dynamic> handles) { 
     for (var handle in handles) {
-      SoLoud.instance.stop(handle);
+      // Smooth out the abrupt release if the user lets go early
+      SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 50));
+      Future.delayed(const Duration(milliseconds: 60), () {
+        SoLoud.instance.stop(handle);
+      });
     }
   }
 
-  void resolveChestOpen(List<dynamic> handles) { 
+  Future<void> resolveChestOpen(List<dynamic> handles) async { 
     stopChestCrescendo(handles); 
     
     if (!isInitialized || _synthWave == null) return;
@@ -89,12 +91,17 @@ class SynthManager {
     ];
 
     for (double pitch in majorTriad) {
-      // ADDED looping: true! 
-      final handle = SoLoud.instance.play(_synthWave!, volume: 0.15, looping: true);
+      // Attack envelope
+      final handle = SoLoud.instance.play(_synthWave!, volume: 0.0, looping: true);
       SoLoud.instance.setRelativePlaySpeed(handle, pitch);
+      SoLoud.instance.fadeVolume(handle, 0.15, const Duration(milliseconds: 20));
       
-      SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 800));
-      Future.delayed(const Duration(milliseconds: 800), () {
+      // Release envelope
+      Future.delayed(const Duration(milliseconds: 50), () {
+        SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 800));
+      });
+      
+      Future.delayed(const Duration(milliseconds: 860), () {
         SoLoud.instance.stop(handle);
       });
     }
