@@ -192,18 +192,18 @@ class GameMap extends Component with HasGameReference<GraveStakesGame> {
         if (mapGrid[y][x] == 0) {
           // Keep normal spawns away from the secret hallway
           if (x < 40) allOpenTiles.add(Vector2(worldX + (tileSize / 2), worldY + (tileSize / 2)));
-        } else if (mapGrid[y][x] == 1) { // Normal Wall
+        } else if (mapGrid[y][x] == 1) { // Normal Purple Wall
+          // REMOVE the equippedSkin parameter here!
           game.world.add(WallComponent(
             position: Vector2(worldX, worldY), 
-            tileSize: tileSize,
-            equippedSkin: game.player.equippedWallSkin, // PASS THE SKIN HERE!
+            tileSize: tileSize
           ));
           obstacles.add(Rect.fromLTWH(worldX, worldY, tileSize, tileSize));
         } else if (mapGrid[y][x] == 2) { // Secret Red Wall
+          // REMOVE the equippedSkin parameter here too!
           game.world.add(WallComponent(
             position: Vector2(worldX, worldY), tileSize: tileSize,
             wallColor: Colors.red[900]!, borderColor: Colors.black87,
-            equippedSkin: game.player.equippedWallSkin, // PASS THE SKIN HERE!
           ));
           obstacles.add(Rect.fromLTWH(worldX, worldY, tileSize, tileSize));
         }
@@ -425,18 +425,16 @@ class MapRow extends PositionComponent {
   }
 }
 
-class WallComponent extends PositionComponent {
+class WallComponent extends PositionComponent with HasGameReference<GraveStakesGame> {
   final double tileSize;
   final Color wallColor; 
   final Color borderColor; 
-  final String equippedSkin; // Tracks the vanity domain
 
   WallComponent({
     required Vector2 position, 
     required this.tileSize,
     this.wallColor = Colors.deepPurpleAccent, 
     this.borderColor = Colors.purpleAccent,
-    this.equippedSkin = 'default',
   }) : super(
           position: position, 
           size: Vector2.all(tileSize),
@@ -446,14 +444,18 @@ class WallComponent extends PositionComponent {
   @override
   void render(Canvas canvas) {
     final rect = Rect.fromLTWH(0, 0, tileSize, tileSize);
+    
+    // Safely check the player's skin during the render loop, not during onLoad!
+    String currentSkin = 'default';
+    try {
+      currentSkin = game.player.equippedWallSkin;
+    } catch (_) {}
 
-    if (equippedSkin == 'wall_void') {
+    if (currentSkin == 'wall_void') {
       // --- THE VANTABLACK VOID ---
-      // Pure black core, deleting all depth perception
       final voidPaint = Paint()..color = const Color(0xFF000000)..style = PaintingStyle.fill;
       canvas.drawRect(rect, voidPaint);
 
-      // The Event Horizon (Subtle purple bleeding exclusively from the bottom edge)
       final bottomEdge = Rect.fromLTRB(rect.left, rect.bottom - 4, rect.right, rect.bottom + 4);
       final glowPaint = Paint()
         ..color = Colors.purpleAccent.withOpacity(0.3)
