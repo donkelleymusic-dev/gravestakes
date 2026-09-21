@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math'; 
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -305,7 +306,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     );
   }
 
-  // --- DRAFT MECHANICS ---
   void _revertDraft() {
     setState(() {
       _draftCharacterId = _committedCharacterId;
@@ -386,6 +386,13 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     setState(() {
       if (targetSlot.startsWith('mask_') && _selectedItemType == 'mask') {
         int index = int.parse(targetSlot.split('_')[1]) - 1;
+        
+        for (int i = 0; i < 4; i++) {
+          if (_draftMasks[i] == _selectedInventoryId) {
+            _draftMasks[i] = ''; 
+          }
+        }
+        
         _draftMasks[index] = _selectedInventoryId!;
         _mannequinGame.setPreviewMask(_selectedInventoryId);
       } else if (_selectedItemType == targetSlot) {
@@ -407,7 +414,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     });
   }
 
-  // --- STAT CALCULATIONS ---
   double _getDraftStat(String buffStat, double baseValue) {
     double modifier = 1.0;
     _draftLoadout.forEach((slot, itemId) {
@@ -460,6 +466,113 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         ],
       ),
     );
+  }
+
+  Widget _buildMaskSlot(int index, String mId, bool isSelected) {
+    Color slotColor;
+    switch (index) {
+      case 0: slotColor = Colors.cyanAccent; break; 
+      case 1: slotColor = Colors.purpleAccent; break; 
+      case 2: slotColor = Colors.orangeAccent; break; 
+      case 3: slotColor = Colors.redAccent; break; 
+      default: slotColor = Colors.white; break;
+    }
+
+    String maskName = 'EMPTY';
+    String? assetPath;
+    
+    if (mId.isNotEmpty) {
+      final maskData = _masksCatalog[mId];
+      if (maskData != null) {
+        maskName = maskData['name'] ?? mId.replaceAll('_', ' ').toUpperCase();
+        assetPath = maskData['asset_path'] ?? maskData['thumbnail_path'];
+      } else if (mId == 'standard') {
+        maskName = 'GRAVE STINGER'; 
+      } else {
+        maskName = mId.replaceAll('_', ' ').toUpperCase();
+      }
+    }
+
+    Widget slotCard = GestureDetector(
+      onTap: () => mId.isEmpty && isSelected ? _assignSelectedToSlot('mask_${index + 1}') : _clearSlot('mask_${index + 1}'),
+      child: SizedBox(
+        width: 70, 
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CustomPaint(
+                  size: const Size(16, 16),
+                  painter: MiniWheelPainter(index, slotColor),
+                ),
+                if (mId.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  CustomPaint(
+                    size: const Size(16, 16),
+                    painter: AttackTypeIconPainter(mId, slotColor),
+                  ),
+                ]
+              ],
+            ),
+            const SizedBox(height: 6),
+            
+            Container(
+              width: 52, height: 52,
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: isSelected && mId.isEmpty ? Colors.greenAccent : slotColor.withOpacity(0.6), 
+                  width: 1.5
+                ),
+                color: mId.isNotEmpty ? slotColor.withOpacity(0.15) : Colors.black45,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: mId.isNotEmpty 
+                ? Center(child: buildSafeItemThumbnail(assetPath: assetPath, slotType: 'mask', size: 36.0))
+                : const Icon(Icons.add, size: 24, color: Colors.white24),
+            ),
+            const SizedBox(height: 6),
+            
+            Text(
+              maskName,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 8,
+                fontWeight: mId.isNotEmpty ? FontWeight.bold : FontWeight.normal,
+                color: mId.isNotEmpty ? Colors.white : Colors.white38,
+                fontFamily: 'Courier',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (index == 0) {
+      return Showcase(
+        key: _maskSlotKey,
+        description: 'STEP 6: Tap this empty slot to bind your mask.',
+        disposeOnTap: true,
+        onTargetClick: () {
+          if (mId.isEmpty && isSelected) {
+            _assignSelectedToSlot('mask_${index + 1}');
+          } else {
+            _clearSlot('mask_${index + 1}');
+          }
+          Future.delayed(const Duration(milliseconds: 300), () {
+            if (mounted && _scaffoldKey.currentContext != null) {
+              ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_sealKey]);
+            }
+          });
+        },
+        child: slotCard,
+      );
+    }
+    
+    return slotCard;
   }
 
   @override
@@ -529,7 +642,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                           style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.0),
                         ),
                       ),
-                      // --- CIRCLE OF TORMENT HOOK ---
                       const SizedBox(height: 2),
                       Row(
                         children: [
@@ -546,7 +658,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                           ),
                         ],
                       ),
-                      // ------------------------------
                       const Divider(color: Colors.purpleAccent, height: 6, thickness: 1),
                       _buildStatRow('Speed', baseSpeed, _getDraftStat('speed', baseSpeed), false),
                       _buildStatRow('Max Energy', baseEnergy, _getDraftStat('energy_max', baseEnergy), false),
@@ -649,53 +760,18 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                     ),
                   ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 12),
                 
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: List.generate(4, (i) {
                     String mId = _draftMasks[i];
                     bool isSelected = _selectedItemType == 'mask';
-                    
-                    Widget slot = GestureDetector(
-                      onTap: () => mId.isEmpty && isSelected ? _assignSelectedToSlot('mask_${i + 1}') : _clearSlot('mask_${i + 1}'),
-                      child: Container(
-                        width: 44, height: 44,
-                        decoration: BoxDecoration(
-                          border: Border.all(color: isSelected && mId.isEmpty ? Colors.greenAccent : Colors.white24),
-                          color: mId.isNotEmpty ? Colors.redAccent.withOpacity(0.25) : Colors.black45,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: mId.isNotEmpty 
-                          ? const Icon(Icons.masks, size: 22, color: Colors.redAccent) 
-                          : const Icon(Icons.add, size: 18, color: Colors.white24),
-                      ),
-                    );
-
-                    if (i == 0) {
-                      return Showcase(
-                        key: _maskSlotKey,
-                        description: 'STEP 6: Tap this empty slot to bind your mask.',
-                        disposeOnTap: true,
-                        onTargetClick: () {
-                          if (mId.isEmpty && isSelected) {
-                            _assignSelectedToSlot('mask_${i + 1}');
-                          } else {
-                            _clearSlot('mask_${i + 1}');
-                          }
-                          Future.delayed(const Duration(milliseconds: 300), () {
-                            if (mounted && _scaffoldKey.currentContext != null) {
-                              ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_sealKey]);
-                            }
-                          });
-                        },
-                        child: slot,
-                      );
-                    }
-                    return slot;
+                    return _buildMaskSlot(i, mId, isSelected);
                   }),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
 
                 Row(
                   children: [
@@ -794,6 +870,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     );
   }
 
+  // --- REDUCED HORIZONTAL BOUNDS FOR MAXIMUM THUMBNAIL VISIBILITY ---
   Widget _buildInventoryGrid(String targetItemType) {
     if (targetItemType == 'character') {
       return _buildCharacterCryptGrid();
@@ -822,12 +899,12 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 125), 
+        constraints: const BoxConstraints(maxHeight: 95), 
         child: ListView.separated(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 0.0),
           scrollDirection: Axis.horizontal, 
           itemCount: allCatalogItems.length,
-          separatorBuilder: (context, index) => const SizedBox(width: 12),
+          separatorBuilder: (context, index) => const SizedBox(width: 8),
           itemBuilder: (context, index) {
             final item = allCatalogItems[index];
             final itemId = item['id'].toString();
@@ -844,7 +921,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
             else if (!isOwned) borderColor = (currency == 'coins' ? Colors.amber.withOpacity(0.4) : Colors.redAccent.withOpacity(0.4));
 
             Widget card = SizedBox(
-              width: 95, 
+              width: 76, 
               child: GestureDetector(
                 onTap: () {
                   if (isOwned) {
@@ -873,8 +950,8 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          buildSafeItemThumbnail(assetPath: assetPath, slotType: targetItemType, size: 28.0),
-                          const SizedBox(height: 6),
+                          buildSafeItemThumbnail(assetPath: assetPath, slotType: targetItemType, size: 42.0),
+                          const SizedBox(height: 4),
                           Text(
                             name, 
                             textAlign: TextAlign.center, 
@@ -930,6 +1007,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     );
   }
 
+  // --- REDUCED VERTICAL BOUNDS FOR MAXIMUM THUMBNAIL VISIBILITY ---
   Widget _buildCharacterCryptGrid() {
     Map<String, List<Map<String, dynamic>>> groupedChars = {};
 
@@ -985,7 +1063,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 crossAxisCount: 3, 
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
-                childAspectRatio: 0.85,
+                childAspectRatio: 0.90, 
               ),
               itemCount: charsInSpecies.length,
               itemBuilder: (context, index) {
@@ -994,11 +1072,11 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 final state = char['state'];
                 
                 bool isEquipped = _draftCharacterId == charId;
-                bool isPreviewed = _previewCharacterId == charId && !isEquipped; // NEW
+                bool isPreviewed = _previewCharacterId == charId && !isEquipped;
                 
                 Color borderColor = Colors.white12;
                 if (isEquipped) borderColor = Colors.greenAccent;
-                else if (isPreviewed) borderColor = Colors.white; // NEW: Highlights what you are looking at
+                else if (isPreviewed) borderColor = Colors.white; 
                 else if (state == 'bind') borderColor = Colors.amberAccent;
                 else if (state == 'progression') borderColor = Colors.purpleAccent.withOpacity(0.5);
 
@@ -1007,7 +1085,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                     if (state == 'owned') {
                       _selectInventoryItem('character', charId);
                     } else {
-                      // NEW: First tap previews, second tap confirms binding!
                       if (_previewCharacterId != charId) {
                         setState(() {
                           _previewCharacterId = charId;
@@ -1029,11 +1106,11 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                       children: [
                         Expanded(
                           child: Center(
-                            child: buildSafeItemThumbnail(assetPath: char['thumbnail_path'], slotType: 'character', size: 36.0),
+                            child: buildSafeItemThumbnail(assetPath: char['thumbnail_path'], slotType: 'character', size: 60.0),
                           ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
                           decoration: const BoxDecoration(
                             color: Colors.black87,
                             borderRadius: BorderRadius.vertical(bottom: Radius.circular(5)),
@@ -1059,7 +1136,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    // NEW: Contextual text swap on double-tap
                                     Text(isPreviewed ? 'CONFIRM ' : 'EVOLVE ', style: const TextStyle(color: Colors.amberAccent, fontSize: 8, fontWeight: FontWeight.bold)),
                                     const Icon(Icons.monetization_on, size: 10, color: Colors.amberAccent),
                                     const SizedBox(width: 2),
@@ -1070,7 +1146,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                               else if (state == 'progression')
                                 Column(
                                   children: [
-                                    // NEW: Visual feedback while previewing
                                     Text(isPreviewed ? 'PREVIEWING' : '${char['current_shards']} / ${char['max_shards']}', style: const TextStyle(color: Colors.grey, fontSize: 8)),
                                     const SizedBox(height: 2),
                                     LinearProgressIndicator(
@@ -1192,9 +1267,6 @@ class MannequinGame extends FlameGame {
   }
 }
 
-// ==========================================
-// CIRCLE OF TORMENT UI OVERLAY
-// ==========================================
 class CircleOfTormentOverlay extends StatelessWidget {
   const CircleOfTormentOverlay({super.key});
 
@@ -1256,4 +1328,94 @@ class CircleOfTormentOverlay extends StatelessWidget {
       ),
     );
   }
+}
+
+class MiniWheelPainter extends CustomPainter {
+  final int activeSlot;
+  final Color slotColor;
+
+  MiniWheelPainter(this.activeSlot, this.slotColor);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+
+    final bgPaint = Paint()..color = Colors.white12..style = PaintingStyle.fill;
+    canvas.drawCircle(center, radius, bgPaint);
+
+    final activePaint = Paint()..color = slotColor..style = PaintingStyle.fill;
+
+    final List<List<double>> quadrantAngles = [
+      [pi, pi / 2],      // 0: Top-Left
+      [-pi / 2, pi / 2], // 1: Top-Right
+      [pi / 2, pi / 2],  // 2: Bottom-Left
+      [0, pi / 2],       // 3: Bottom-Right
+    ];
+
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      quadrantAngles[activeSlot][0],
+      quadrantAngles[activeSlot][1],
+      true,
+      activePaint,
+    );
+
+    final linePaint = Paint()..color = Colors.black..strokeWidth = 1.0;
+    canvas.drawLine(Offset(radius, 0), Offset(radius, radius * 2), linePaint);
+    canvas.drawLine(Offset(0, radius), Offset(radius * 2, radius), linePaint);
+    
+    canvas.drawCircle(center, radius, Paint()..color = Colors.white30..style = PaintingStyle.stroke);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class AttackTypeIconPainter extends CustomPainter {
+  final String maskId;
+  final Color color;
+  
+  AttackTypeIconPainter(this.maskId, this.color);
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = Offset(size.width / 2, size.height / 2);
+    final fillPaint = Paint()..color = color..style = PaintingStyle.fill;
+    final strokePaint = Paint()..color = color..style = PaintingStyle.stroke..strokeWidth = 1.5;
+
+    if (maskId == 'standard') {
+      final path = Path()
+        ..moveTo(c.dx, c.dy + 4)
+        ..lineTo(c.dx - 6, c.dy - 6)
+        ..arcToPoint(Offset(c.dx + 6, c.dy - 6), radius: const Radius.circular(8), clockwise: true)
+        ..close();
+      canvas.drawPath(path, fillPaint);
+    } 
+    else if (maskId == 'siren') {
+      canvas.drawArc(Rect.fromCircle(center: Offset(c.dx - 2, c.dy), radius: 3), pi / 2, pi, false, strokePaint);
+      canvas.drawArc(Rect.fromCircle(center: Offset(c.dx - 2, c.dy), radius: 5), -pi/3, (2*pi)/3, false, strokePaint);
+      canvas.drawArc(Rect.fromCircle(center: Offset(c.dx - 2, c.dy), radius: 8), -pi/3, (2*pi)/3, false, strokePaint);
+    } 
+    else if (maskId == 'vermin') {
+      canvas.drawCircle(Offset(c.dx - 5, c.dy), 1.5, fillPaint);
+      canvas.drawCircle(Offset(c.dx, c.dy), 1.5, fillPaint);
+      canvas.drawCircle(Offset(c.dx + 5, c.dy), 1.5, fillPaint);
+    } 
+    else if (maskId == 'flying') {
+      final path = Path()
+        ..moveTo(c.dx - 7, c.dy - 2)
+        ..quadraticBezierTo(c.dx - 3, c.dy - 5, c.dx, c.dy - 1)
+        ..quadraticBezierTo(c.dx + 3, c.dy - 5, c.dx + 7, c.dy - 2);
+      canvas.drawPath(path, strokePaint);
+      canvas.drawLine(Offset(c.dx - 3, c.dy + 2), Offset(c.dx - 3, c.dy + 5), strokePaint);
+      canvas.drawLine(Offset(c.dx + 3, c.dy + 2), Offset(c.dx + 3, c.dy + 5), strokePaint);
+    } 
+    else {
+      canvas.drawCircle(c, 2, fillPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

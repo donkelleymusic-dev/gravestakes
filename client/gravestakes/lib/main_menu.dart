@@ -409,14 +409,30 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                 : SafeArea(
                     child: Stack(
                       children: [
-                        // --- 3D FPS AMBIENT BACKGROUND GAME ---
+                        // --- 1. BRANDING LOGO (BEHIND THE ENGINE) ---
+                        Positioned(
+                          bottom: 160, // Increased from 130 to clear the dropdown menu!
+                          left: 80,    
+                          right: 80,   
+                          child: IgnorePointer(
+                            child: Opacity(
+                              opacity: 0.6, 
+                              child: Image.asset(
+                                'assets/images/Lumen_Breach_small.jpg',
+                                fit: BoxFit.contain, 
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        // --- 2. 3D FPS AMBIENT BACKGROUND GAME ---
                         Positioned.fill(
                           child: IgnorePointer(
                             child: GameWidget(game: _ambientGame),
                           ),
                         ),
                         
-                        // --- TOP LEFT: PLAYER PROFILE ---
+                        // --- 3. TOP LEFT: PLAYER PROFILE ---
                         Positioned(
                           top: 16,
                           left: 16,
