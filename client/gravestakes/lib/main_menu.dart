@@ -6,6 +6,10 @@ import 'package:flame/game.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
+import 'package:flame/components.dart';
+import 'voxel_character_component.dart';
 import 'game.dart';
 import 'store_screen.dart';
 import 'loadout_screen.dart';
@@ -20,7 +24,6 @@ import 'level_up_overlay.dart';
 import 'guild_war_map_screen.dart';
 import 'guild_war_results_overlay.dart';
 import 'audio_manager.dart';
-import 'guild_war_results_overlay.dart';
 import 'crypt_pass_screen.dart';
 import 'match_summary_screen.dart';
 import 'inbox_screen.dart';
@@ -43,8 +46,11 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final GlobalKey _marketKey = GlobalKey();
 
-  // --- The Static Session Flag ---
+  // --- The Static Session Flag (Prevents Double Rewards) ---
   static bool _hasCheckedLoginRewards = false;
+
+  // --- The Ambient Background Engine ---
+  late final AmbientMenuGame _ambientGame;
 
   String _username = 'Loading...';
   int _level = 1;
@@ -58,13 +64,10 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   int _lumen = 0;
   bool _completedTutorial = false;
 
-  // first run menu tutorial
   final GlobalKey _loadoutKey = GlobalKey();
   final GlobalKey _startKey = GlobalKey();
   
-  // Kept internally so backend RPC and game instances get a valid map key
   final String _selectedMapName = 'L1T1V1.0.0';
-  
   String _selectedMatchMode = '1v1'; 
 
   Future<void> _checkTutorialPhase() async {
@@ -107,8 +110,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           context,
           pendingReward,
           () {
-            // Callback fired after spoils are claimed
-            _fetchPlayerData(); // Refreshes shadows, coins, and wallet display
+            _fetchPlayerData(); 
           },
         );
       }
@@ -121,33 +123,28 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   void initState() {
     super.initState();
     _loadSavedPreferences();
-
-    // --- Only check for guild rewards ONCE per app session ---
+    
+    // Initialize the background game
+    _ambientGame = AmbientMenuGame();
+    
     if (!_hasCheckedLoginRewards) {
       _hasCheckedLoginRewards = true;
       _checkPendingGuildWarRewards();
     }
-
+    
     _fetchPlayerData();
-    _initMenuAudio(); // Initialize and play menu music
+    _initMenuAudio(); 
   }
 
   Future<void> _initMenuAudio() async {
     debugPrint('MainMenu: _initMenuAudio() started.');
-    
     try {
-      // Future.wait forces both managers to initialize at the exact same time.
-      // If one freezes, the other will still boot.
       await Future.wait([
         AudioManager.instance.init(),
         SynthManager.instance.init(),
       ]);
-      
       debugPrint('MainMenu: Both Audio and Synth managers initialized successfully.');
-      
-      // Play the background music now that both engines are ready
       AudioManager.instance.playMenuMusic();
-      
     } catch (e) {
       debugPrint('MainMenu ERROR: Something crashed inside _initMenuAudio(): $e');
     }
@@ -164,13 +161,11 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
   Future<void> _fetchPlayerData() async {
     final user = supabase.auth.currentUser;
-    
     if (user == null) {
       _logout();
       return; 
     }
 
-    // Bind the player's Supabase ID to their RevenueCat purchase history
     try {
       await Purchases.logIn(user.id);
     } catch (e) {
@@ -183,7 +178,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     });
 
     int maxRetries = 3;
-
     for (int i = 0; i < maxRetries; i++) {
       try {
         final responses = await Future.wait<dynamic>([
@@ -191,7 +185,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(),
         ]);
 
-        // --- CHECK FOR UNCLAIMED CRYPT PASS TIERS ---
         final seasonRes = await supabase.from('season_config').select('id').eq('is_active', true).maybeSingle();
         int unclaimedTiers = 0;
         if (seasonRes != null) {
@@ -212,19 +205,15 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         }
 
         final serverLevel = responses[0]['level'] ?? 1;
-
         final prefs = await SharedPreferences.getInstance();
         int lastSeenLevel = prefs.getInt('last_seen_level') ?? serverLevel;
 
-        // --- CHECK FREE DROP TIMER ---
         int freeMarketItems = 0;
         final lastClaimIso = prefs.getString('last_free_drop_${user.id}');
 
         if (lastClaimIso == null) {
-          // If they have never claimed it, it is ready!
           freeMarketItems = 1;
         } else {
-          // If they have claimed it, check if 12 hours have passed
           final lastClaimTime = DateTime.parse(lastClaimIso);
           final nextAvailable = lastClaimTime.add(const Duration(hours: 12));
           if (nextAvailable.difference(DateTime.now()).isNegative) {
@@ -234,11 +223,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
         if (serverLevel > lastSeenLevel) {
           await prefs.setInt('last_seen_level', serverLevel);
-          
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              LevelUpOverlay.show(context, serverLevel);
-            }
+            if (mounted) LevelUpOverlay.show(context, serverLevel);
           });
         } else {
           await prefs.setInt('last_seen_level', serverLevel);
@@ -258,13 +244,9 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             _checkTutorialPhase();
           });
           Sentry.configureScope((scope) {
-            scope.setUser(SentryUser(
-              id: user.id,
-              username: _username, 
-            ));
+            scope.setUser(SentryUser(id: user.id, username: _username));
           });
         }
-        
         return; 
 
       } on PostgrestException catch (e) {
@@ -272,19 +254,15 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           await Future.delayed(const Duration(milliseconds: 500));
           continue; 
         }
-        
         if (e.code == '401' || e.code == '403' || e.code == 'PGRST301' || e.code == 'PGRST116') {
-          debugPrint('Auth failure (${e.code}). Forcing logout...');
           _logout();
           return;
         }
-        
         if (mounted) setState(() {
           _errorMessage = 'Server connection lost. (${e.code})';
           _isLoading = false;
         });
         return;
-        
       } catch (e) {
         if (mounted) {
           setState(() {
@@ -295,16 +273,11 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         return;
       }
     }
-
   }
 
   Future<void> _findMatchAndStart(BuildContext context) async {
-    debugPrint('--- CURRENT USER ID: ${supabase.auth.currentUser?.id} ---');
     if (_isSearchingForMatch) return;
-    
-    setState(() {
-      _isSearchingForMatch = true;
-    });
+    setState(() => _isSearchingForMatch = true);
 
     try {
       int targetPlayers = 8;
@@ -321,8 +294,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         scope.setTag('match_mode', _selectedMatchMode);
         scope.setTag('map_name', _selectedMapName);
       });
-      
-      //await gameInstance.initAudioEngine();
 
       final response = await supabase.rpc(
         'find_or_create_match',
@@ -334,8 +305,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       );
       
       gameInstance.roomId = response as String;
-
-      // Stop menu music right before transitioning into the game
       AudioManager.instance.stopMusic();
 
       if (!context.mounted) return;
@@ -377,48 +346,28 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         ),
       ).then((_) {
         _fetchPlayerData();
-        _checkPendingGuildWarRewards(); // Checks queue if a season reset concluded during the match
+        _checkPendingGuildWarRewards(); 
       });
       
     } on PostgrestException catch (e) {
       if (e.code == 'PGRST301' || e.code == '401' || e.code == 'PGRST116' || e.code == '42501') {
-          debugPrint('Stale token or RLS block detected (${e.code}). Forcing logout...');
           _logout();
           return;
         }
-      
-      debugPrint('Matchmaking database error: ${e.message}');
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Database error. Try again!')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Database error. Try again!')));
       }
-      
     } catch (e) {
       if (e is AuthException) {
-        debugPrint('Auth exception during matchmaking. Forcing logout...');
         _logout();
         return; 
       }
-
-      Sentry.captureMessage(
-        'Matchmaking failed: $e',
-        level: SentryLevel.warning,
-      );
-      
-      debugPrint('Matchmaking failed: $e');
+      Sentry.captureMessage('Matchmaking failed: $e', level: SentryLevel.warning);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to find a match. Try again!')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to find a match. Try again!')));
       }
-      
     } finally {
-      if (mounted) {
-        setState(() {
-          _isSearchingForMatch = false;
-        });
-      }
+      if (mounted) setState(() => _isSearchingForMatch = false);
     }
   }
 
@@ -460,13 +409,20 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                 : SafeArea(
                     child: Stack(
                       children: [
+                        // --- 3D FPS AMBIENT BACKGROUND GAME ---
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: GameWidget(game: _ambientGame),
+                          ),
+                        ),
+                        
                         // --- TOP LEFT: PLAYER PROFILE ---
                         Positioned(
                           top: 16,
                           left: 16,
                           child: _buildProfileBadge(),
                         ),
-
+                        
                         // --- TOP RIGHT: WALLET & LOGOUT ---
                         Positioned(
                           top: 16,
@@ -514,7 +470,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                           ),
                         ),
 
-                        // --- SECRET DEV BUTTON (Top Center) ---
+                        // --- SECRET DEV BUTTON ---
                         if (supabase.auth.currentUser?.email == 'donkelleymusic@gmail.com')
                           Positioned(
                             top: 16,
@@ -555,7 +511,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                               crossAxisAlignment: CrossAxisAlignment.end,
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                // LEFT: THE CRYPT (LOADOUT)
+                                // LEFT: THE CRYPT
                                 Showcase(
                                   key: _loadoutKey,
                                   description: 'STEP 3: Enter The Crypt to equip your new mask.',
@@ -578,7 +534,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                     child: Column(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        // Mode Dropdown
                                         Container(
                                           height: 36,
                                           padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -611,7 +566,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                         ),
                                         const SizedBox(height: 12),
                                         
-                                        // Giant Play Button
                                         Showcase(
                                           key: _startKey,
                                           description: 'STEP 8: Select Casual Mode and Enter the Darkness!',
@@ -645,19 +599,19 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                                 boxShadow: [BoxShadow(color: Colors.redAccent.withOpacity(0.5), blurRadius: 15)],
                                               ),
                                               child: Center(
-  child: Text(
-    _isSearchingForMatch ? 'btn_searching'.tr() : 'btn_find_match'.tr(),
-    textAlign: TextAlign.center, // Forces multi-line text to center
-    style: const TextStyle(
-      color: Colors.white, 
-      fontSize: 18, // Shrunk from 24 to fit mobile screens
-      fontWeight: FontWeight.bold, 
-      letterSpacing: 2, 
-      fontFamily: 'Courier', 
-      shadows: [Shadow(color: Colors.black, blurRadius: 4)]
-    ),
-  ),
-),
+                                                child: Text(
+                                                  _isSearchingForMatch ? 'btn_searching'.tr() : 'btn_find_match'.tr(),
+                                                  textAlign: TextAlign.center, 
+                                                  style: const TextStyle(
+                                                    color: Colors.white, 
+                                                    fontSize: 18, 
+                                                    fontWeight: FontWeight.bold, 
+                                                    letterSpacing: 2, 
+                                                    fontFamily: 'Courier', 
+                                                    shadows: [Shadow(color: Colors.black, blurRadius: 4)]
+                                                  ),
+                                                ),
+                                              ),
                                             ),
                                           ),
                                         ),
@@ -666,7 +620,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                   ),
                                 ),
 
-                                // RIGHT: MARKET (STORE)
+                                // RIGHT: MARKET
                                 Showcase(
                                   key: _marketKey,
                                   description: 'STEP 1: Enter the Black Market for your first supply drop.',
@@ -697,7 +651,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   }
 
   // --- UI WIDGET BUILDERS ---
-
   Widget _buildSidebarIcon({required IconData icon, required Color color, required VoidCallback onTap, int badgeCount = 0}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16.0),
@@ -853,47 +806,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       ),
     );
   }
-
-  Widget _buildMenuButton({required IconData icon, required String label, required VoidCallback onPressed, int badgeCount = 0}) {
-    String currentLang = context.locale.languageCode; // Grab active language
-
-    return OutlinedButton(
-      onPressed: () {
-        debugPrint('UI: Menu Button Tapped -> $label');
-        SynthManager.instance.playMagicTap(); 
-        onPressed();
-      },
-      style: OutlinedButton.styleFrom(
-        alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        side: const BorderSide(color: Colors.grey),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.white),
-          const SizedBox(width: 12),
-          Text(
-            label, 
-            style: AppTheme.getLocalizedStyle(currentLang, color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)
-          ),
-          const Spacer(), 
-          if (badgeCount > 0)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.red[800],
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                '$badgeCount',
-                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
 }
 
 class SearchingOverlay extends StatelessWidget {
@@ -921,7 +833,7 @@ class SearchingOverlay extends StatelessWidget {
                 side: const BorderSide(color: Colors.redAccent),
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
-              onPressed: () => Navigator.of(context).pop(), // This triggers onRemove() and leaves the match safely
+              onPressed: () => Navigator.of(context).pop(), 
               icon: const Icon(Icons.close, color: Colors.redAccent),
               label: const Text('CANCEL MATCHMAKING', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
             ),
@@ -952,5 +864,147 @@ class CountdownOverlay extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+// --- NEW: THE TRUE 3D FPS PERSPECTIVE ENGINE ---
+class AmbientMenuGame extends FlameGame {
+  // Start with a slight delay so the menu settles before the first scare
+  double _spawnTimer = 3.0; 
+  final math.Random random = math.Random();
+  List<Map<String, dynamic>> availableCharacters = [];
+
+  @override
+  Color backgroundColor() => Colors.transparent;
+
+  @override
+  Future<void> onLoad() async {
+    try {
+      final res = await Supabase.instance.client.from('characters').select('id, base_speed');
+      availableCharacters = List<Map<String, dynamic>>.from(res);
+    } catch (e) {}
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    _spawnTimer -= dt;
+    
+    if (_spawnTimer <= 0) {
+      _spawnRunner();
+      // LESS FREQUENT: Wait anywhere from 8 to 15 seconds between spawns
+      _spawnTimer = 8.0 + random.nextDouble() * 7.0; 
+    }
+  }
+
+  void _spawnRunner() async {
+    String charId = 'default';
+    double speed = 200.0;
+    
+    if (availableCharacters.isNotEmpty) {
+      final charData = availableCharacters[random.nextInt(availableCharacters.length)];
+      charId = charData['id'] ?? 'default';
+      speed = (charData['base_speed'] as num?)?.toDouble() ?? 200.0;
+    }
+
+    await GraveStakesGame.ensureCharacterLoaded(charId);
+
+    final rig = GraveStakesGame.characterRigCache[charId] ?? GraveStakesGame.characterRigCache['default'];
+    final images = GraveStakesGame.characterImagesCache[charId] ?? GraveStakesGame.characterImagesCache['default'];
+
+    if (rig != null && images != null) {
+      add(MenuRunner(images: images, rig: rig, speed: speed));
+    }
+  }
+}
+
+class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame> {
+  final Map<String, ui.Image> images;
+  final Map<String, dynamic> rig;
+  final double speed;
+  late VoxelCharacterComponent voxel;
+
+  // 3D Perspective Coordinates
+  double worldX = 0;        
+  double worldZ = 1000.0;   
+  double speedZ = 200.0;    
+
+  MenuRunner({required this.images, required this.rig, required this.speed});
+
+  @override
+  Future<void> onLoad() async {
+    voxel = VoxelCharacterComponent(
+      images: images,
+      rigData: rig,
+      hitboxSize: Vector2.all(32),
+    );
+    voxel.isMoving = true;
+    
+    // Force them to face the camera (South)
+    voxel.targetAngle = math.pi; 
+    
+    add(voxel);
+    anchor = Anchor.bottomCenter;
+
+    worldZ = 1000.0; 
+    
+    // Pick a lane left or right so they pass you on the sides
+    double side = game.random.nextBool() ? 1.0 : -1.0;
+    worldX = side * (50.0 + game.random.nextDouble() * 200.0);
+
+    speedZ = speed * 1.5; 
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    
+    worldZ -= speedZ * dt;
+    
+    if (worldZ <= -50.0) {
+      removeFromParent();
+      return;
+    }
+
+    double z = math.max(worldZ, 10.0); 
+
+    double fov = 400.0; 
+    double perspective = fov / z;
+
+    // START HIGHER: Pushed the horizon up from 0.45 to 0.25 (top quarter of the screen)
+    double horizonY = game.size.y * 0.25; 
+    double cameraHeight = 120.0;          
+
+    double screenX = (game.size.x / 2) + (worldX * perspective);
+    double screenY = horizonY + (cameraHeight * perspective);
+
+    position = Vector2(screenX, screenY);
+    
+    // DRAMATICALLY BIGGER: Tripled the base scale, plus an exponential kick as they hit the camera
+    double baseScale = perspective * 3.5;
+    scale = Vector2.all(baseScale + math.pow(perspective, 2.0) * 0.1); 
+    
+    priority = (perspective * 1000).toInt();
+  }
+
+  @override
+  void render(Canvas canvas) {
+    double darknessOpacity = ((worldZ - 400) / 600).clamp(0.0, 1.0);
+    
+    if (darknessOpacity > 0.0) {
+      canvas.saveLayer(
+        Rect.fromLTWH(-1000, -1000, 2000, 2000), 
+        Paint()..colorFilter = ColorFilter.mode(
+          Colors.black.withOpacity(darknessOpacity), 
+          BlendMode.srcATop
+        ),
+      );
+    }
+    
+    super.render(canvas);
+    
+    if (darknessOpacity > 0.0) {
+      canvas.restore();
+    }
   }
 }
