@@ -1100,12 +1100,20 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     if (playerId == mySessionId) {
       final rewards = [
+        if (playerId == mySessionId) {
+      final rewards = [
         ChestReward(type: ChestRewardType.points, label: '+250 SOULS', value: 250),
+        ChestReward(type: ChestRewardType.points, label: '+250 SOULS', value: 250),
+        ChestReward(type: ChestRewardType.points, label: '+500 SOULS', value: 500),
         ChestReward(type: ChestRewardType.currency, label: '+10 COINS', value: 10),
+        ChestReward(type: ChestRewardType.currency, label: '+15 COINS', value: 15),
         ChestReward(type: ChestRewardType.invisibility, label: 'INVISIBILITY!'),
-        ChestReward(type: ChestRewardType.disguise, label: 'DISGUISE!'),
-        ChestReward(type: ChestRewardType.rangeIncrease, label: 'RANGE EXTENDED!'),
+        ChestReward(type: ChestRewardType.invisibility, label: 'INVISIBILITY!'),
         ChestReward(type: ChestRewardType.teleport, label: 'TELEPORTED!'),
+        ChestReward(type: ChestRewardType.teleport, label: 'TELEPORTED!'),
+        ChestReward(type: ChestRewardType.rangeIncrease, label: 'RANGE EXTENDED!'),
+        // Disguise is now effectively a Rare drop
+        ChestReward(type: ChestRewardType.disguise, label: 'DISGUISE!'), 
       ];
       final selectedReward = rewards[Random().nextInt(rewards.length)];
       player.applyChestReward(selectedReward);

@@ -180,7 +180,14 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
 
   void _equipItem(String slotType, String itemId) {
     SynthManager.instance.playMagicTap();
-    setState(() => _draftLoadout[slotType] = itemId);
+    setState(() {
+      if (_draftLoadout[slotType] == itemId) {
+        // Toggle off if already equipped
+        _draftLoadout[slotType] = 'default';
+      } else {
+        _draftLoadout[slotType] = itemId;
+      }
+    });
   }
 
   @override
@@ -323,7 +330,7 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
                     ],
                   )
                 else if (isEquipped)
-                  const Text('EQUIPPED', style: TextStyle(color: Colors.greenAccent, fontSize: 9, fontWeight: FontWeight.bold))
+                  const Text('TAP TO UNEQUIP', style: TextStyle(color: Colors.redAccent, fontSize: 8, fontWeight: FontWeight.bold))
               ],
             ),
           ),

@@ -1115,6 +1115,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
                 
                 for (var bot in game.bots) {
                   if (bot.position.distanceTo(position) <= noiseRadius) {
+                    // NEW: Regular bots cannot hear you if you are invisible! 
+                    // (Hunter bots can still track your breathing/heavy footsteps)
+                    if (isInvisible && !bot.isHunter) continue;
+                    
                     bot.hearLoudNoise(position);
                   }
                 }
