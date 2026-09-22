@@ -72,14 +72,19 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   String _selectedMatchMode = '1v1'; 
 
   Future<void> _checkTutorialPhase() async {
-    if (_level > 1 || _completedTutorial) return;
-
     final prefs = await SharedPreferences.getInstance();
+
+    // NEW: If the server says we are done, permanently silence the local phase.
+    if (_completedTutorial || _level > 1) {
+      await prefs.setString('tutorial_phase', 'completed');
+      return;
+    }
+
     final phase = prefs.getString('tutorial_phase') ?? 'market';
+    if (phase == 'completed') return;
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _scaffoldKey.currentContext == null) return;
-      
       final showContext = _scaffoldKey.currentContext!;
       
       if (phase == 'market') {

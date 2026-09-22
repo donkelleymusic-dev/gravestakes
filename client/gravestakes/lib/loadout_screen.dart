@@ -187,6 +187,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     }
 
     final prefs = await SharedPreferences.getInstance();
+    // NEW: Ensure we only trigger if the phase is exactly 'loadout'
     if (prefs.getString('tutorial_phase') == 'loadout') {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _scaffoldKey.currentContext != null) {

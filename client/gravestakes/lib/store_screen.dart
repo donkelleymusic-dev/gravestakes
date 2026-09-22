@@ -70,7 +70,20 @@ class _StoreScreenState extends State<StoreScreen> {
 
       // Check local SharedPreferences for the last free claim time
       final prefs = await SharedPreferences.getInstance();
+      final currentPhase = prefs.getString('tutorial_phase') ?? 'market';
       final lastClaimIso = prefs.getString('last_free_drop_${user.id}');
+
+      // NEW: Only trigger if the phase is strictly 'market' and NOT 'completed'
+      if (currentPhase == 'market') {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _scaffoldKey.currentContext != null) {
+            ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_freeDropKey]);
+          }
+        });
+      }
+
+      
+
       if (lastClaimIso != null) {
         _lastFreeDropTime = DateTime.parse(lastClaimIso);
       }
