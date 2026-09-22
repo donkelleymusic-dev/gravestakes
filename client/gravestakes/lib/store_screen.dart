@@ -431,6 +431,9 @@ class _StoreScreenState extends State<StoreScreen> {
                     await supabase.from('wallets').update({'coins': _playerCoins}).eq('id', user.id);
                     _showSuccess('Thanks for watching! +25 Coins awarded.');
                   }
+                },
+                onAdFailed: () {
+                  _showError('No ads available right now. Check back later!');
                 }
               );
             },

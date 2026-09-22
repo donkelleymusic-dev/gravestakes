@@ -38,7 +38,7 @@ class AdManager {
     );
   }
 
-  void showRewardedAd({required VoidCallback onRewardEarned}) {
+  void showRewardedAd({required VoidCallback onRewardEarned, required VoidCallback onAdFailed}) {
     // --- FAKE AD FOR WEB TESTING ---
     if (kIsWeb) {
       debugPrint('Web Mode: Simulating Ad Watch completion.');
@@ -49,6 +49,7 @@ class AdManager {
 
     if (_rewardedAd == null) {
       debugPrint('Warning: Ad was not loaded yet.');
+      onAdFailed(); // Tell the UI we failed
       loadRewardedAd(); 
       return;
     }
