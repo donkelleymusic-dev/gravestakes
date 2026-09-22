@@ -132,6 +132,7 @@ class PuzzleManager extends Component with HasGameReference<GraveStakesGame> {
     _embers?.removeFromParent();
     _embers = null;
     currentInput.clear();
+    game.isHallwaySolved = true;
 
     // 2. Break the Euclidean Loop so they can actually reach the chest
     game.world.children.whereType<InfiniteLoopTrigger>().forEach((trigger) {
@@ -146,7 +147,7 @@ class PuzzleManager extends Component with HasGameReference<GraveStakesGame> {
     // --- NEW: SURRENDER THE ROOM LOCK ---
     game.isPuzzleRoomOccupied = false;
     game.myChannel.sendBroadcastMessage(event: 'puzzle_lock', payload: {'locked': false});
-    
+
     game.camera.viewport.add(FloatingText(
       text: 'THE LOOP IS BROKEN', 
       worldPosition: Vector2(game.player.position.x - 40, game.player.position.y - 60),
