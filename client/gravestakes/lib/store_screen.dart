@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:showcaseview/showcaseview.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
+import 'ad_manager.dart';
 
 class StoreScreen extends StatefulWidget {
   const StoreScreen({super.key});
@@ -35,6 +36,7 @@ class _StoreScreenState extends State<StoreScreen> {
   @override
   void initState() {
     super.initState();
+    AdManager.instance.loadRewardedAd(); // Pre-load the video
     _loadStoreData();
     
     // Updates the countdown UI every minute
@@ -82,8 +84,6 @@ class _StoreScreenState extends State<StoreScreen> {
         });
       }
 
-      
-
       if (lastClaimIso != null) {
         _lastFreeDropTime = DateTime.parse(lastClaimIso);
       }
@@ -100,17 +100,6 @@ class _StoreScreenState extends State<StoreScreen> {
     } catch (e) {
       debugPrint('Error loading Black Market: $e');
       if (mounted) setState(() => _isLoading = false);
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    final currentPhase = prefs.getString('tutorial_phase') ?? 'market'; 
-    
-    if (currentPhase == 'market') {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _scaffoldKey.currentContext != null) {
-          ShowCaseWidget.of(_scaffoldKey.currentContext!).startShowCase([_freeDropKey]);
-        }
-      });
     }
   }
 
@@ -153,7 +142,6 @@ class _StoreScreenState extends State<StoreScreen> {
         'coins': _playerCoins + rewardCoins
       }).eq('id', user.id);
 
-      // THE FIX: Add the onConflict parameter so it silently overwrites/ignores existing masks
       await supabase.from('user_inventory').upsert({
         'user_id': user.id,
         'item_id': 'standard',
@@ -390,7 +378,6 @@ class _StoreScreenState extends State<StoreScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800]),
             onPressed: () {
-              // RPC for currency exchange goes here
               _showError('Exchange coming soon.');
             },
             child: Row(
@@ -401,6 +388,53 @@ class _StoreScreenState extends State<StoreScreen> {
                 Text('$shadowCost', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- NEW: THE REWARDED AD BUTTON WIDGET ---
+  Widget _buildAdCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey[900],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.greenAccent.withOpacity(0.5), width: 2),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.ondemand_video, color: Colors.greenAccent, size: 28),
+              SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('SYNDICATE SPONSOR', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  Text('Watch ad for +25 Coins', style: TextStyle(color: Colors.greenAccent, fontSize: 12)),
+                ],
+              ),
+            ],
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green[800]),
+            onPressed: () {
+              AdManager.instance.showRewardedAd(
+                onRewardEarned: () async {
+                  final user = supabase.auth.currentUser;
+                  if (user != null) {
+                    setState(() => _playerCoins += 25);
+                    await supabase.from('wallets').update({'coins': _playerCoins}).eq('id', user.id);
+                    _showSuccess('Thanks for watching! +25 Coins awarded.');
+                  }
+                }
+              );
+            },
+            child: const Text('WATCH', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -519,8 +553,9 @@ class _StoreScreenState extends State<StoreScreen> {
                     _buildSectionHeader('DAILY SUPPLIES', Icons.access_time),
                     _buildFreeDropSection(),
 
-                    // 3. CURRENCY EXCHANGE
+                    // 3. CURRENCY EXCHANGE & ADS
                     _buildSectionHeader('CURRENCY EXCHANGE', Icons.swap_horiz),
+                    _buildAdCard(), // <--- NEW: Inserted here!
                     _buildExchangeCard('Smuggler\'s Purse', 50, 1000),
                     _buildExchangeCard('Shadow Syndicate Vault', 250, 6000),
 

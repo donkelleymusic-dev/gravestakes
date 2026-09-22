@@ -12,6 +12,8 @@ import 'dart:io' show Platform;
 import 'package:purchases_flutter/purchases_flutter.dart';
 // --------------------------------
 
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+
 import 'game.dart';
 import 'login_screen.dart';
 import 'main_menu.dart';
@@ -31,6 +33,8 @@ Future<void> main() async {
       
       // 3. Initialize EasyLocalization INSIDE Sentry's zone
       await EasyLocalization.ensureInitialized();
+
+      await MobileAds.instance.initialize(); // ads
 
       await Supabase.initialize(
         url: 'https://rbpmgzcafsykjbljgfvl.supabase.co', 
