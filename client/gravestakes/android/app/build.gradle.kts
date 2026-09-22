@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -15,11 +14,8 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.donkelleymusic.lumenbreach"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 21 //flutter.minSdkVersion
+        minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -39,10 +35,25 @@ android {
 
     buildTypes {
         getByName("release") {
-            // Change this from "debug" to "release"
-            signingConfig = signingConfigs.getByName("release")
+            val keystorePath = System.getenv("KEYSTORE_FILE")
+            // Automatically use debug key when building locally without keystore env vars
+            if (keystorePath != null) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                signingConfig = signingConfigs.getByName("debug")
+            }
+
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
+}
+
+dependencies {
+    // Prevents the WorkDatabase / InitializationProvider crash on release builds
+    implementation("androidx.work:work-runtime:2.9.1")
 }
 
 kotlin {

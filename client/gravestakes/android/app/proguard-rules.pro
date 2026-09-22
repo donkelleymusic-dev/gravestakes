@@ -1,0 +1,4 @@
+-keep class com.google.android.gms.ads.** { *; }
+-keep class com.google.ads.** { *; }
+-keep class androidx.work.impl.** { *; }
+-dontwarn androidx.work.impl.**
