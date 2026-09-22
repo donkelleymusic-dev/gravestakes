@@ -87,6 +87,13 @@ class GameMap extends Component with HasGameReference<GraveStakesGame> {
           tileOffsetCount: 16.0, 
         ));
       }
+
+      // --- SPAWN THE ESCAPE PORTAL ---
+      if (i == 33) {
+        game.world.add(MinigameExit(
+          position: Vector2(hallX * tileSize + (tileSize / 2), y * tileSize + (tileSize / 2)),
+        ));
+      }
     }
   }
 

@@ -92,6 +92,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   String guildActiveDoctrine = 'none';
 
   bool isPuzzleRoomOccupied = false;
+  bool isHallwaySolved = false;
 
   bool isGlobalBlackout = false;
   double blackoutTimer = 0.0;
