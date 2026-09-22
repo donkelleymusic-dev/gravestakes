@@ -519,9 +519,15 @@ class _StoreScreenState extends State<StoreScreen> {
                 padding: const EdgeInsets.only(right: 16.0),
                 child: Row(
                   children: [
-                    Text('👻 $_playerShadows', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                    const SizedBox(width: 12),
-                    Text('🪙 $_playerCoins', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 14)),
+                    const Icon(Icons.dark_mode, color: Colors.redAccent, size: 16),
+                    const SizedBox(width: 4),
+                    Text('$_playerShadows', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                    
+                    const SizedBox(width: 16),
+                    
+                    const Icon(Icons.monetization_on, color: Colors.amber, size: 16),
+                    const SizedBox(width: 4),
+                    Text('$_playerCoins', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 14)),
                   ],
                 ),
               ),

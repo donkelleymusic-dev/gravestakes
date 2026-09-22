@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
@@ -9,13 +9,16 @@ class AdManager {
   RewardedAd? _rewardedAd;
   bool _isAdLoading = false;
 
-  // Use Google's provided test IDs during development! 
-  // If you click your own live ads, Google will ban your account.
-  final String _adUnitId = Platform.isAndroid
-      ? 'ca-app-pub-3940256099942544/5224354917' // Android Test ID
-      : 'ca-app-pub-3940256099942544/1712485313'; // iOS Test ID
+  // Safely checks target platform without importing dart:io
+  final String _adUnitId = kIsWeb
+      ? 'web_placeholder' // Never actually loaded on web
+      : (defaultTargetPlatform == TargetPlatform.android
+          ? 'ca-app-pub-3940256099942544/5224354917' // Android Test ID
+          : 'ca-app-pub-3940256099942544/1712485313'); // iOS Test ID
 
   void loadRewardedAd() {
+    if (kIsWeb) return; // Abort immediately on Web
+    
     if (_rewardedAd != null || _isAdLoading) return;
     _isAdLoading = true;
 
@@ -36,9 +39,17 @@ class AdManager {
   }
 
   void showRewardedAd({required VoidCallback onRewardEarned}) {
+    // --- FAKE AD FOR WEB TESTING ---
+    if (kIsWeb) {
+      debugPrint('Web Mode: Simulating Ad Watch completion.');
+      onRewardEarned();
+      return; 
+    }
+    // ------------------------------------
+
     if (_rewardedAd == null) {
       debugPrint('Warning: Ad was not loaded yet.');
-      loadRewardedAd(); // Try loading one for next time
+      loadRewardedAd(); 
       return;
     }
 
@@ -57,7 +68,6 @@ class AdManager {
 
     _rewardedAd!.show(
       onUserEarnedReward: (AdWithoutView ad, RewardItem reward) {
-        // The user watched the whole video. Grant the prize!
         onRewardEarned();
       },
     );

@@ -34,7 +34,9 @@ Future<void> main() async {
       // 3. Initialize EasyLocalization INSIDE Sentry's zone
       await EasyLocalization.ensureInitialized();
 
-      await MobileAds.instance.initialize(); // ads
+      if (!kIsWeb) {
+        await MobileAds.instance.initialize(); // ads
+      }
 
       await Supabase.initialize(
         url: 'https://rbpmgzcafsykjbljgfvl.supabase.co', 
