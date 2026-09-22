@@ -1100,8 +1100,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     if (playerId == mySessionId) {
       final rewards = [
-        if (playerId == mySessionId) {
-      final rewards = [
         ChestReward(type: ChestRewardType.points, label: '+250 SOULS', value: 250),
         ChestReward(type: ChestRewardType.points, label: '+250 SOULS', value: 250),
         ChestReward(type: ChestRewardType.points, label: '+500 SOULS', value: 500),
