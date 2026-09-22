@@ -30,6 +30,15 @@
 		<true/>
 		<key>GADApplicationIdentifier</key>
 		<string>cca-app-pub-9129185338955527~5413799074</string>
+		<key>NSUserTrackingUsageDescription</key>
+    	<string>This identifier will be used to deliver personalized ads to you and support the ongoing development of Lumen Breach.</string>
+		<key>SKAdNetworkItems</key>
+		<array>
+			<dict>
+				<key>SKAdNetworkIdentifier</key>
+				<string>cstr6suwn9.skadnetwork</string>
+			</dict>
+		</array>
 		<key>UIApplicationSceneManifest</key>
 		<dict>
 			<key>UIApplicationSupportsMultipleScenes</key>

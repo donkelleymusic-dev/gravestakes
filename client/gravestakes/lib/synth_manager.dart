@@ -14,9 +14,8 @@ class SynthManager {
     try {
       if (!SoLoud.instance.isInitialized) return;
       
-      // Enabling SuperWave (true) with a slight detune (0.5) gives the sine wave 
-      // a richer, melodic "bing" tone instead of a flat, popping test click.
-      _synthWave = await SoLoud.instance.loadWaveform(WaveForm.sin, true, 0.25, 0.5);
+      // A pure, clean sine wave. No superWave, no detune, no clipping.
+      _synthWave = await SoLoud.instance.loadWaveform(WaveForm.sin, false, 0.25, 0.0);
       isInitialized = true;
     } catch (e) {
       debugPrint('SynthManager ERROR during init: $e');
@@ -24,23 +23,28 @@ class SynthManager {
   }
 
   // --- MENU INTERACTIONS ---
-  Future<void> playMagicTap() async {
+  void playMagicTap() {
     if (!isInitialized || _synthWave == null) return;
     
     try {
-      // 1. Spawn actively running but strictly at volume 0.0 (Fixes the C++ NaN division bug)
-      final handle = SoLoud.instance.play(_synthWave!, volume: 0.0, paused: false, looping: true);
+      // 1. Spawn paused at 0 volume
+      final handle = SoLoud.instance.play(_synthWave!, volume: 0.0, paused: true, looping: true);
       
-      // 2. Set pitch safely now that the phase accumulators exist
+      // 2. Safely apply pitch before it ever processes a single audio frame
       SoLoud.instance.setRelativePlaySpeed(handle, 4.0);
       
-      // 3. Instant attack via direct assignment (prevents zero-crossing pop)
-      SoLoud.instance.setVolume(handle, 0.15);
+      // 3. Unpause (It is completely silent right now)
+      SoLoud.instance.setPause(handle, false);
       
-      // 4. Smooth decay to absolute zero
-      SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 150));
+      // 4. Smooth attack envelope (completely eliminates the "click")
+      SoLoud.instance.fadeVolume(handle, 0.1, const Duration(milliseconds: 20));
       
-      Future.delayed(const Duration(milliseconds: 160), () {
+      // 5. Smooth decay envelope
+      Future.delayed(const Duration(milliseconds: 20), () {
+        SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 150));
+      });
+      
+      Future.delayed(const Duration(milliseconds: 180), () {
         SoLoud.instance.stop(handle);
       });
     } catch (e) {}
@@ -48,7 +52,8 @@ class SynthManager {
 
   // --- CHEST OPENING SEQUENCE ---
   
-  Future<List<dynamic>> startChestCrescendo(int durationMs) async {
+  // NOTE: This is now strictly SYNCHRONOUS! No more 'async/await' race conditions.
+  List<dynamic> startChestCrescendo(int durationMs) {
     if (!isInitialized || _synthWave == null) return [];
 
     double root = 1.0 + (Random().nextDouble() * 0.5); 
@@ -61,12 +66,12 @@ class SynthManager {
     List<dynamic> activeHandles = []; 
 
     for (double pitch in diminishedTriad) {
-      // Spawn actively running but safely muted
-      final handle = SoLoud.instance.play(_synthWave!, volume: 0.0, paused: false, looping: true); 
+      final handle = SoLoud.instance.play(_synthWave!, volume: 0.0, paused: true, looping: true); 
       SoLoud.instance.setRelativePlaySpeed(handle, pitch);
+      SoLoud.instance.setPause(handle, false);
       
-      // Fade IN over the exact duration to maintain the suspense crescendo
-      SoLoud.instance.fadeVolume(handle, 0.15, Duration(milliseconds: durationMs));
+      // Smoothly fade in to maintain the suspense
+      SoLoud.instance.fadeVolume(handle, 0.1, Duration(milliseconds: durationMs));
       activeHandles.add(handle);
     }
     return activeHandles;
@@ -74,15 +79,17 @@ class SynthManager {
 
   void stopChestCrescendo(List<dynamic> handles) { 
     for (var handle in handles) {
-      // Sweep to absolute zero to prevent pops
-      SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 50));
-      Future.delayed(const Duration(milliseconds: 60), () {
-        SoLoud.instance.stop(handle);
-      });
+      try {
+        SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 50));
+        Future.delayed(const Duration(milliseconds: 60), () {
+          SoLoud.instance.stop(handle);
+        });
+      } catch (_) {}
     }
   }
 
-  Future<void> resolveChestOpen(List<dynamic> handles) async { 
+  // NOTE: Also strictly SYNCHRONOUS!
+  void resolveChestOpen(List<dynamic> handles) { 
     stopChestCrescendo(handles); 
     
     if (!isInitialized || _synthWave == null) return;
@@ -95,14 +102,17 @@ class SynthManager {
     ];
 
     for (double pitch in majorTriad) {
-      final handle = SoLoud.instance.play(_synthWave!, volume: 0.0, paused: false, looping: true);
+      final handle = SoLoud.instance.play(_synthWave!, volume: 0.0, paused: true, looping: true);
       SoLoud.instance.setRelativePlaySpeed(handle, pitch);
+      SoLoud.instance.setPause(handle, false);
       
-      // Pop the major triad loud instantly for the reward impact
-      SoLoud.instance.setVolume(handle, 0.15);
+      // Quick, smooth attack
+      SoLoud.instance.fadeVolume(handle, 0.15, const Duration(milliseconds: 20));
       
-      // Long fade out
-      SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 800));
+      // Long, triumphant fade out
+      Future.delayed(const Duration(milliseconds: 20), () {
+        SoLoud.instance.fadeVolume(handle, 0.0, const Duration(milliseconds: 800));
+      });
       
       Future.delayed(const Duration(milliseconds: 850), () {
         SoLoud.instance.stop(handle);
