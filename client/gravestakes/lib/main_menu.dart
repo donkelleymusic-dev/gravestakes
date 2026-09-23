@@ -1058,7 +1058,8 @@ class MenuFog extends PositionComponent with HasGameReference<AmbientMenuGame> {
     
     // Despawn when it flows past the camera
     if (worldZ <= -50.0) {
-      removeFromParent();
+      // FIX: Ensure it is fully attached to the tree before removing
+      if (isMounted) removeFromParent(); 
       return;
     }
 
@@ -1129,7 +1130,6 @@ class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame
     speedZ = speed * 1.5; 
   }
 
-  // --- NEW: LOCAL TIME DILATION ---
   @override
   void updateTree(double dt) {
     // 1. Calculate progress from 0.0 (distant) to 1.0 (at camera)
@@ -1148,11 +1148,11 @@ class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame
   void update(double dt) {
     super.update(dt);
     
-    // dt is ALREADY scaled by updateTree, so travel speed naturally increases!
     worldZ -= speedZ * dt;
     
     if (worldZ <= -50.0) {
-      removeFromParent();
+      // FIX: Ensure it is fully attached to the tree before removing
+      if (isMounted) removeFromParent();
       return;
     }
 
