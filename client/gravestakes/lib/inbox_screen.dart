@@ -54,7 +54,7 @@ class _InboxScreenState extends State<InboxScreen> {
   Widget build(BuildContext context) {
     String currentLang = context.locale.languageCode;
 
-    return Scaffold(
+      return Scaffold(
       backgroundColor: const Color(0xFF111111),
       appBar: AppBar(
         title: Text(
@@ -67,6 +67,23 @@ class _InboxScreenState extends State<InboxScreen> {
           icon: const Icon(Icons.close, color: Colors.white),
           onPressed: () => Navigator.of(context).pop(),
         ),
+      ),
+      
+      // --- ADD THIS FLOATING ACTION BUTTON ---
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: Colors.purple[800],
+        icon: const Icon(Icons.edit, color: Colors.white),
+        label: const Text('DISPATCH', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
+        onPressed: () async {
+          final didSend = await showDialog<bool>(
+            context: context,
+            builder: (context) => const ComposeMessageDialog(),
+          );
+          // If a message was sent, refresh the inbox list
+          if (didSend == true) {
+            _fetchMessages();
+          }
+        },
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Colors.purpleAccent))
