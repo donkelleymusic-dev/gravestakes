@@ -131,6 +131,7 @@ class _InboxMessageCardState extends State<InboxMessageCard> {
     if (myId == null || senderId == null) return;
 
     try {
+      // MATCH USING THE CORRECT COLUMNS
       await supabase
           .from('friendships')
           .update({'status': 'accepted'})
@@ -270,6 +271,7 @@ class _ComposeMessageDialogState extends State<ComposeMessageDialog> {
     if (myId == null) return;
 
     try {
+      // Query using the correct user_id and friend_id columns
       final response = await supabase
           .from('friendships')
           .select('user_id, friend_id')
@@ -278,6 +280,7 @@ class _ComposeMessageDialogState extends State<ComposeMessageDialog> {
 
       final List<Map<String, String>> parsedFriends = [];
       
+      // Fetch the usernames manually to avoid foreign key alias errors
       for (var row in response) {
         final friendId = row['user_id'] == myId ? row['friend_id'] : row['user_id'];
         

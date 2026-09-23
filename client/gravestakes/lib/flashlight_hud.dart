@@ -3,7 +3,7 @@ import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import 'game.dart';
 
-class FlashlightHud extends PositionComponent with HasGameReference<GraveStakesGame>, DragCallbacks {
+class FlashlightHud extends PositionComponent with HasGameReference<GraveStakesGame>, TapCallbacks {//DragCallbacks {
   FlashlightHud() {
     // Taller, chunky battery proportions for clean tapping
     size = Vector2(80, 22);
@@ -18,8 +18,10 @@ class FlashlightHud extends PositionComponent with HasGameReference<GraveStakesG
   }
 
   @override
-  void onDragStart(DragStartEvent event) {
-    super.onDragStart(event);
+  void onTapDown(TapDownEvent event) {
+    super.onTapDown(event);
+  //void onDragStart(DragStartEvent event) {
+  //  super.onDragStart(event);
     if (game.gameStarted && !game.player.isStunned) {
       game.player.rechargeFlashlight();
     }

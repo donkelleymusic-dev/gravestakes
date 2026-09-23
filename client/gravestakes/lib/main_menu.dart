@@ -53,6 +53,9 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   // --- The Ambient Background Engine ---
   late final AmbientMenuGame _ambientGame;
 
+
+  int _unreadMessages = 0;
+
   String _username = 'Loading...';
   int _level = 1;
   int _shadows = 0;
@@ -189,6 +192,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         final responses = await Future.wait<dynamic>([
           supabase.from('profiles').select('username, level, lumen, completed_tutorial').eq('id', user.id).single(),
           supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(),
+          supabase.from('player_inbox').select('id').eq('recipient_id', user.id).eq('is_read', false),
         ]);
 
         final seasonRes = await supabase.from('season_config').select('id').eq('is_active', true).maybeSingle();
@@ -244,6 +248,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             _completedTutorial = responses[0]['completed_tutorial'] ?? false;
             _shadows = responses[1]['shadows'] ?? 0;
             _coins = responses[1]['coins'] ?? 0; 
+            _unreadMessages = (responses[2] as List).length;
             _unclaimedPassTiers = unclaimedTiers;
             _freeMarketItems = freeMarketItems;
             _isLoading = false;
@@ -484,7 +489,14 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              _buildSidebarIcon(icon: Icons.mail_outline, color: Colors.white, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InboxScreen()))),
+                              _buildSidebarIcon(
+                                icon: Icons.mail_outline, 
+                                color: Colors.white, 
+                                badgeCount: _unreadMessages, // The red bubble will now appear!
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(builder: (_) => const InboxScreen())
+                                ).then((_) => _fetchPlayerData()), // Clears the bubble when they return
+                              ),
                               _buildSidebarIcon(icon: Icons.settings, color: Colors.grey, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()))),
                               _buildSidebarIcon(icon: Icons.local_fire_department, color: Colors.orangeAccent, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GuildWarMapScreen()))),
                               _buildSidebarIcon(icon: Icons.card_membership, color: Colors.purpleAccent, badgeCount: _unclaimedPassTiers, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CryptPassScreen())).then((_) => _fetchPlayerData())),
@@ -527,8 +539,21 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                             children: [
                               _buildSidebarIcon(icon: Icons.group, color: Colors.white70, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PartyScreen())).then((_) => _fetchPlayerData())),
                               _buildSidebarIcon(icon: Icons.remove_red_eye, color: Colors.white70, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SpectatorLobbyScreen()))),
-                              if (GraveStakesGame.lastMatchPhotos.isNotEmpty)
-                                _buildSidebarIcon(icon: Icons.photo_library, color: Colors.pinkAccent, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => MatchSummaryScreen(photos: GraveStakesGame.lastMatchPhotos)))),
+                              
+                              // Removed the 'if' statement so the button always renders
+                              _buildSidebarIcon(
+                                icon: Icons.photo_library, 
+                                color: GraveStakesGame.lastMatchPhotos.isNotEmpty ? Colors.pinkAccent : Colors.grey, 
+                                onTap: () {
+                                  if (GraveStakesGame.lastMatchPhotos.isNotEmpty) {
+                                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => MatchSummaryScreen(photos: GraveStakesGame.lastMatchPhotos)));
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('No polaroids from your last match!'), backgroundColor: Colors.grey),
+                                    );
+                                  }
+                                },
+                              ),
                             ],
                           ),
                         ),

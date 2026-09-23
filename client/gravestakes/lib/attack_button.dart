@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'game.dart';
 import 'puzzle_door.dart';
 
-class AttackButton extends PositionComponent with HasGameReference<GraveStakesGame>, DragCallbacks {
+class AttackButton extends PositionComponent with HasGameReference<GraveStakesGame>, TapCallbacks {//DragCallbacks
   final double buttonRadius = 55.0;
   int? _flashedSlot; 
   
@@ -22,8 +22,8 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
   }
 
   @override
-  void onDragStart(DragStartEvent event) {
-    super.onDragStart(event);
+  void onTapDown(TapDownEvent event) {
+    super.onTapDown(event);
     if (!game.gameStarted || game.player.isStunned) return;
 
     // --- NEW: Forgiving Magnetic Puzzle Interaction ---

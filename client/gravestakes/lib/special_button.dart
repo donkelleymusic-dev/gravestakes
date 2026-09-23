@@ -3,7 +3,7 @@ import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import 'game.dart';
 
-class SpecialButton extends PositionComponent with HasGameReference<GraveStakesGame>, DragCallbacks {
+class SpecialButton extends PositionComponent with HasGameReference<GraveStakesGame>, TapCallbacks {
   SpecialButton() : super(priority: 150);
 
   late final TextComponent label;
@@ -83,8 +83,8 @@ class SpecialButton extends PositionComponent with HasGameReference<GraveStakesG
   }
 
   @override
-  void onDragStart(DragStartEvent event) {
-    super.onDragStart(event);
+  void onTapDown(TapDownEvent event) {
+    super.onTapDown(event);
     // Ignores accidental taps when hidden
     if (!isActivatable) return;
     game.player.activateInvisibility();

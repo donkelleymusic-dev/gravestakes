@@ -98,11 +98,11 @@ class _PolaroidCardState extends State<PolaroidCard> {
       await supabase.storage.from('inbox_attachments').uploadBinary(filename, pngBytes);
       final imageUrl = supabase.storage.from('inbox_attachments').getPublicUrl(filename);
 
-      // 3. Create Pending Friendship (Catch error if they are already friends)
+      // 3. Create Pending Friendship with correct columns
       try {
         await supabase.from('friendships').insert({
-          'requester_id': myId,
-          'addressee_id': victimId,
+          'user_id': myId,
+          'friend_id': victimId,
           'status': 'pending'
         });
       } catch (_) {}
