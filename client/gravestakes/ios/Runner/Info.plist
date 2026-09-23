@@ -28,8 +28,10 @@
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+		<!-- <key>GADApplicationIdentifier</key>
+		<string>cca-app-pub-9129185338955527~5413799074</string> -->
 		<key>GADApplicationIdentifier</key>
-		<string>cca-app-pub-9129185338955527~5413799074</string>
+    	<string>ca-app-pub-3940256099942544~1458002511</string>
 		<key>NSUserTrackingUsageDescription</key>
     	<string>This identifier will be used to deliver personalized ads to you and support the ongoing development of Lumen Breach.</string>
 		<key>SKAdNetworkItems</key>
