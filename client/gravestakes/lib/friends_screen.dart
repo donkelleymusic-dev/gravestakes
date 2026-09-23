@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 
 class FriendsScreen extends StatefulWidget {
   const FriendsScreen({super.key});
@@ -280,5 +281,91 @@ class _FriendsScreenState extends State<FriendsScreen> {
               ),
             ),
     );
+  }
+
+  void _showShareMenu(String myFriendCode) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'SHARE FRIEND CODE',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2, fontFamily: 'Courier'),
+              ),
+              const SizedBox(height: 20),
+              
+              // --- 1. EXTERNAL OS SHARING ---
+              ListTile(
+                leading: const Icon(Icons.share, color: Colors.cyanAccent),
+                title: const Text('Share via Message / Social', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  Share.share(
+                    'Add me in Lumen Breach! My friend code is: $myFriendCode\n\nSee you in the crypts.',
+                    subject: 'Lumen Breach Friend Code', 
+                  );
+                },
+              ),
+              
+              const Divider(color: Colors.white24),
+              
+              // --- 2. INTERNAL GUILD SHARING ---
+              ListTile(
+                leading: const Icon(Icons.shield, color: Colors.purpleAccent),
+                title: const Text('Send to Guild Chat', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _shareToGuild(myFriendCode);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _shareToGuild(String friendCode) async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      // 1. Find the user's active guild
+      final membership = await Supabase.instance.client
+          .from('guild_members')
+          .select('guild_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+      if (membership == null) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You are not in a guild!')));
+        return;
+      }
+
+      // 2. Post the message to the guild_messages table
+      await Supabase.instance.client.from('guild_messages').insert({
+        'guild_id': membership['guild_id'],
+        'user_id': user.id,
+        'message': 'Hey, add my friend code! $friendCode',
+        'type': 'system_share', // Optional: Allows you to style this uniquely in the chat UI
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Code shared to Guild Chat!'), backgroundColor: Colors.purple),
+        );
+      }
+    } catch (e) {
+      debugPrint('Failed to share to guild: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to share.')));
+    }
   }
 }

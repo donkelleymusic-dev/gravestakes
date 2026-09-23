@@ -4,13 +4,13 @@ import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import 'game.dart';
 
-class FpsTouchControls extends PositionComponent with HasGameReference<GraveStakesGame> {
-  FpsTouchControls() : super(priority: 200000); // Renders above world elements
+// 1. Add the HasVisibility mixin
+class FpsTouchControls extends PositionComponent with HasGameReference<GraveStakesGame>, HasVisibility {
+  FpsTouchControls() : super(priority: 200000); 
 
   @override
   void onGameResize(Vector2 gameSize) {
     super.onGameResize(gameSize);
-    // Moved Y from (gameSize.y - 170) to (gameSize.y - 212) -> Shifted up ~42px
     position = Vector2(20, gameSize.y - 212);
     size = Vector2(180, 40);
   }
@@ -19,14 +19,12 @@ class FpsTouchControls extends PositionComponent with HasGameReference<GraveStak
   Future<void> onLoad() async {
     super.onLoad();
 
-    // 1. Instant 90° Left Snap
     add(FpsActionButton(
       label: '↰ 90°',
       position: Vector2(0, 0),
       onPressed: () => game.player.facingAngle -= (pi / 2),
     ));
 
-    // 2. Glance Left (Peek Q)
     add(FpsActionButton(
       label: '◄ PEEK',
       position: Vector2(44, 0),
@@ -34,7 +32,6 @@ class FpsTouchControls extends PositionComponent with HasGameReference<GraveStak
       onPressedUp: () => game.player.glanceOffset = 0.0,
     ));
 
-    // 3. Glance Right (Peek E)
     add(FpsActionButton(
       label: 'PEEK ►',
       position: Vector2(88, 0),
@@ -42,7 +39,6 @@ class FpsTouchControls extends PositionComponent with HasGameReference<GraveStak
       onPressedUp: () => game.player.glanceOffset = 0.0,
     ));
 
-    // 4. Instant 90° Right Snap
     add(FpsActionButton(
       label: '90° ↱',
       position: Vector2(132, 0),
@@ -50,11 +46,11 @@ class FpsTouchControls extends PositionComponent with HasGameReference<GraveStak
     ));
   }
 
+  // 2. Dynamically bind visibility to the camera mode every frame
   @override
-  void render(Canvas canvas) {
-    // Only render these buttons when active in 3D FPS Mode!
-    if (!game.isFpsMode) return;
-    super.render(canvas);
+  void update(double dt) {
+    super.update(dt);
+    isVisible = game.isFpsMode; 
   }
 }
 
@@ -94,7 +90,6 @@ class FpsActionButton extends PositionComponent with DragCallbacks {
   @override
   void render(Canvas canvas) {
     final rect = Rect.fromLTWH(0, 0, size.x, size.y);
-    // Increased transparency from black87 to 50% opacity
     final bgPaint = Paint()..color = Colors.black.withOpacity(0.50);
     final borderPaint = Paint()
       ..color = Colors.cyanAccent.withOpacity(0.70)
