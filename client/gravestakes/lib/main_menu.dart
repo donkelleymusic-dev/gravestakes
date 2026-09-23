@@ -42,6 +42,7 @@ class MainMenuScreen extends StatefulWidget {
 }
 
 class _MainMenuScreenState extends State<MainMenuScreen> {
+  int _highestLevelFired = -1;
   final supabase = Supabase.instance.client;
   // first run menu tutorial
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -231,13 +232,15 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           }
         }
 
-        if (serverLevel > lastSeenLevel) {
+        // ONLY update memory and show the overlay if we strictly moved UP. 
+        // We also check _highestLevelFired to prevent the overlay from popping twice 
+        // if two background processes fetch data at the exact same time.
+        if (serverLevel > lastSeenLevel && serverLevel > _highestLevelFired) {
+          _highestLevelFired = serverLevel;
           await prefs.setInt('last_seen_level', serverLevel);
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) LevelUpOverlay.show(context, serverLevel);
           });
-        } else {
-          await prefs.setInt('last_seen_level', serverLevel);
         }
 
         if (mounted) {
@@ -382,6 +385,31 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     }
   }
 
+  Future<void> _promptLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: const Text('Confirm Logout', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: const Text('Are you sure you want to log out? You will need your email and password to return.', style: TextStyle(color: Colors.grey)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('CANCEL', style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('LOGOUT', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      _logout();
+    }
+  }
+
   void _logout() async {
     await supabase.auth.signOut();
   }
@@ -411,7 +439,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                         ),
                         const SizedBox(height: 24),
                         TextButton(
-                          onPressed: _logout,
+                          onPressed: _promptLogout,
                           child: const Text('LOGOUT', style: TextStyle(color: Colors.grey)),
                         ),
                       ],
@@ -461,7 +489,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                               const SizedBox(width: 8),
                               IconButton(
                                 icon: const Icon(Icons.logout, color: Colors.white54),
-                                onPressed: _logout,
+                                onPressed: _promptLogout,
                                 tooltip: 'Logout',
                               ),
                             ],
