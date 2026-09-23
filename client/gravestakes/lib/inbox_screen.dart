@@ -152,7 +152,7 @@ class _InboxMessageCardState extends State<InboxMessageCard> {
   Widget build(BuildContext context) {
     String currentLang = context.locale.languageCode;
     
-    final templateKey = widget.messageData['template_key'] ?? 'unknown_msg';
+    final String templateKey = (widget.messageData['template_key'] as String?) ?? 'unknown_msg';
     final imageUrl = widget.messageData['attached_image_url'];
     final messageType = widget.messageData['message_type'];
     final isActioned = widget.messageData['is_actioned'] ?? false;
