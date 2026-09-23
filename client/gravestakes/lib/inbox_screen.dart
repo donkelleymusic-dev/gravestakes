@@ -54,7 +54,7 @@ class _InboxScreenState extends State<InboxScreen> {
   Widget build(BuildContext context) {
     String currentLang = context.locale.languageCode;
 
-      return Scaffold(
+    return Scaffold(
       backgroundColor: const Color(0xFF111111),
       appBar: AppBar(
         title: Text(
@@ -69,7 +69,6 @@ class _InboxScreenState extends State<InboxScreen> {
         ),
       ),
       
-      // --- ADD THIS FLOATING ACTION BUTTON ---
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: Colors.purple[800],
         icon: const Icon(Icons.edit, color: Colors.white),
@@ -79,7 +78,6 @@ class _InboxScreenState extends State<InboxScreen> {
             context: context,
             builder: (context) => const ComposeMessageDialog(),
           );
-          // If a message was sent, refresh the inbox list
           if (didSend == true) {
             _fetchMessages();
           }
@@ -101,7 +99,7 @@ class _InboxScreenState extends State<InboxScreen> {
                   itemBuilder: (context, index) {
                     return InboxMessageCard(
                       messageData: _messages[index],
-                      onActionComplete: _fetchMessages, // Refresh list when accepted
+                      onActionComplete: _fetchMessages, 
                     );
                   },
                 ),
@@ -119,6 +117,7 @@ class InboxMessageCard extends StatefulWidget {
   State<InboxMessageCard> createState() => _InboxMessageCardState();
 }
 
+// THIS WAS THE MISSING PIECE:
 class _InboxMessageCardState extends State<InboxMessageCard> {
   bool _isProcessing = false;
 
@@ -132,13 +131,11 @@ class _InboxMessageCardState extends State<InboxMessageCard> {
     if (myId == null || senderId == null) return;
 
     try {
-      // 1. Accept the friendship (assuming sender created the pending request)
       await supabase
           .from('friendships')
           .update({'status': 'accepted'})
-          .match({'requester_id': senderId, 'addressee_id': myId});
+          .match({'user_id': senderId, 'friend_id': myId});
 
-      // 2. Mark the message as actioned so the button disappears
       await supabase
           .from('player_inbox')
           .update({'is_actioned': true})
@@ -160,7 +157,6 @@ class _InboxMessageCardState extends State<InboxMessageCard> {
     final messageType = widget.messageData['message_type'];
     final isActioned = widget.messageData['is_actioned'] ?? false;
     
-    // Safely extract sender username
     final profiles = widget.messageData['profiles'];
     final senderName = (profiles is Map && profiles.containsKey('username')) 
         ? profiles['username'] 
@@ -175,7 +171,6 @@ class _InboxMessageCardState extends State<InboxMessageCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Header
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: const BoxDecoration(
@@ -188,7 +183,6 @@ class _InboxMessageCardState extends State<InboxMessageCard> {
             ),
           ),
           
-          // Attached Polaroid
           if (imageUrl != null)
             Image.network(
               imageUrl, 
@@ -201,17 +195,15 @@ class _InboxMessageCardState extends State<InboxMessageCard> {
               ),
             ),
           
-          // Translated Text Payload
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: Text(
-              templateKey.tr(), // Magic translation happens here!
+              templateKey.tr(), 
               style: AppTheme.getLocalizedStyle(currentLang, color: Colors.white, fontSize: 16),
               textAlign: TextAlign.center,
             ),
           ),
 
-          // Action Buttons (e.g., Accept Friend Request)
           if (messageType == 'friend_request' && !isActioned)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -278,22 +270,26 @@ class _ComposeMessageDialogState extends State<ComposeMessageDialog> {
     if (myId == null) return;
 
     try {
-      // Fetch where status is accepted and the user is either requester or addressee
       final response = await supabase
           .from('friendships')
-          .select('requester_id, addressee_id, requester:profiles!requester_id(username), addressee:profiles!addressee_id(username)')
+          .select('user_id, friend_id')
           .eq('status', 'accepted')
-          .or('requester_id.eq.$myId,addressee_id.eq.$myId');
+          .or('user_id.eq.$myId,friend_id.eq.$myId');
 
       final List<Map<String, String>> parsedFriends = [];
+      
       for (var row in response) {
-        final isRequester = row['requester_id'] == myId;
-        final friendId = isRequester ? row['addressee_id'] : row['requester_id'];
-        final friendData = isRequester ? row['addressee'] : row['requester'];
+        final friendId = row['user_id'] == myId ? row['friend_id'] : row['user_id'];
         
+        final profile = await supabase
+            .from('profiles')
+            .select('username')
+            .eq('id', friendId)
+            .single();
+            
         parsedFriends.add({
           'id': friendId,
-          'username': friendData['username'] ?? 'Unknown',
+          'username': profile['username'] ?? 'Unknown',
         });
       }
 
@@ -324,7 +320,7 @@ class _ComposeMessageDialogState extends State<ComposeMessageDialog> {
         'template_key': _selectedTemplate,
       });
 
-      if (mounted) Navigator.of(context).pop(true); // Return true to trigger inbox refresh
+      if (mounted) Navigator.of(context).pop(true); 
     } catch (e) {
       debugPrint('Error sending message: $e');
       if (mounted) setState(() => _isSending = false);

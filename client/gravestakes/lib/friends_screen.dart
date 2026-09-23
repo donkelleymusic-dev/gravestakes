@@ -184,7 +184,12 @@ class _FriendsScreenState extends State<FriendsScreen> {
                             Text(_myFriendCode, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 2)),
                           ],
                         ),
-                        const Icon(Icons.share, color: Colors.redAccent),
+                        // REPLACE THE STATIC ICON WITH THIS BUTTON:
+                        IconButton(
+                          icon: const Icon(Icons.share, color: Colors.redAccent),
+                          onPressed: () => _showShareMenu(_myFriendCode),
+                          tooltip: 'Share Friend Code',
+                        ),
                       ],
                     ),
                   ),
