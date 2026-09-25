@@ -52,6 +52,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
   double facingAngle = 0;
 
+  double _aimHoldTimer = 0.0; // for co-op gunner
+
   double flashlightBattery = 100.0;
   bool isFlashlightDead = false;
   bool isRecharging = false;
@@ -257,11 +259,23 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     }
 
     // --- DYNAMIC LEAP RECOIL FOR LOCAL PLAYER ---
-    if (attackerPos != null) {
+    /* if (attackerPos != null) {
       Vector2 awayDir = (position - attackerPos).normalized();
       position += awayDir * 50.0;
       facingAngle = awayDir.screenAngle();
+    } */
+    // --- DYNAMIC LEAP RECOIL FOR LOCAL PLAYER ---
+    if (attackerPos != null) {
+      Vector2 awayDir = (position - attackerPos).normalized();
+      
+      // Only physically jump back if you control the legs!
+      if (!isGunner) {
+        position += awayDir * 50.0;
+      }
+      
+      facingAngle = awayDir.screenAngle(); // Both players still pivot in terror
     }
+    // --------------------------------------------
     // --------------------------------------------
 
     double finalDuration = duration;
@@ -538,7 +552,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     if (voxelComponent != null) voxelComponent!.triggerScareAnimation();
 
     // --- TRIGGER FIRST-PERSON SCREEN MASK EFFECT ---
-    if (game.isFpsMode) {
+    if (game.isFpsMode && !isGunner) {
       game.camera.viewport.add(FpsMaskEffect(maskId: currentMask.id));
     }
     // ----------------------------------------------------
@@ -579,10 +593,50 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         }
       }
       
-      if (currentMask.id == 'siren') {
+      /* if (currentMask.id == 'siren') {
         add(SirenBlast()..position = size / 2);
       } else {
         game.world.add(ScareBlast(position: position.clone(), angle: facingAngle - (pi / 2))..priority = priority + 5);
+      } */
+
+      if (currentMask.id == 'siren') {
+        add(SirenBlast()..position = size / 2);
+      } else {
+        // The twisted angle is ONLY for the visual cone and the collision query
+        double trueAttackAngle = facingAngle - (pi / 2);
+        game.world.add(ScareBlast(position: position.clone(), angle: trueAttackAngle)..priority = priority + 5);
+
+        // --- DYNAMIC CO-OP RECOIL ---
+        // FIX: The movement vector strictly uses the raw facingAngle
+        final forward = Vector2(sin(facingAngle), -cos(facingAngle));
+        
+        if (!isGunner) {
+          // Standard Solo / Driver Recoil
+          double distanceToMove = 45.0; 
+          while (distanceToMove > 0) {
+            double step = min(5.0, distanceToMove);
+            final testPos = position + (forward * step); // Adding pushes you FORWARD
+            if (!game.gameMap.checkCollision(testPos, size)) { 
+              position = testPos; distanceToMove -= step;
+            } else { break; }
+          }
+        } else if (game.driverId == 'dummy_driver_123') {
+          // SANDBOX TESTING: Force the dummy to lunge forward
+          RemotePlayer? dummy = game.networkPlayers['dummy_driver_123'] ?? game.world.children.whereType<RemotePlayer>().firstOrNull;
+          if (dummy != null) {
+            dummy.position += forward * 45.0; 
+          }
+        }
+        // -----------------------------
+
+        int victimsHit = game.triggerLocalScare(
+          position, 
+          trueAttackAngle,
+          isPoweredUp, 
+          hasExtendedRange: hasExtendedRange, 
+          range: currentMask.range, 
+          maskId: currentMask.id
+        );
       }
 
       int victimsHit = game.triggerLocalScare(position, facingAngle, isPoweredUp, hasExtendedRange: hasExtendedRange, range: currentMask.range, maskId: currentMask.id);
@@ -592,7 +646,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         int comboBonus = (victimsHit - 1) * 50 * (victimsHit - 1); 
         score += (baseScore + comboBonus);
         String popupText = victimsHit > 1 ? '+${baseScore + comboBonus} COMBO x$victimsHit!' : '+${baseScore + comboBonus}';
-        game.camera.viewport.add(FloatingText(text: popupText, worldPosition: Vector2(position.x - 20, position.y - 50)));
+        game.world.add(FloatingText(text: popupText, worldPosition: Vector2(position.x - 20, position.y - 50)));
       }
     }
     channel.sendBroadcastMessage(event: 'scare', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': facingAngle, 'mask_id': currentMask.id, 'seed': masterSeed});
@@ -961,13 +1015,14 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
            _fallbackSprite!.paint.color = _baseColor;
            _fallbackSprite!.position = Vector2.zero();
         }
-      }
-      return; 
+      } 
     }
 
-    if (!rightJoystick.delta.isZero()) facingAngle = rightJoystick.delta.screenAngle();
+    if (!isStunned && !rightJoystick.delta.isZero()) facingAngle = rightJoystick.delta.screenAngle();
 
-    if (isCharmed) {
+    //if (!rightJoystick.delta.isZero()) facingAngle = rightJoystick.delta.screenAngle();
+
+    if (isCharmed && !isStunned) {
       charmTimer -= dt;
       if (charmTimer <= 0) {
         isCharmed = false;
@@ -1011,35 +1066,33 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       if (isGunner) {
         RemotePlayer? myDriver;
         
-        // 1. Try to find the driver in the network map (Standard Multiplayer)
         if (game.driverId != null && game.networkPlayers.containsKey(game.driverId)) {
           myDriver = game.networkPlayers[game.driverId];
         }
         
-        // 2. BULLETPROOF SANDBOX FALLBACK: Find the dummy physically in the world
         if (myDriver == null && game.driverId == 'dummy_driver_123') {
           myDriver = game.world.children.whereType<RemotePlayer>().firstOrNull;
         }
         
         if (myDriver != null) {
-          // 1. Physical Tethering (Shoulder-to-Shoulder / Back-to-Back)
           double backwardAngle = myDriver.facingAngle + pi;
-          
-          // Tighten the depth from 15 down to 4 so you are pressed against each other
           Vector2 baseOffset = Vector2(sin(backwardAngle), -cos(backwardAngle)) * 4.0;
-          
-          // Add a permanent 8-pixel horizontal skew.
-          // This forces the Gunner slightly to the right, ensuring you never 
-          // perfectly block each other at 0 (Up) or 180 (Down).
           Vector2 shoulderSkew = Vector2(8.0, 0.0);
           
           position = myDriver.position + baseOffset + shoulderSkew;
           
-          // 2. Repurposed Left Joystick for Aiming
-          if (!leftJoystick.delta.isZero()) {
-            facingAngle = leftJoystick.delta.screenAngle();
-          } else {
-            facingAngle = backwardAngle; 
+          // Only allow the Gunner to aim if they aren't stunned!
+          if (!isStunned) {
+            if (!leftJoystick.delta.isZero()) {
+              facingAngle = leftJoystick.delta.screenAngle();
+              _aimHoldTimer = 1.5; 
+            } else {
+              if (_aimHoldTimer > 0) {
+                _aimHoldTimer -= dt; 
+              } else {
+                facingAngle = backwardAngle; 
+              }
+            }
           }
         }
       }
@@ -1047,7 +1100,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       // ==========================================
       // STANDARD PLAYER / DRIVER MOVEMENT
       // ==========================================
-      else {
+      else if (!isStunned) {
         Vector2 movementDelta = Vector2.zero();
 
         if (!keyboardDelta.isZero()) { 

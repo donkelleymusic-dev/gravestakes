@@ -973,6 +973,42 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       AudioManager.instance.stopMusic();
     }
 
+    // ==========================================
+    // JUGGERNAUT SCORE POOLING
+    // ==========================================
+    if (isGunner || hasGunner) {
+      RemotePlayer? partner;
+      
+      if (isGunner && driverId != null) {
+        // The Gunner already knows exactly who their Driver is
+        partner = networkPlayers[driverId];
+      } else if (hasGunner) {
+        // The Driver finds their Gunner by looking for the player riding on their back
+        for (var remote in networkPlayers.values) {
+          if (remote.position.distanceTo(player.position) < 50.0) {
+            partner = remote;
+            break;
+          }
+        }
+      }
+
+      if (partner != null) {
+        // Merge the combat points (Gunner) and the navigation loot (Driver)
+        int combinedScore = player.score + partner.score;
+        
+        // Assign the massive pooled score to both players
+        player.score = combinedScore;
+        partner.score = combinedScore;
+        
+        // Optional: Fire a UI popup so they know their scores merged
+        camera.viewport.add(FloatingText(
+          text: 'SQUAD SCORE MERGED!', 
+          worldPosition: Vector2(player.position.x - 50, player.position.y - 80)
+        ));
+      }
+    }
+    // ==========================================
+
     overlays.add('summary');
     
     // --- 1. CALCULATE LUMEN PLACEMENT ---
