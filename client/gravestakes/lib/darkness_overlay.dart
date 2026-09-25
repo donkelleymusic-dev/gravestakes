@@ -10,9 +10,7 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
 
   DarknessOverlay(this.player) : super(priority: 10);
 
-  // Helper method to punch a flashlight hole out of the darkness
   void _drawFlashlight(Canvas canvas, Offset screenCenter, double angle, double fScale, {bool isLocal = false}) {
-    // If remote player is dead, don't even render their 15px glow to save resources
     if (fScale <= 0 && !isLocal) return;
 
     final double baseCone = (isLocal && player.hasExtendedRange) ? 600.0 : 350.0; 
@@ -76,27 +74,24 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
     final rect = Rect.fromLTWH(-500, -500, viewSize.x + 1000, viewSize.y + 1000);
     canvas.saveLayer(rect, Paint());
 
-    // 1. Draw your own flashlight centered on the screen
     final center = (viewSize / 2).toOffset();
-    _drawFlashlight(canvas, center, player.angle, player.flashlightScale, isLocal: true);
+    
+    // CHANGED: Using facingAngle instead of angle
+    _drawFlashlight(canvas, center, player.facingAngle, player.flashlightScale, isLocal: true);
 
-    // 2. Calculate offset and draw all remote players' flashlights
     for (var remote in game.networkPlayers.values) {
-      // If they are a bush or invisible, their light turns off completely!
       if (remote.isInvisible || remote.isDisguised) continue;
 
-      // Because the camera follows you, remote players' screen coordinates are just 
-      // the distance between you and them, applied to the center of your screen.
       final remoteScreenPos = Offset(
         center.dx + (remote.position.x - player.position.x),
         center.dy + (remote.position.y - player.position.y),
       );
       
-      // Only draw their beam if they are physically near the screen to save FPS
       if (remoteScreenPos.dx > -600 && remoteScreenPos.dx < viewSize.x + 600 &&
           remoteScreenPos.dy > -600 && remoteScreenPos.dy < viewSize.y + 600) {
         
-        _drawFlashlight(canvas, remoteScreenPos, remote.angle, remote.flashlightScale, isLocal: false);
+        // CHANGED: Using facingAngle instead of angle
+        _drawFlashlight(canvas, remoteScreenPos, remote.facingAngle, remote.flashlightScale, isLocal: false);
       }
     }
 

@@ -22,6 +22,7 @@ import 'game_map.dart';
 import 'fps_mask_effect.dart';
 import 'puzzle_door.dart';
 import 'vanity_screen.dart';
+import 'remote_player.dart';
 
 class Player extends PositionComponent with KeyboardHandler, HasGameReference<GraveStakesGame> {
   final JoystickComponent leftJoystick;
@@ -1001,131 +1002,144 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         if (!game.gameMap.checkCollision(Vector2(position.x, potentialPosition.y), size)) position.y = potentialPosition.y;
       }
       
-    } else if (!isGunner) {
-      Vector2 movementDelta = Vector2.zero();
-
-      if (!keyboardDelta.isZero()) { 
-        movementDelta = keyboardDelta;
-      } else if (!leftJoystick.delta.isZero()) { 
-        if (game.isFpsMode) {
-          const double touchRotationSpeed = 2.5;
-          facingAngle += leftJoystick.relativeDelta.x * touchRotationSpeed * dt;
-
-          double forwardStep = -leftJoystick.relativeDelta.y; 
+    } else { 
+      bool hasGunnerAttached = !isGunner && game.hasGunner; 
+      
+      // ==========================================
+      // CO-OP GUNNER: TETHER & AIM
+      // ==========================================
+      if (isGunner) {
+        RemotePlayer? myDriver;
+        
+        // 1. Try to find the driver in the network map (Standard Multiplayer)
+        if (game.driverId != null && game.networkPlayers.containsKey(game.driverId)) {
+          myDriver = game.networkPlayers[game.driverId];
+        }
+        
+        // 2. BULLETPROOF SANDBOX FALLBACK: Find the dummy physically in the world
+        if (myDriver == null && game.driverId == 'dummy_driver_123') {
+          myDriver = game.world.children.whereType<RemotePlayer>().firstOrNull;
+        }
+        
+        if (myDriver != null) {
+          // 1. Physical Tethering (Shoulder-to-Shoulder / Back-to-Back)
+          double backwardAngle = myDriver.facingAngle + pi;
           
-          if (forwardStep.abs() > 0.1) {
-            final forwardVector = Vector2(sin(facingAngle), -cos(facingAngle));
-            movementDelta = forwardVector * forwardStep;
+          // Tighten the depth from 15 down to 4 so you are pressed against each other
+          Vector2 baseOffset = Vector2(sin(backwardAngle), -cos(backwardAngle)) * 4.0;
+          
+          // Add a permanent 8-pixel horizontal skew.
+          // This forces the Gunner slightly to the right, ensuring you never 
+          // perfectly block each other at 0 (Up) or 180 (Down).
+          Vector2 shoulderSkew = Vector2(8.0, 0.0);
+          
+          position = myDriver.position + baseOffset + shoulderSkew;
+          
+          // 2. Repurposed Left Joystick for Aiming
+          if (!leftJoystick.delta.isZero()) {
+            facingAngle = leftJoystick.delta.screenAngle();
           } else {
-            movementDelta = Vector2.zero();
+            facingAngle = backwardAngle; 
           }
-
-        } else {
-          movementDelta = leftJoystick.relativeDelta;
         }
       }
 
-      if (!movementDelta.isZero()) {
-        if (!game.isFpsMode && rightJoystick.delta.isZero()) {
-          facingAngle = movementDelta.screenAngle();
-        }
+      // ==========================================
+      // STANDARD PLAYER / DRIVER MOVEMENT
+      // ==========================================
+      else {
+        Vector2 movementDelta = Vector2.zero();
 
-        // --- THE DISSONANCE EFFECT ---
-        if (isDissonant) {
-          dissonanceTimer -= dt;
-          movementDelta *= -1.0; // Inverts forward/backward and strafing controls
-          
+        if (!keyboardDelta.isZero()) { 
+          movementDelta = keyboardDelta;
+        } else if (!leftJoystick.delta.isZero()) { 
           if (game.isFpsMode) {
-             facingAngle += (_random.nextDouble() - 0.5) * 0.15; // Induces camera jitter
-          }
-          
-          if (dissonanceTimer <= 0) isDissonant = false;
-        }
-
-        double currentSpeed = isPoweredUp ? 280.0 : maxSpeed;
-        final potentialPosition = position + (movementDelta * currentSpeed * dt);
-        final oldPosition = position.clone();
-
-        bool hitXWall = false;
-        bool hitYWall = false;
-
-        if (!game.gameMap.checkCollision(Vector2(potentialPosition.x, position.y), size)) { 
-          position.x = potentialPosition.x; 
-        } else { 
-          hitXWall = true; 
-        }
-
-        if (!game.gameMap.checkCollision(Vector2(position.x, potentialPosition.y), size)) { 
-          position.y = potentialPosition.y; 
-        } else { 
-          hitYWall = true; 
-        }
-
-        // --- THE "OOF!" WALL COLLISION RECOIL ---
-        // --- THE "OOF!" WALL COLLISION RECOIL ---
-        if ((hitXWall || hitYWall) && wallStunTimer <= 0) {
-          wallStunTimer = 0.5; // 0.5s stun
-          starAnimTimer = 0.5; // Spin stars for 0.5s
-
-          // Safely bounce backward away from the wall impact direction
-          Vector2 bounceDir = -movementDelta.normalized();
-          double distanceToBounce = 25.0; 
-          
-          while (distanceToBounce > 0) {
-            double step = min(5.0, distanceToBounce);
-            final testPos = position + (bounceDir * step);
-            // Only move backward if the space is actually empty
-            if (!game.gameMap.checkCollision(testPos, size)) { 
-              position = testPos; 
-              distanceToBounce -= step;
-            } else { 
-              break; 
+            const double touchRotationSpeed = 2.5;
+            facingAngle += leftJoystick.relativeDelta.x * touchRotationSpeed * dt;
+            double forwardStep = -leftJoystick.relativeDelta.y; 
+            if (forwardStep.abs() > 0.1) {
+              movementDelta = Vector2(sin(facingAngle), -cos(facingAngle)) * forwardStep;
             }
+          } else {
+            movementDelta = leftJoystick.relativeDelta;
           }
-
-          // Play placeholder "oof" / impact sound via SoLoud
-          if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
-            SoLoud.instance.play(AudioManager.instance.impactSource!, volume: 0.8);
-          }
-
-          // Broadcast wall bump to network peers so they see your recoil and stars
-          channel.sendBroadcastMessage(event: 'wall_hit', payload: {
-            'id': game.mySessionId,
-            'x': position.x,
-            'y': position.y,
-          });
         }
-        // ---------------------------------------------
 
-        double actualVelocity = position.distanceTo(oldPosition) / dt; 
-        if (actualVelocity > 5.0) {
-           double dynamicInterval = 0.40 * (200.0 / actualVelocity);
-           dynamicInterval += (_random.nextDouble() * 0.1) - 0.05; 
-           _footstepTimer += dt;
-           
-           if (_footstepTimer >= dynamicInterval) {
-             _footstepTimer = 0.0; 
-             AudioManager.instance.playEntityFootstep(equippedCharacterId, position, isLocal: true);
+        if (!movementDelta.isZero()) {
+          if (!game.isFpsMode && rightJoystick.delta.isZero()) {
+            facingAngle = movementDelta.screenAngle();
+          }
+
+          if (isDissonant) {
+            dissonanceTimer -= dt;
+            movementDelta *= -1.0; 
+            if (game.isFpsMode) facingAngle += (_random.nextDouble() - 0.5) * 0.15; 
+            if (dissonanceTimer <= 0) isDissonant = false;
+          }
+
+          double baseMax = hasGunnerAttached ? maxSpeed * 1.3 : maxSpeed;
+          double currentSpeed = isPoweredUp ? 280.0 : baseMax;
+          
+          final potentialPosition = position + (movementDelta * currentSpeed * dt);
+          final oldPosition = position.clone();
+
+          bool hitXWall = false;
+          bool hitYWall = false;
+
+          if (!game.gameMap.checkCollision(Vector2(potentialPosition.x, position.y), size)) { 
+            position.x = potentialPosition.x; 
+          } else { hitXWall = true; }
+
+          if (!game.gameMap.checkCollision(Vector2(position.x, potentialPosition.y), size)) { 
+            position.y = potentialPosition.y; 
+          } else { hitYWall = true; }
+
+          if ((hitXWall || hitYWall) && wallStunTimer <= 0) {
+            wallStunTimer = 0.5; starAnimTimer = 0.5; 
+            Vector2 bounceDir = -movementDelta.normalized();
+            double distanceToBounce = 25.0; 
+            
+            while (distanceToBounce > 0) {
+              double step = min(5.0, distanceToBounce);
+              final testPos = position + (bounceDir * step);
+              if (!game.gameMap.checkCollision(testPos, size)) { 
+                position = testPos; distanceToBounce -= step;
+              } else { break; }
+            }
+
+            if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
+              SoLoud.instance.play(AudioManager.instance.impactSource!, volume: 0.8);
+            }
+            channel.sendBroadcastMessage(event: 'wall_hit', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y});
+          }
+
+          double actualVelocity = position.distanceTo(oldPosition) / dt; 
+          if (actualVelocity > 5.0) {
+             double dynamicInterval = 0.40 * (200.0 / actualVelocity);
+             dynamicInterval += (_random.nextDouble() * 0.1) - 0.05; 
+             _footstepTimer += dt;
              
-             if (actualVelocity > 100) {
-                double timeRemaining = game.gameTimer.timeLeft;
-                double panicMultiplier = 1.0 + ((180.0 - timeRemaining) / 180.0) * 2.0;
-                
-                double noiseRadius = 100 * panicMultiplier * footstepReductionMult;
-                
-                for (var bot in game.bots) {
-                  if (bot.position.distanceTo(position) <= noiseRadius) {
-                    // NEW: Regular bots cannot hear you if you are invisible! 
-                    // (Hunter bots can still track your breathing/heavy footsteps)
-                    if (isInvisible && !bot.isHunter) continue;
-                    
-                    bot.hearLoudNoise(position);
+             if (_footstepTimer >= dynamicInterval) {
+               _footstepTimer = 0.0; 
+               AudioManager.instance.playEntityFootstep(equippedCharacterId, position, isLocal: true);
+               
+               if (actualVelocity > 100) {
+                  double panicMultiplier = 1.0 + ((180.0 - game.gameTimer.timeLeft) / 180.0) * 2.0;
+                  
+                  double footprintNerf = hasGunnerAttached ? 2.5 : 1.0;
+                  double noiseRadius = 100 * panicMultiplier * footstepReductionMult * footprintNerf;
+                  
+                  for (var bot in game.bots) {
+                    if (bot.position.distanceTo(position) <= noiseRadius) {
+                      if (isInvisible && !bot.isHunter) continue;
+                      bot.hearLoudNoise(position);
+                    }
                   }
                 }
-              }
-           }
+             }
+          } else { _footstepTimer = 0.0; }
         } else { _footstepTimer = 0.0; }
-      } else { _footstepTimer = 0.0; }
+      }
     }
 
     double timeRemaining = game.gameTimer.timeLeft;

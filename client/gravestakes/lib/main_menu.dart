@@ -68,6 +68,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   String? _errorMessage;
   int _lumen = 0;
   bool _completedTutorial = false;
+  String? _guildId;
 
   final GlobalKey _loadoutKey = GlobalKey();
   final GlobalKey _startKey = GlobalKey();
@@ -194,6 +195,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           supabase.from('profiles').select('username, level, lumen, completed_tutorial').eq('id', user.id).single(),
           supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(),
           supabase.from('player_inbox').select('id').eq('recipient_id', user.id).eq('is_read', false),
+          supabase.from('guild_members').select('guild_id').eq('user_id', user.id).maybeSingle(),
         ]);
 
         final seasonRes = await supabase.from('season_config').select('id').eq('is_active', true).maybeSingle();
@@ -252,6 +254,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             _shadows = responses[1]['shadows'] ?? 0;
             _coins = responses[1]['coins'] ?? 0; 
             _unreadMessages = (responses[2] as List).length;
+            _guildId = responses[3]?['guild_id'];
             _unclaimedPassTiers = unclaimedTiers;
             _freeMarketItems = freeMarketItems;
             _isLoading = false;
@@ -315,6 +318,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           'p_map_name': _selectedMapName,
           'p_mode': _selectedMatchMode,
           'p_target_players': targetPlayers,
+          if (_guildId != null) 'p_guild_id': _guildId,
         }, 
       );
       
@@ -551,7 +555,15 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                 onPressed: () {
                                   SynthManager.instance.playMagicTap();
                                   Future.delayed(const Duration(milliseconds: 25), () {
-                                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => Scaffold(body: GameWidget(game: GraveStakesGame(matchMode: 'cinematic')))));
+                                    //Navigator.of(context).push(MaterialPageRoute(builder: (_) => Scaffold(body: GameWidget(game: GraveStakesGame(matchMode: 'cinematic')))));
+                                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => Scaffold(
+                                      body: GameWidget(game: GraveStakesGame(
+                                        matchMode: 'casual',
+                                        isGunner: true, // You are playing the Gunner
+                                        driverId: 'dummy_driver_123',
+                                        hasGunner: true,
+                                      ))
+                                    )));
                                   });
                                 },
                               ),

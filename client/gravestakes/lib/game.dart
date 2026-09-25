@@ -86,6 +86,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   int matchLumenDelta = 0;
   String roomId;
   final bool isGunner;
+  final String? driverId;
+  final bool hasGunner;
   final String matchMode; 
   final String mapName;
   final int targetPlayers;
@@ -158,6 +160,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   GraveStakesGame({
     this.roomId = 'public_match', 
     this.isGunner = false,
+    this.driverId,
+    this.hasGunner = false,
     this.mapName = 'L1T1V1.0.0',
     this.matchMode = 'casual',
     this.targetPlayers = 8,
@@ -384,6 +388,39 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     player = Player(leftJoystick, rightJoystick, myChannel, isGunner: isGunner)..position = safeSpawnPoint;
     jumpScareEffect = JumpScareEffect();
 
+    // --- INJECT LOCAL DUMMY FOR TESTING of co-op ---
+    // --- INJECT LOCAL DUMMY FOR TESTING ---
+    if (driverId == 'dummy_driver_123') {
+      final dummyDriver = RemotePlayer()..position = safeSpawnPoint.clone() + Vector2(100, 0);
+      dummyDriver.facingAngle = 0.0;
+      dummyDriver.equippedCharacterId = 'default'; 
+      dummyDriver.applyTeamColor(1); // Glows Blue
+      
+      networkPlayers['dummy_driver_123'] = dummyDriver;
+      world.add(dummyDriver);
+      
+      dummyDriver.add(MoveEffect.by(
+        Vector2(400, 0), 
+        EffectController(duration: 4.0, reverseDuration: 4.0, infinite: true)
+      ));
+
+      // ADD THIS: Rotates the dummy 45 degrees (pi / 4) every 2 seconds
+      dummyDriver.add(TimerComponent(
+        period: 2.0,
+        repeat: true,
+        onTick: () {
+          dummyDriver.facingAngle += pi / 4;
+        },
+      ));
+
+      // Add a giant sign to prove you are in the sandbox
+      camera.viewport.add(FloatingText(
+        text: 'I AM THE DUMMY', 
+        worldPosition: dummyDriver.position - Vector2(40, 60)
+      ));
+    }
+    // --------------------------------------
+
     world.add(player);
     camera.follow(player);
 
@@ -452,11 +489,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       // --- NORMAL GAME UI & CONTROLS ---
       world.add(PowerUpHud(player: player));
 
-      if (isGunner) {
+      /* if (isGunner) {
         camera.viewport.add(rightJoystick);
       } else {
         camera.viewport.add(leftJoystick);
-      }
+      } */
+     camera.viewport.add(leftJoystick); // leftJoystick automatically adjusts for co-op mode now
 
       camera.viewport.add(ScoreHud());
 
@@ -1316,7 +1354,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
         final activeIds = allUsers.map((u) => u['id']).toSet();
         networkPlayers.keys.toList().forEach((id) {
-          if (!activeIds.contains(id)) {
+          /* if (!activeIds.contains(id)) {
+            networkPlayers[id]?.removeFromParent();
+            networkPlayers.remove(id);
+          } */
+          // Protect the dummy from being deleted by the network sync!
+          if (!activeIds.contains(id) && id != 'dummy_driver_123') {
             networkPlayers[id]?.removeFromParent();
             networkPlayers.remove(id);
           }
