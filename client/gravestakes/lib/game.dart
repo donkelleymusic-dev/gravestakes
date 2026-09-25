@@ -53,6 +53,8 @@ import 'audio_manager.dart';
 import 'character_asset_manager.dart';
 import 'hallway_triggers.dart';
 import 'puzzle_manager.dart';
+import 'chat_bubble_component.dart';
+import 'quick_chat_wheel.dart';
 
 class ScareSnapshot {
   final String attackerName;
@@ -463,6 +465,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       
       await camera.viewport.add(FpsTouchControls());
       await camera.viewport.add(ModeToggleButton());
+
+      camera.viewport.add(QuickChatWheel());
 
       mapOverlay = MapOverlay();
       await camera.viewport.add(mapOverlay);
@@ -1325,6 +1329,29 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             final index = payload['bot_index'] as int?;
             if (index != null && index >= 0 && index < bots.length) {
               bots[index].transformToHunter();
+            }
+          }
+        },
+      )
+      .onBroadcast(
+        event: 'quick_chat',
+        callback: (payload) {
+          final senderId = payload['id'] as String?;
+          final text = payload['text'] as String;
+          final colorValue = payload['color'] as int;
+          
+          if (senderId == null || senderId == mySessionId) return;
+
+          if (networkPlayers.containsKey(senderId)) {
+            final remote = networkPlayers[senderId]!;
+            remote.add(ChatBubbleComponent(
+              text: text, 
+              borderColor: Color(colorValue),
+            ));
+            
+            // Play a UI ping sound so players know to look
+            if (AudioManager.instance.isInitialized && AudioManager.instance.tickSource != null) {
+              SoLoud.instance.play(AudioManager.instance.tickSource!, volume: 0.8);
             }
           }
         },
