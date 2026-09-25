@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flame/game.dart';
 import 'game.dart';
-import 'match_summary_overlay.dart'; // Required for the summary screen
+import 'match_summary_overlay.dart'; 
 
 class PartyScreen extends StatefulWidget {
   const PartyScreen({super.key});
@@ -20,6 +20,10 @@ class _PartyScreenState extends State<PartyScreen> {
   List<Map<String, dynamic>> _friends = [];
   
   RealtimeChannel? _lobbyChannel;
+
+  // --- NEW: SQUAD MATCHMAKING SETTINGS ---
+  String _selectedMatchMode = 'casual';
+  bool _isJuggernautMode = false;
 
   @override
   void initState() {
@@ -100,29 +104,41 @@ class _PartyScreenState extends State<PartyScreen> {
         callback: (payload) {
           final newStatus = payload.newRecord['status'];
           if (newStatus == 'in_match') {
-            _launchIntoGame();
+            // --- NEW: CATCH THE MATCH DATA ---
+            final matchId = payload.newRecord['match_id'] as String?;
+            final mode = payload.newRecord['match_mode'] as String? ?? 'casual';
+            final isJuggernaut = payload.newRecord['is_juggernaut'] as bool? ?? false;
+            
+            if (matchId != null) {
+              _launchIntoGame(matchId, mode, isJuggernaut);
+            }
           }
         },
       )
       .subscribe();
   }
 
-  void _launchIntoGame() {
+  void _launchIntoGame(String roomId, String matchMode, bool isJuggernaut) {
     if (_currentParty == null) return;
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
-    final bool isGunner = _currentParty!['leader_id'] != user.id;
+    final String leaderId = _currentParty!['leader_id'];
+    
+    // You are ONLY a Gunner if Juggernaut is enabled AND you are not the Party Leader
+    final bool isGunner = isJuggernaut && (leaderId != user.id);
 
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => Scaffold(
           body: GameWidget<GraveStakesGame>(
             game: GraveStakesGame(
-              roomId: _currentParty!['id'], 
+              roomId: roomId, 
+              matchMode: matchMode,
               isGunner: isGunner,
+              hasGunner: isJuggernaut,
+              driverId: isJuggernaut ? leaderId : null, // Driver ID is only needed if Juggernaut is active
             ),
-            // ADDED: Loading builder prevents black screen during ZIP extraction
             loadingBuilder: (context) => Container(
               color: Colors.black,
               child: const Center(
@@ -145,7 +161,6 @@ class _PartyScreenState extends State<PartyScreen> {
                 ),
               ),
             ),
-            // ADDED: Overlay map prevents the red-screen crash!
             overlayBuilderMap: {
               'summary': (BuildContext context, GraveStakesGame game) => MatchSummaryOverlay(game: game),
               'searching': (BuildContext context, GraveStakesGame game) => SearchingOverlay(game: game),
@@ -155,7 +170,8 @@ class _PartyScreenState extends State<PartyScreen> {
         ),
       ),
     ).then((_) async {
-      if (!isGunner) {
+      // When the match ends and pops back, the leader resets the party lobby status
+      if (user.id == leaderId) {
         await supabase.from('parties').update({'status': 'formed'}).eq('id', _currentParty!['id']);
       }
       _loadPartyAndFriends();
@@ -224,10 +240,44 @@ class _PartyScreenState extends State<PartyScreen> {
 
   Future<void> _startPartyMatch() async {
     if (_currentParty == null) return;
+    setState(() => _isLoading = true); // Set spinner while finding match
+
     try {
-      await supabase.from('parties').update({'status': 'in_match'}).eq('id', _currentParty!['id']);
+      int targetPlayers = 8;
+      if (_selectedMatchMode == '1v1') targetPlayers = 2;
+      if (_selectedMatchMode == '2v2') targetPlayers = 4;
+
+      final user = supabase.auth.currentUser;
+      
+      // Fetch user's guild for the matchmaking rules
+      final memberRes = await supabase.from('guild_members').select('guild_id').eq('user_id', user!.id).maybeSingle();
+      final guildId = memberRes?['guild_id'];
+
+      // 1. Leader finds or creates a match using the RPC
+      final matchId = await supabase.rpc(
+        'find_or_create_match',
+        params: {
+          'p_map_name': 'L1T1V1.0.0', // Standard map
+          'p_mode': _selectedMatchMode,
+          'p_target_players': targetPlayers,
+          if (guildId != null) 'p_guild_id': guildId,
+        }, 
+      );
+
+      // 2. Leader updates the party database to broadcast the configuration to the squad
+      await supabase.from('parties').update({
+        'status': 'in_match',
+        'match_id': matchId as String,
+        'match_mode': _selectedMatchMode,
+        'is_juggernaut': _isJuggernautMode
+      }).eq('id', _currentParty!['id']);
+      
+      // Note: We don't call _launchIntoGame here manually! The realtime listener 
+      // will catch the update we just fired and launch the leader alongside the squad.
+      
     } catch (e) {
-      debugPrint('Error starting match: $e');
+      debugPrint('Error starting squad match: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -335,7 +385,50 @@ class _PartyScreenState extends State<PartyScreen> {
                                 },
                               ),
                       ),
+
+                      // --- NEW: LEADER MATCH DEPLOYMENT CONTROLS ---
                       if (isLeader) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[900],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.purpleAccent.withOpacity(0.5)),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: _selectedMatchMode,
+                              dropdownColor: Colors.black,
+                              isExpanded: true,
+                              style: const TextStyle(color: Colors.purpleAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold),
+                              items: const [
+                                DropdownMenuItem(value: 'casual', child: Text('CASUAL FFA (8 PLAYERS)')),
+                                DropdownMenuItem(value: '1v1', child: Text('1v1 RANKED (2 PLAYERS)')),
+                                DropdownMenuItem(value: '2v2', child: Text('2v2 SQUAD (4 PLAYERS)')),
+                              ],
+                              onChanged: (String? newValue) {
+                                if (newValue != null) {
+                                  setState(() {
+                                    _selectedMatchMode = newValue;
+                                    // You cannot play Juggernaut in a 1v1 mode!
+                                    if (newValue == '1v1') _isJuggernautMode = false;
+                                  });
+                                }
+                              },
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SwitchListTile(
+                          title: const Text('FORM JUGGERNAUT DUO', style: TextStyle(color: Colors.white, fontFamily: 'Courier', fontWeight: FontWeight.bold)),
+                          subtitle: const Text('Leader drives. Partner covers the rear.', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                          activeColor: Colors.amberAccent,
+                          value: _isJuggernautMode,
+                          onChanged: _selectedMatchMode == '1v1' ? null : (bool value) {
+                            setState(() => _isJuggernautMode = value);
+                          },
+                        ),
                         const SizedBox(height: 16),
                         SizedBox(
                           width: double.infinity,
@@ -390,7 +483,7 @@ class SearchingOverlay extends StatelessWidget {
                 side: const BorderSide(color: Colors.redAccent),
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
-              onPressed: () => Navigator.of(context).pop(), // Kills the Flame engine and routes back to Party Screen
+              onPressed: () => Navigator.of(context).pop(), 
               icon: const Icon(Icons.close, color: Colors.redAccent),
               label: const Text('ABORT DEPLOYMENT', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
             ),
