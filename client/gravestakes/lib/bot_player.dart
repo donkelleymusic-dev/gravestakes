@@ -338,8 +338,22 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     
     if (attackerPos != null) {
       Vector2 awayDir = (position - attackerPos).normalized();
-      position += awayDir * 50.0; // Jump a couple paces back
-      facingAngle = awayDir.screenAngle(); // Pivot and face away in terror
+      
+      // --- FIX: SAFE RECOIL ---
+      // Step backward incrementally so we stop immediately if we hit a wall!
+      double distanceToMove = 50.0;
+      while (distanceToMove > 0) {
+        double step = min(5.0, distanceToMove);
+        final testPos = position + (awayDir * step);
+        if (!game.gameMap.checkCollision(testPos, size)) {
+          position = testPos;
+          distanceToMove -= step;
+        } else {
+          break; // Stop flying backward!
+        }
+      }
+      
+      facingAngle = awayDir.screenAngle(); 
     }
 
     if (isVermin) {
@@ -726,11 +740,23 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       final potentialPosition = position + (movementDelta * currentSpeed * dt);
       final oldPosition = position.clone();
 
-      final testX = Vector2(potentialPosition.x, position.y);
-      if (!game.gameMap.checkCollision(testX, size)) { position.x = potentialPosition.x; } else { hitWall = true; }
+      // --- THE FAILSAFE: GHOST EXTRICATION ---
+      // If the bot is CURRENTLY inside a wall, let them ghost-walk toward their 
+      // target until they pop out into free space.
+      bool currentlyStuck = game.gameMap.checkCollision(position, size);
 
-      final testY = Vector2(position.x, potentialPosition.y);
-      if (!game.gameMap.checkCollision(testY, size)) { position.y = potentialPosition.y; } else { hitWall = true; }
+      if (currentlyStuck) {
+        position.x = potentialPosition.x;
+        position.y = potentialPosition.y;
+      } else {
+        // Standard Collision bounds
+        final testX = Vector2(potentialPosition.x, position.y);
+        if (!game.gameMap.checkCollision(testX, size)) { position.x = potentialPosition.x; } else { hitWall = true; }
+
+        final testY = Vector2(position.x, potentialPosition.y);
+        if (!game.gameMap.checkCollision(testY, size)) { position.y = potentialPosition.y; } else { hitWall = true; }
+      }
+      // ---------------------------------------
 
       if (hitWall && evasionTimer <= 0) {
         double turnAngle = (pi / 4) + (_random.nextDouble() * (pi / 4)); 
