@@ -1,6 +1,7 @@
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
+import 'dart:math';
 import 'game.dart';
 import 'audio_manager.dart';
 import 'trailing_embers.dart';
@@ -10,7 +11,26 @@ import 'hallway_triggers.dart';
 
 class PuzzleManager extends Component with HasGameReference<GraveStakesGame> {
   // Hardcoded for now: Doors 1, 3, and 4 in that exact order.
-  final List<int> correctSequence = [1, 3, 4];
+  //final List<int> correctSequence = [1, 3, 4];
+
+  late List<int> correctSequence;
+
+  @override
+  Future<void> onLoad() async {
+    super.onLoad();
+    
+    // 1. Create a synchronized seed based on the unique Match UUID
+    // (Ensure game.roomId is a String. If it can be null, provide a fallback)
+    final matchSeed = game.roomId.hashCode; 
+    final syncedRandom = Random(matchSeed);
+    
+    // 2. Generate available doors (1 through 5) and shuffle them synchronously
+    List<int> allDoors = [1, 2, 3, 4, 5];
+    allDoors.shuffle(syncedRandom);
+    
+    // 3. Take the first 3 as the required sequence for this match
+    correctSequence = allDoors.sublist(0, 3);
+  }
   
   List<int> currentInput = [];
   int strikes = 0;
@@ -35,7 +55,10 @@ class PuzzleManager extends Component with HasGameReference<GraveStakesGame> {
     }
 
     // 2. DUMMY DOOR (IDs 2 and 5)
-    if (doorId == 2 || doorId == 5) {
+    //if (doorId == 2 || doorId == 5) {
+
+    // 2. DUMMY DOOR (Dynamically checked against the shuffled sequence)
+    if (!correctSequence.contains(doorId)) {
       if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
         SoLoud.instance.play(AudioManager.instance.impactSource!, volume: 0.6);
       }

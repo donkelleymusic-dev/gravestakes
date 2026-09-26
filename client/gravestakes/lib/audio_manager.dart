@@ -80,7 +80,7 @@ class AudioManager {
       // inGameTracks.add(await SoLoud.instance.loadAsset('assets/audio/music/crypt_ambience_2.mp3'));
 
       // 2. Preload Mask SFX
-      maskScareSounds['standard'] = await SoLoud.instance.loadAsset('assets/audio/ElevenLabs_Impact.mp3');
+      maskScareSounds['standard'] = await SoLoud.instance.loadAsset('assets/audio/Scare_Type_1.mp3');
       maskScareSounds['flying']   = await SoLoud.instance.loadAsset('assets/audio/bat.mp3');
       maskScareSounds['vermin']   = await SoLoud.instance.loadAsset('assets/audio/bugs.mp3');
       maskScareSounds['siren']    = await SoLoud.instance.loadAsset('assets/audio/Siren_Mask_Lure.mp3');
@@ -104,7 +104,7 @@ class AudioManager {
       // 5. Shared SFX
       tickSource = await SoLoud.instance.loadAsset('assets/audio/tick.mp3');
       powerupSource = await SoLoud.instance.loadAsset('assets/audio/ElevenLabs_Scary_stinger.mp3');
-      impactSource = await SoLoud.instance.loadAsset('assets/audio/ElevenLabs_Impact.mp3');
+      impactSource = await SoLoud.instance.loadAsset('assets/audio/Footsteps_Type_12.mp3');
 
       isInitialized = true;
       debugPrint('AudioManager initialized successfully.');
@@ -130,6 +130,14 @@ class AudioManager {
       SoLoud.instance.stop(_currentMusicHandle!);
       _currentMusicHandle = null;
     }
+  }
+
+  void stopPhysiologyLoops() {
+    if (_localBreathingHandle != null) {
+      SoLoud.instance.stop(_localBreathingHandle!);
+      _localBreathingHandle = null;
+    }
+    // Add heartBeatSource handles here later if you make the heartbeat loop too!
   }
 
   Future<void> playChaseMusic() async {

@@ -1151,13 +1151,26 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           bool hitXWall = false;
           bool hitYWall = false;
 
-          if (!game.gameMap.checkCollision(Vector2(potentialPosition.x, position.y), size)) { 
-            position.x = potentialPosition.x; 
-          } else { hitXWall = true; }
+          // --- THE FAILSAFE: GHOST EXTRICATION ---
+          bool currentlyStuck = game.gameMap.checkCollision(position, size);
 
-          if (!game.gameMap.checkCollision(Vector2(position.x, potentialPosition.y), size)) { 
-            position.y = potentialPosition.y; 
-          } else { hitYWall = true; }
+          if (currentlyStuck) {
+            // If clipped inside a wall, allow movement toward free space!
+            position.x = potentialPosition.x;
+            position.y = potentialPosition.y;
+          } else {
+            // Standard Collision bounds
+            final testX = Vector2(potentialPosition.x, position.y);
+            if (!game.gameMap.checkCollision(testX, size)) { 
+              position.x = potentialPosition.x; 
+            } else { hitXWall = true; }
+
+            final testY = Vector2(position.x, potentialPosition.y);
+            if (!game.gameMap.checkCollision(testY, size)) { 
+              position.y = potentialPosition.y; 
+            } else { hitYWall = true; }
+          }
+          // ---------------------------------------
 
           if ((hitXWall || hitYWall) && wallStunTimer <= 0) {
             wallStunTimer = 0.5; starAnimTimer = 0.5; 

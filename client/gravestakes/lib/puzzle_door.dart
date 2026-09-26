@@ -10,10 +10,20 @@ class PuzzleDoor extends PositionComponent with HasGameReference<GraveStakesGame
   double _clueTimer = 0.0;
   
   // Dummy logic: Doors 1, 3, and 4 are real. Door 2 and 5 are dummies.
-  bool get isDummy => doorId == 2 || doorId == 5;
+  //bool get isDummy => doorId == 2 || doorId == 5;
   
   // Hardcoded for testing: The player must tap Door 3, then 1, then 4.
-  bool get isNextInSequence => true; // We will tie this to the PuzzleManager later
+  //bool get isNextInSequence => true; // We will tie this to the PuzzleManager later
+
+  // Dynamically check if this door was selected as a dummy by the synchronized randomizer
+  bool get isDummy => !game.puzzleManager.correctSequence.contains(doorId);
+  
+  // Only emit audio clues if this is the exact next door in the required sequence
+  bool get isNextInSequence {
+    int currentIndex = game.puzzleManager.currentInput.length;
+    if (currentIndex >= game.puzzleManager.correctSequence.length) return false;
+    return doorId == game.puzzleManager.correctSequence[currentIndex];
+  }
 
   PuzzleDoor({
     required this.doorId,

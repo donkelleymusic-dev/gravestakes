@@ -970,6 +970,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     // --- STOP MUSIC FOR SCORE SCREEN ---
     if (AudioManager.instance.isInitialized) {
+      AudioManager.instance.stopPhysiologyLoops();
       AudioManager.instance.stopMusic();
     }
 
