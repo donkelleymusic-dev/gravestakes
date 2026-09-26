@@ -1070,6 +1070,13 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           myDriver = game.networkPlayers[game.driverId];
         }
         
+        // --- NEW: BULLETPROOF MULTIPLAYER FALLBACK ---
+        // If the socket UUID doesn't match the Auth ID, aggressively tether to 
+        // the first RemotePlayer that loads into the map!
+        if (myDriver == null && game.networkPlayers.isNotEmpty) {
+          myDriver = game.networkPlayers.values.first;
+        }
+        
         if (myDriver == null && game.driverId == 'dummy_driver_123') {
           myDriver = game.world.children.whereType<RemotePlayer>().firstOrNull;
         }

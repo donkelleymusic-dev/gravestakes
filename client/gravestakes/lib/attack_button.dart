@@ -26,6 +26,9 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
     super.onTapDown(event);
     if (!game.gameStarted || game.player.isStunned) return;
 
+    // --- NEW: DISARM THE DRIVER ---
+    if (game.hasGunner && !game.player.isGunner) return;
+
     // --- NEW: Forgiving Magnetic Puzzle Interaction ---
     if (game.player.isInPuzzleRoom) {
       _triggerFlash(0); 
@@ -117,6 +120,9 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
   @override
   void render(Canvas canvas) {
     if (!game.gameStarted) return;
+
+    // --- NEW: HIDE THE WEAPONS UI FOR THE DRIVER ---
+    if (game.hasGunner && !game.player.isGunner) return;
     
     final player = game.player; 
     final center = Offset(buttonRadius, buttonRadius);
