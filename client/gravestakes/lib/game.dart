@@ -114,7 +114,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   String matchPhase = 'searching'; 
   double lobbyTimer = 10.0;
   double countdownTimer = 3.0;
-  int _lastTick = 3;
+  int _lastTick = 4; // Ensures the first tick fires immediately at 3.0!
 
   double cinematicTimer = 0.0;
   bool cinematicStage1 = false, cinematicStage2 = false, cinematicStage3 = false, cinematicStage4 = false;
@@ -927,7 +927,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           ..position = safeSpawn
           ..wanderSpeed = 100.0 
           ..huntSpeed = 160.0
-          ..teamId = (matchMode == '2v2') ? nextTeam : 0; 
+          ..teamId = (matchMode == '2v2') ? nextTeam : 0
+          ..isCompetitiveStandIn = true;
           
         bots.add(fakeHuman);
         world.add(fakeHuman);
@@ -1181,10 +1182,14 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
 
     if (playerId == mySessionId) {
+      // DILUTED POOL: Disguise is now ~5% chance
       final rewards = [
         ChestReward(type: ChestRewardType.points, label: '+250 SOULS', value: 250),
         ChestReward(type: ChestRewardType.points, label: '+250 SOULS', value: 250),
+        ChestReward(type: ChestRewardType.points, label: '+250 SOULS', value: 250),
         ChestReward(type: ChestRewardType.points, label: '+500 SOULS', value: 500),
+        ChestReward(type: ChestRewardType.points, label: '+500 SOULS', value: 500),
+        ChestReward(type: ChestRewardType.currency, label: '+10 COINS', value: 10),
         ChestReward(type: ChestRewardType.currency, label: '+10 COINS', value: 10),
         ChestReward(type: ChestRewardType.currency, label: '+15 COINS', value: 15),
         ChestReward(type: ChestRewardType.invisibility, label: 'INVISIBILITY!'),
@@ -1192,13 +1197,31 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         ChestReward(type: ChestRewardType.teleport, label: 'TELEPORTED!'),
         ChestReward(type: ChestRewardType.teleport, label: 'TELEPORTED!'),
         ChestReward(type: ChestRewardType.rangeIncrease, label: 'RANGE EXTENDED!'),
-        // Disguise is now effectively a Rare drop
+        ChestReward(type: ChestRewardType.rangeIncrease, label: 'RANGE EXTENDED!'),
         ChestReward(type: ChestRewardType.disguise, label: 'DISGUISE!'), 
       ];
       final selectedReward = rewards[Random().nextInt(rewards.length)];
       player.applyChestReward(selectedReward);
       camera.viewport.add(FloatingText(text: selectedReward.label, worldPosition: Vector2(boxPos.x - 20, boxPos.y - 40)));
     }
+  }
+
+  // --- NEW: Allow Competitive Bots to Loot ---
+  void claimSpookyBoxForBot(String boxId, BotPlayer bot) {
+    final boxes = world.children.whereType<SpookyBox>().where((b) => b.id == boxId).toList();
+    if (boxes.isEmpty) return;
+
+    final boxPos = boxes.first.position.clone();
+    for (var box in boxes) box.removeFromParent();
+
+    myChannel.sendBroadcastMessage(event: 'claim_box', payload: {'player_id': 'bot_${bots.indexOf(bot)}', 'box_id': boxId});
+
+    if (AudioManager.instance.isInitialized && AudioManager.instance.powerupSource != null) {
+      SoLoud.instance.play(AudioManager.instance.powerupSource!);
+    }
+
+    bot.simulatedScore += 300; 
+    camera.viewport.add(FloatingText(text: '+300 SOULS', worldPosition: Vector2(boxPos.x - 20, boxPos.y - 40)));
   }
   
   int triggerLocalScare(Vector2 attackerPos, double attackerAngle, bool isPoweredUp, {bool hasExtendedRange = false, double range = 250.0, required String maskId}) {
@@ -1411,6 +1434,36 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             final index = payload['bot_index'] as int?;
             if (index != null && index >= 0 && index < bots.length) {
               bots[index].transformToHunter();
+            }
+          }
+        },
+      )
+      .onBroadcast(
+        event: 'bot_scare',
+        callback: (payload) {
+          if (!isHost) {
+            final index = payload['bot_index'] as int;
+            if (index >= 0 && index < bots.length) {
+              final bot = bots[index];
+              bot.currentMaskId = payload['mask_id'] as String;
+              bot.position.x = payload['x'] as double;
+              bot.position.y = payload['y'] as double;
+              bot.facingAngle = payload['a'] as double;
+              
+              if (bot.voxelComponent != null) bot.voxelComponent!.triggerScareAnimation();
+              AudioManager.instance.playSpatialScare(bot.currentMaskId, bot.position);
+              
+              if (bot.currentMaskId == 'flying') {
+                world.add(FlyingScareBlast(position: bot.position.clone(), angle: bot.facingAngle, ownerId: 'bot_$index'));
+              } else if (bot.currentMaskId == 'vermin') {
+                for (int i = 0; i < 15; i++) {
+                  scareManager.spawnCritter(Critter(position: bot.position.clone(), behavior: SwarmBehavior.scatter, seed: DateTime.now().millisecondsSinceEpoch, index: i, initialAngle: bot.facingAngle, ownerId: 'bot_$index'));
+                }
+              } else if (bot.currentMaskId == 'siren') {
+                bot.add(SirenBlast()..position = bot.size / 2);
+              } else {
+                world.add(ScareBlast(position: bot.position.clone(), angle: bot.facingAngle - (pi / 2))..priority = bot.priority + 5);
+              }
             }
           }
         },

@@ -10,6 +10,11 @@ import 'floating_text.dart';
 import 'audio_manager.dart';
 import 'player.dart';
 import 'remote_player.dart';
+import 'mask_data.dart';
+import 'critter.dart';
+import 'flying_scare_blast.dart';
+import 'siren_blast.dart';
+import 'spooky_box.dart';
 
 enum BotState { wander, hunt, investigate, charmed, flee }
 enum BotPersonality { grunt, stalker, phantom, trapdoor }
@@ -69,6 +74,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     'NightTerrors', 'xX_Vamp_Xx', 'Echo_Location', 'SirenBait'
   ];
   
+  bool isCompetitiveStandIn = false;
   late final String fakeUsername;
   int simulatedScore = 0; 
   
@@ -775,7 +781,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         if (distance < 110 && attackCooldown <= 0) {
           if (game.gameMap.hasLineOfSight(position, currentTarget!.position)) {
             
-            // 1. MASK ROULETTE: 10% chance to equip a special mask
+            // 1. MASK ROULETTE
             if (_random.nextInt(10) == 0) {
               List<String> specials = ['flying', 'vermin', 'siren'];
               currentMaskId = specials[_random.nextInt(specials.length)];
@@ -783,7 +789,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
               currentMaskId = 'standard';
             }
 
-            // 2. ACCURACY WHIFF: 25% chance to panic and miss if the target is moving
+            // 2. ACCURACY WHIFF
             bool targetIsMoving = true; 
             if (currentTarget is Player) targetIsMoving = (currentTarget as Player).isMoving;
             else if (currentTarget is RemotePlayer) targetIsMoving = (currentTarget as RemotePlayer).isMoving;
@@ -791,46 +797,60 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
             
             bool whiffedAttack = targetIsMoving && (_random.nextDouble() < 0.25);
 
-            if (currentMaskId != 'siren') {
-              game.world.add(ScareBlast(position: position.clone(), angle: facingAngle - (pi / 2))..priority = priority + 5);
-            }
-            if (voxelComponent != null) voxelComponent!.triggerScareAnimation();
-
             if (whiffedAttack) {
-              // The Bot Missed!
               game.camera.viewport.add(FloatingText(
                 text: 'MISSED!', 
                 worldPosition: Vector2(position.x - 20, position.y - 60),
               ));
-              AudioManager.instance.playEntityFootstep(assignedCharacterId, position, isLocal: false); // Scuff sound
-              attackCooldown = 4.0; // Recovers faster if they missed
+              AudioManager.instance.playEntityFootstep(assignedCharacterId, position, isLocal: false);
+              attackCooldown = 4.0; 
               
             } else {
-              // The Bot Hit!
+              // --- THE BOT HIT! FIRE VISUALS & SOUNDS ---
               AudioManager.instance.playSpatialScare(currentMaskId, position);
+              if (voxelComponent != null) voxelComponent!.triggerScareAnimation();
               
+              if (currentMaskId == 'flying') {
+                game.world.add(FlyingScareBlast(position: position.clone(), angle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
+              } else if (currentMaskId == 'vermin') {
+                for (int i = 0; i < 15; i++) {
+                  game.scareManager.spawnCritter(Critter(position: position.clone(), behavior: SwarmBehavior.scatter, seed: DateTime.now().millisecondsSinceEpoch, index: i, initialAngle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
+                }
+              } else if (currentMaskId == 'siren') {
+                add(SirenBlast()..position = size / 2);
+              } else {
+                game.world.add(ScareBlast(position: position.clone(), angle: facingAngle - (pi / 2))..priority = priority + 5);
+              }
+
+              // Tell remote clients the bot scared!
+              game.myChannel.sendBroadcastMessage(event: 'bot_scare', payload: {
+                'bot_index': game.bots.indexOf(this),
+                'mask_id': currentMaskId,
+                'x': position.x, 'y': position.y, 'a': facingAngle
+              });
+
               String attackWord = isHunter ? 'CRUSHED!' : 'SCARED!';
               if (!isHunter && personality == BotPersonality.stalker) attackWord = 'STALKED!';
               if (!isHunter && personality == BotPersonality.trapdoor) attackWord = 'AMBUSHED!';
-
               game.camera.viewport.add(FloatingText(text: attackWord, worldPosition: Vector2(position.x - 30, position.y - 60)));
 
-              // Apply the Stun based on Target Type
+              // Apply Stuns and Add to simulatedScore!
               if (currentTarget == game.player) {
                 game.jumpScareEffect.trigger(); 
                 game.player.applyStun(2.0, attackerPos: position);   
                 triggerPrivateHighlight();
                 game.player.triggerPrivateHighlight();
+                simulatedScore += 100; // <--- FIX: Bot gets points!
               } else if (currentTarget is RemotePlayer) {
                 String? targetId;
                 game.networkPlayers.forEach((key, val) { if (val == currentTarget) targetId = key; });
                 if (targetId != null) game.myChannel.sendBroadcastMessage(event: 'stun', payload: {'id': targetId, 'duration': 2.0});
+                simulatedScore += 100; // <--- FIX: Bot gets points!
               } else if (currentTarget is BotPlayer) {
-                // Apply stun to the opposing bot!
                 (currentTarget as BotPlayer).applyStun(2.0, attackerPos: position);
+                simulatedScore += 100; // <--- FIX: Bot gets points!
               }
               
-              // 3. SCALING COOLDOWNS: Bots attack faster if host is high level
               double cooldownMult = game.player.score > 2000 ? 0.75 : 1.0; 
               attackCooldown = 8.0 * cooldownMult; 
             }
@@ -839,6 +859,17 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
             facingAngle = movementDelta.screenAngle();
             directionTimer = 3.0; 
             evasionTimer = 0; 
+          }
+        }
+        // --- END SCARE EXECUTION BLOCK ---
+      }
+
+      // --- NEW: LET STAND-IN BOTS LOOT CHESTS ---
+      if (isCompetitiveStandIn && game.isHost) {
+        for (var box in game.world.children.whereType<SpookyBox>()) {
+          if (position.distanceTo(box.position) < 40.0) {
+            game.claimSpookyBoxForBot(box.id, this);
+            break; 
           }
         }
       }

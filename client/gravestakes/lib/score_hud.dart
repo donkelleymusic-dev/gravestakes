@@ -50,6 +50,21 @@ class ScoreHud extends TextComponent with HasGameReference<GraveStakesGame> {
       }
       
       text = 'TEAM: $myTeamScore | ENEMY: $enemyTeamScore | YOU: ${game.player.score}';
+      
+    } else if (game.matchMode == '1on1' || game.matchMode == '1v1') {
+      int myScore = game.player.score;
+      int opponentScore = 0;
+      
+      // Aggregate opponent score from bots (stand-ins) or remote players
+      for (var bot in game.bots) {
+        opponentScore += bot.simulatedScore;
+      }
+      for (var remote in game.networkPlayers.values) {
+        opponentScore += remote.score;
+      }
+      
+      text = 'YOU: $myScore | OPPONENT: $opponentScore';
+      
     } else {
       text = 'SOULS: ${game.player.score}';
     }
