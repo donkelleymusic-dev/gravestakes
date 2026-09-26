@@ -26,10 +26,11 @@ class _InboxScreenState extends State<InboxScreen> {
     if (userId == null) return;
 
     try {
+      // 1. Fetch both sent AND received messages
       final response = await supabase
           .from('player_inbox')
-          .select('id, sender_id, message_type, template_key, attached_image_url, is_read, is_actioned, created_at, profiles!sender_id(username)')
-          .eq('recipient_id', userId)
+          .select('id, sender_id, recipient_id, message_type, template_key, attached_image_url, is_read, is_actioned, created_at, profiles!sender_id(username)')
+          .or('recipient_id.eq.$userId,sender_id.eq.$userId')
           .order('created_at', ascending: false);
 
       if (mounted) {
@@ -39,8 +40,12 @@ class _InboxScreenState extends State<InboxScreen> {
         });
       }
 
-      // Mark all fetched messages as read in the background
-      final unreadIds = _messages.where((m) => m['is_read'] == false).map((m) => m['id']).toList();
+      // 2. Only mark messages as read if YOU are the recipient
+      final unreadIds = _messages
+          .where((m) => m['is_read'] == false && m['recipient_id'] == userId)
+          .map((m) => m['id'])
+          .toList();
+          
       if (unreadIds.isNotEmpty) {
         await supabase.from('player_inbox').update({'is_read': true}).inFilter('id', unreadIds);
       }
@@ -93,12 +98,18 @@ class _InboxScreenState extends State<InboxScreen> {
                   ),
                 )
               : ListView.separated(
+                  // REVERSE THE LIST so newest messages spawn at the bottom like a chat app
+                  reverse: true, 
                   padding: const EdgeInsets.all(16),
                   itemCount: _messages.length,
                   separatorBuilder: (context, index) => const SizedBox(height: 16),
                   itemBuilder: (context, index) {
+                    final msg = _messages[index];
+                    final isMe = msg['sender_id'] == supabase.auth.currentUser?.id;
+                    
                     return InboxMessageCard(
-                      messageData: _messages[index],
+                      messageData: msg,
+                      isMe: isMe, // Add this parameter!
                       onActionComplete: _fetchMessages, 
                     );
                   },
@@ -109,15 +120,20 @@ class _InboxScreenState extends State<InboxScreen> {
 
 class InboxMessageCard extends StatefulWidget {
   final Map<String, dynamic> messageData;
+  final bool isMe;
   final VoidCallback onActionComplete;
 
-  const InboxMessageCard({super.key, required this.messageData, required this.onActionComplete});
+  const InboxMessageCard({
+    super.key, 
+    required this.messageData, 
+    required this.isMe, 
+    required this.onActionComplete
+  });
 
   @override
   State<InboxMessageCard> createState() => _InboxMessageCardState();
 }
 
-// THIS WAS THE MISSING PIECE:
 class _InboxMessageCardState extends State<InboxMessageCard> {
   bool _isProcessing = false;
 
@@ -131,7 +147,6 @@ class _InboxMessageCardState extends State<InboxMessageCard> {
     if (myId == null || senderId == null) return;
 
     try {
-      // MATCH USING THE CORRECT COLUMNS
       await supabase
           .from('friendships')
           .update({'status': 'accepted'})
@@ -153,6 +168,7 @@ class _InboxMessageCardState extends State<InboxMessageCard> {
   Widget build(BuildContext context) {
     String currentLang = context.locale.languageCode;
     
+    final bool isMe = widget.isMe;
     final String templateKey = (widget.messageData['template_key'] as String?) ?? 'unknown_msg';
     final imageUrl = widget.messageData['attached_image_url'];
     final messageType = widget.messageData['message_type'];
@@ -163,76 +179,99 @@ class _InboxMessageCardState extends State<InboxMessageCard> {
         ? profiles['username'] 
         : 'Unknown Entity';
 
-    return Card(
-      color: Colors.black54,
-      shape: RoundedRectangleBorder(
-        side: const BorderSide(color: Colors.white24), 
-        borderRadius: BorderRadius.circular(8)
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: const BoxDecoration(
-              color: Colors.black87,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(8))
-            ),
-            child: Text(
-              'From: $senderName', 
-              style: AppTheme.getLocalizedStyle(currentLang, color: Colors.cyanAccent, fontSize: 12, fontWeight: FontWeight.bold),
-            ),
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: FractionallySizedBox(
+        widthFactor: 0.85, // Leaves space on the opposite side of the screen
+        child: Card(
+          color: isMe ? Colors.purple[900]!.withOpacity(0.4) : Colors.black54,
+          shape: RoundedRectangleBorder(
+            side: BorderSide(color: isMe ? Colors.purpleAccent.withOpacity(0.5) : Colors.white24), 
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(12),
+              topRight: const Radius.circular(12),
+              bottomLeft: isMe ? const Radius.circular(12) : const Radius.circular(0),
+              bottomRight: isMe ? const Radius.circular(0) : const Radius.circular(12),
+            )
           ),
-          
-          if (imageUrl != null)
-            Image.network(
-              imageUrl, 
-              height: 250, 
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => Container(
-                height: 100, 
-                color: Colors.grey[900], 
-                child: const Center(child: Icon(Icons.broken_image, color: Colors.white24))
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isMe ? Colors.purple[900]!.withOpacity(0.8) : Colors.black87,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(12))
+                ),
+                child: Text(
+                  isMe ? 'DISPATCHED BY YOU' : 'FROM: ${senderName.toUpperCase()}', 
+                  style: AppTheme.getLocalizedStyle(currentLang, color: isMe ? Colors.white : Colors.cyanAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
               ),
-            ),
-          
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              templateKey.tr(), 
-              style: AppTheme.getLocalizedStyle(currentLang, color: Colors.white, fontSize: 16),
-              textAlign: TextAlign.center,
-            ),
-          ),
-
-          if (messageType == 'friend_request' && !isActioned)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: _isProcessing 
-                ? const Center(child: CircularProgressIndicator(color: Colors.purpleAccent))
-                : ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.purple[800],
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    onPressed: _acceptFriendRequest,
-                    icon: const Icon(Icons.handshake, color: Colors.white),
-                    label: Text(
-                      'btn_accept'.tr(), 
-                      style: AppTheme.getLocalizedStyle(currentLang, color: Colors.white, fontWeight: FontWeight.bold)
-                    ),
+              
+              if (imageUrl != null)
+                Image.network(
+                  imageUrl, 
+                  height: 250, 
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    height: 100, 
+                    color: Colors.grey[900], 
+                    child: const Center(child: Icon(Icons.broken_image, color: Colors.white24))
                   ),
-            )
-          else if (messageType == 'friend_request' && isActioned)
-             Padding(
-              padding: const EdgeInsets.only(bottom: 16.0),
-              child: Text(
-                'REQUEST ACCEPTED', 
-                textAlign: TextAlign.center,
-                style: AppTheme.getLocalizedStyle(currentLang, color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Text(
+                  templateKey.tr(), 
+                  style: AppTheme.getLocalizedStyle(currentLang, color: Colors.white, fontSize: 16),
+                  textAlign: TextAlign.center,
+                ),
               ),
-            )
-        ],
+
+              // If someone else sent a friend request and it's not actioned
+              if (!isMe && messageType == 'friend_request' && !isActioned)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: _isProcessing 
+                    ? const Center(child: CircularProgressIndicator(color: Colors.purpleAccent))
+                    : ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.purple[800],
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onPressed: _acceptFriendRequest,
+                        icon: const Icon(Icons.handshake, color: Colors.white),
+                        label: Text(
+                          'btn_accept'.tr(), 
+                          style: AppTheme.getLocalizedStyle(currentLang, color: Colors.white, fontWeight: FontWeight.bold)
+                        ),
+                      ),
+                )
+              // If the friend request was accepted
+              else if (messageType == 'friend_request' && isActioned)
+                 Padding(
+                  padding: const EdgeInsets.only(bottom: 16.0),
+                  child: Text(
+                    'REQUEST ACCEPTED', 
+                    textAlign: TextAlign.center,
+                    style: AppTheme.getLocalizedStyle(currentLang, color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                )
+              // If you were the one who sent the friend request
+              else if (isMe && messageType == 'friend_request')
+                 Padding(
+                  padding: const EdgeInsets.only(bottom: 16.0),
+                  child: Text(
+                    'PENDING RESPONSE...', 
+                    textAlign: TextAlign.center,
+                    style: AppTheme.getLocalizedStyle(currentLang, color: Colors.white54, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                )
+            ],
+          ),
+        ),
       ),
     );
   }
