@@ -557,12 +557,17 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     }
     // ----------------------------------------------------
 
-    if (AudioManager.instance.isInitialized) {
+    /* if (AudioManager.instance.isInitialized) {
       if (currentMask.id == 'standard' && AudioManager.instance.impactSource != null) {
         SoLoud.instance.play(AudioManager.instance.impactSource!);
       } else if (currentMask.id == 'flying' && AudioManager.instance.maskScareSounds['flying'] != null) {
         SoLoud.instance.play(AudioManager.instance.maskScareSounds['flying']!);
       }
+    } */
+
+   if (AudioManager.instance.isInitialized) {
+      // This will automatically pull all mask mp3s
+      AudioManager.instance.playMaskScare(currentMask.id);
     }
 
     final masterSeed = DateTime.now().millisecondsSinceEpoch;

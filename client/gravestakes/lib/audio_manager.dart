@@ -14,8 +14,11 @@ class AudioManager {
   SoundHandle? _currentMusicHandle;
   AudioSource? _currentMusicSource;
 
+  bool isChaseMusicPlaying = false;
+
   // Music Sources
   AudioSource? menuMusic;
+  AudioSource? chaseMusic;
   final List<AudioSource> inGameTracks = [];
 
   // Mask Scare SFX Map (Key: maskId -> 'standard', 'siren', 'flying', 'vermin', etc.)
@@ -72,6 +75,7 @@ class AudioManager {
 
       // 1. Preload Music
       menuMusic = await SoLoud.instance.loadAsset('assets/audio/music/menu_theme.mp3');
+      chaseMusic = await SoLoud.instance.loadAsset('assets/audio/music/The_Chase.mp3');
       inGameTracks.add(await SoLoud.instance.loadAsset('assets/audio/music/map_theme.mp3'));
       // inGameTracks.add(await SoLoud.instance.loadAsset('assets/audio/music/crypt_ambience_2.mp3'));
 
@@ -79,7 +83,7 @@ class AudioManager {
       maskScareSounds['standard'] = await SoLoud.instance.loadAsset('assets/audio/ElevenLabs_Impact.mp3');
       maskScareSounds['flying']   = await SoLoud.instance.loadAsset('assets/audio/bat.mp3');
       maskScareSounds['vermin']   = await SoLoud.instance.loadAsset('assets/audio/bugs.mp3');
-      // maskScareSounds['siren']    = await SoLoud.instance.loadAsset('assets/audio/siren_wail.mp3');
+      maskScareSounds['siren']    = await SoLoud.instance.loadAsset('assets/audio/Siren_Mask_Lure.mp3');
 
       // 3. Preload Character-Specific Footsteps (Human vs Steampunk Robot)
       characterFootsteps['default'] = [
@@ -93,9 +97,9 @@ class AudioManager {
       // characterIdleLoops['steampunk_automaton'] = await SoLoud.instance.loadAsset('assets/audio/robot/steam_vent_loop.mp3');
 
       // 4. Preload Physiology / Breathing
-      // heavyBreathingSource = await SoLoud.instance.loadAsset('assets/audio/player/heavy_breathing.mp3');
-      // heartBeatSource = await SoLoud.instance.loadAsset('assets/audio/player/heartbeat.mp3');
-      // gaspBreathSource = await SoLoud.instance.loadAsset('assets/audio/player/gasp_in.mp3');
+      heavyBreathingSource = await SoLoud.instance.loadAsset('assets/audio/Breathing_Type_1.mp3');
+      heartBeatSource = await SoLoud.instance.loadAsset('assets/audio/Heartbeat.mp3');
+      gaspBreathSource = await SoLoud.instance.loadAsset('assets/audio/gasp.mp3');
 
       // 5. Shared SFX
       tickSource = await SoLoud.instance.loadAsset('assets/audio/tick.mp3');
@@ -126,6 +130,12 @@ class AudioManager {
       SoLoud.instance.stop(_currentMusicHandle!);
       _currentMusicHandle = null;
     }
+  }
+
+  Future<void> playChaseMusic() async {
+    if (chaseMusic == null || isChaseMusicPlaying) return;
+    isChaseMusicPlaying = true;
+    await _playBgm(chaseMusic!, volume: 0.6); // Slightly louder for intensity
   }
 
   Future<void> _playBgm(AudioSource source, {double volume = 0.5}) async {

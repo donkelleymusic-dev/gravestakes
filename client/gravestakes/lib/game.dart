@@ -312,9 +312,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     await images.load('Base_BaseChip_pipo.png');
     await images.loadAll([
       'standard_mask.png', 
-      'flying_mask.png', 
-      'vermin_mask.png', 
-      'siren_mask.png'
+      'bat_mask.png', 
+      'rat_mask.png', 
+      'siren_mask_2.png'
     ]);
 
     await _loadVoxelAssets(); 
