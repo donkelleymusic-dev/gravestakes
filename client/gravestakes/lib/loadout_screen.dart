@@ -366,16 +366,36 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     }
   }
 
-  void _selectInventoryItem(String itemType, String itemId) {
+  void _selectInventoryItem(String itemType, String itemId) async {
     setState(() {
       _selectedItemType = itemType;
       _selectedInventoryId = itemId;
     });
 
     if (itemType == 'character') {
-      _draftCharacterId = itemId;
-      _previewCharacterId = itemId;
+      setState(() {
+        _draftCharacterId = itemId;
+        _previewCharacterId = itemId;
+        // Instantly commit the character locally so it doesn't trigger the "Unsaved Changes" bar
+        _committedCharacterId = itemId; 
+      });
       _mannequinGame.loadBaseCharacter(itemId);
+      
+      // --- NEW: INSTANT AUTO-SAVE FOR CHARACTERS ---
+      final userId = supabase.auth.currentUser?.id;
+      if (userId != null) {
+        try {
+          await supabase.from('user_loadouts').upsert({
+            'user_id': userId,
+            'slot_type': 'character',
+            'item_value': itemId
+          }, onConflict: 'user_id, slot_type');
+        } catch (e) {
+          debugPrint('Failed to auto-save character selection: $e');
+        }
+      }
+      // ---------------------------------------------
+      
     } else if (itemType == 'mask') {
       _mannequinGame.setPreviewMask(itemId); 
     }
