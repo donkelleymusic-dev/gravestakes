@@ -312,9 +312,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     await images.load('Base_BaseChip_pipo.png');
     await images.loadAll([
       'standard_mask.png', 
-      'bat_mask.png', 
-      'rat_mask.png', 
-      'siren_mask_2.png'
+      'flying_mask.png', 
+      'vermin_mask.png', 
+      'siren_mask.png'
     ]);
 
     await _loadVoxelAssets(); 
@@ -971,6 +971,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     // --- STOP MUSIC FOR SCORE SCREEN ---
     if (AudioManager.instance.isInitialized) {
       AudioManager.instance.stopPhysiologyLoops();
+      // Explicitly kill the local player's breathing loop!
+      player.stopAudio();
       AudioManager.instance.stopMusic();
     }
 

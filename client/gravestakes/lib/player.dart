@@ -375,7 +375,14 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     try {
       await game.images.load('mask_placeholder.png');
-    } catch (e) {}
+      // --- FIX: PRELOAD ALL MASKS ---
+      // This ensures fromCache() never fails during combat animations
+      for (var mask in MaskRegistry.allMasks.values) {
+        await game.images.load('${mask.id}_mask.png');
+      }
+    } catch (e) {
+      debugPrint('Error preloading masks: $e');
+    }
 
     try {
       _disguiseWall = WallComponent(
@@ -725,7 +732,17 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   @override
   void update(double dt) {    
     priority = ((position.y + 16) * 10).toInt();
-    if (!game.gameStarted) return; 
+    //if (!game.gameStarted) return; 
+
+    // --- FIX: STOP AUDIO WHEN MATCH ENDS ---
+    if (!game.gameStarted) {
+      if (_breathingHandle != null) {
+        SoLoud.instance.stop(_breathingHandle!);
+        _breathingHandle = null;
+      }
+      return; 
+    }
+    // ---------------------------------------
 
     // --- THE AUTO-RAILS SYSTEM ---
     if (isInPuzzleRoom) {
@@ -1269,6 +1286,22 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
               'f': flashlightScale, 'mask_id': currentMaskId, 'sp': species});
     }
   }
+
+  // --- BULLETPROOF AUDIO KILLSWITCH ---
+  void stopAudio() {
+    if (_breathingHandle != null && AudioManager.instance.isInitialized) {
+      SoLoud.instance.stop(_breathingHandle!);
+      _breathingHandle = null;
+    }
+  }
+
+  @override
+  void onRemove() {
+    stopAudio();
+    super.onRemove();
+  }
+
+  
 }
 
 class CosmeticTrailParticle extends SpriteComponent with HasGameReference<GraveStakesGame> {
