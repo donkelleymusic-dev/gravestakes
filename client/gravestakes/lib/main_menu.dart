@@ -33,6 +33,7 @@ import 'cinematic_trailer_game.dart';
 import 'lumen_tier_system.dart';
 import 'synth_manager.dart';
 import 'vanity_screen.dart';
+import 'about_screen.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -538,6 +539,13 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                 icon: Icons.auto_awesome, 
                                 color: Colors.pinkAccent, 
                                 onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const VanityScreen())).then((_) => _fetchPlayerData()),
+                              ),
+                              _buildSidebarIcon(
+                                icon: Icons.info_outline, 
+                                color: Colors.pinkAccent, 
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(builder: (_) => const AboutScreen()),
+                                ),
                               ),
                             ],
                           ),
