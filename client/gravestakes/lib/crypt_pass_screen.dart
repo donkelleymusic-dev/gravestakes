@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart'; // Replaces dart:io for web-safe platform checks
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
@@ -26,6 +27,11 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
   bool _hasPremiumPass = false;
   int _walletCoins = 0;
 
+  // --- iOS: THE GHOSTING RULE, if it is necessary to disable any in-development paid paths, until future review ---
+  // Ghost the track ONLY if we are on a native iOS device and don't own the pass
+  bool get _shouldGhostPremiumTrack => 
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS && !_hasPremiumPass;
+
   List<Map<String, dynamic>> _tiers = [];
 
   @override
@@ -43,7 +49,12 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
   Future<void> _loadPassData() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
-    await Purchases.invalidateCustomerInfoCache();
+    
+    // GUARD: RevenueCat crashes on the web if not bypassed
+    if (!kIsWeb) {
+      await Purchases.invalidateCustomerInfoCache();
+    }
+    
     try {
       // 1. Fetch the active season
       final seasonRes = await supabase
@@ -74,11 +85,45 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
           .eq('user_id', user.id)
           .eq('season_id', _seasonId!)
           .maybeSingle();
-
+      
       // --- AREVENUECAT SYNC BLOCK IF WE PAID BUT LOST CONNECTION AFTER ---
       final customerInfo = await Purchases.getCustomerInfo();
       bool truePremiumStatus = progressRes?['has_premium_pass'] ?? false;
       debugPrint('ACTIVE ENTITLEMENT KEYS: ${customerInfo.entitlements.all.keys.toList()}');
+
+      // --- REVENUECAT SYNC BLOCK (NATIVE ONLY) ---
+      if (!kIsWeb) {
+        try {
+          final customerInfo = await Purchases.getCustomerInfo();
+          debugPrint('ACTIVE ENTITLEMENT KEYS: ${customerInfo.entitlements.all.keys.toList()}');
+          
+          if (customerInfo.entitlements.all["lumen_breach_pro"]?.isActive == true) {
+            truePremiumStatus = true;
+                        
+            final user = Supabase.instance.client.auth.currentUser;
+            if (user != null) {
+              await Supabase.instance.client
+                  .from('player_season_progress')
+                  .upsert({
+                    'user_id': user.id,
+                    'season_id': _seasonId!,
+                    'has_premium_pass': true
+                  });
+            }
+
+            if (mounted) {
+              setState(() {
+                _hasPremiumPass = true;
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Crypt Pass Activated!'), backgroundColor: Colors.green),
+              );
+            }
+          }
+        } catch (e) {
+          debugPrint('RevenueCat Sync Error: $e');
+        }
+      }
       
       if (customerInfo.entitlements.all["lumen_breach_pro"]?.isActive == true) {
                       
@@ -345,7 +390,9 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
               ),
             ],
           ),
-          if (!_hasPremiumPass)
+          //if (!_hasPremiumPass) // when iOS has premium pass, revert to this version
+          // Only show the purchase button on native Android
+          if (!_hasPremiumPass && !kIsWeb && defaultTargetPlatform != TargetPlatform.iOS)
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.purple[800],
@@ -426,22 +473,27 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       color: Colors.grey[950],
-      child: const Row(
+      child: Row( // <-- Removed 'const' here
         children: [
-          Expanded(
+          const Expanded( // <-- Added 'const' here
             child: Text(
               'FREE CADENCE',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey, fontFamily: 'Courier', fontSize: 11, fontWeight: FontWeight.bold),
             ),
           ),
-          SizedBox(width: 50, child: Text('TIER', textAlign: TextAlign.center, style: TextStyle(color: Colors.redAccent, fontFamily: 'Courier', fontSize: 11, fontWeight: FontWeight.bold))),
+          const SizedBox( // <-- Added 'const' here
+            width: 50, 
+            child: Text('TIER', textAlign: TextAlign.center, style: TextStyle(color: Colors.redAccent, fontFamily: 'Courier', fontSize: 11, fontWeight: FontWeight.bold))
+          ),
           Expanded(
-            child: Text(
-              'CRYPT PASS (PREMIUM)',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.purpleAccent, fontFamily: 'Courier', fontSize: 11, fontWeight: FontWeight.bold),
-            ),
+            child: _shouldGhostPremiumTrack 
+              ? const SizedBox() // Hides the header completely
+              : const Text(
+                  'CRYPT PASS (PREMIUM)',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.purpleAccent, fontFamily: 'Courier', fontSize: 11, fontWeight: FontWeight.bold),
+                ),
           ),
         ],
       ),
@@ -498,7 +550,7 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
             ),
           ),
 
-          // Right: Premium Reward
+          /* // Right: Premium Reward
           Expanded(
             child: _buildRewardCard(
               vesselType: tier['premium_vessel_type'],
@@ -508,6 +560,19 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
               accentColor: Colors.purpleAccent,
               onTap: _claimAllAvailable,
             ),
+          ), */
+          // Right: Premium Reward
+          Expanded(
+            child: _shouldGhostPremiumTrack 
+              ? const SizedBox() // Leaves a blank space on the right side of the screen
+              : _buildRewardCard(
+                  vesselType: tier['premium_vessel_type'],
+                  isUnlocked: isUnlocked && _hasPremiumPass,
+                  isClaimed: isClaimed,
+                  isLockedByPass: !_hasPremiumPass,
+                  accentColor: Colors.purpleAccent,
+                  onTap: _claimAllAvailable,
+                ),
           ),
         ],
       ),
