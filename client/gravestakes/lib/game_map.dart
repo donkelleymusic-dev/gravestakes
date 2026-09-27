@@ -337,21 +337,29 @@ class GameMap extends Component with HasGameReference<GraveStakesGame> {
     return false;
   }
 
-  @override
-  bool hasLineOfSight(Vector2 p1, Vector2 p2) {
-    double dist = p1.distanceTo(p2);
-    if (dist < 20) return true; // Point blank always hits
-    Vector2 dir = (p2 - p1).normalized();
+  bool hasLineOfSight(Vector2 start, Vector2 end) {
+    double distance = start.distanceTo(end);
+    Vector2 direction = (end - start).normalized();
     
-    // Start the laser 20 pixels away from the player, and stop 20 pixels before the bot!
-    for (double i = 20.0; i < (dist - 20.0); i += 8.0) {
-      Vector2 checkPos = p1 + (dir * i);
-      int gridX = (checkPos.x / tileSize).floor();
-      int gridY = (checkPos.y / tileSize).floor();
+    // Step size smaller than your 64px tiles
+    double stepSize = 16.0; 
+    double traversed = 0.0;
+    Vector2 currentPos = start.clone();
+    
+    // The size of the "fat ray". A 16x16 box will physically crash 
+    // into the corners of diagonal walls, preventing the squeeze!
+    final rayHitboxSize = Vector2.all(16.0); 
+    
+    while (traversed < distance) {
+      currentPos += direction * stepSize;
+      traversed += stepSize;
       
-      if (gridX < 0 || gridX >= gridWidth || gridY < 0 || gridY >= gridHeight) return false;
-      if (mapGrid[gridY][gridX] > 0) return false; // Laser hit a wall
+      // Uses your existing collision detector to check the ray path
+      if (checkCollision(currentPos, rayHitboxSize)) {
+        return false;
+      }
     }
+    
     return true;
   }
 

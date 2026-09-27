@@ -1111,7 +1111,7 @@ class MenuFog extends PositionComponent with HasGameReference<AmbientMenuGame> {
       ..shader = ui.Gradient.radial(
         Offset.zero,
         baseRadius,
-        [Colors.grey.withOpacity(opacity), Colors.grey.withOpacity(0.0)],
+        [const Color.fromARGB(255, 32, 32, 32).withOpacity(opacity), const Color.fromARGB(255, 43, 43, 43).withOpacity(0.0)], // Swapped to black
         [0.0, 1.0],
       );
       

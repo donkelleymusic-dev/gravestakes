@@ -933,8 +933,20 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       }
     }
 
-    if (isDisguised) {
+    /* if (isDisguised) {
       if (_disguiseWall != null) _disguiseWall!.position = Vector2(-16, -16);
+    } else {
+      if (_disguiseWall != null) _disguiseWall!.position = Vector2(-9999, -9999);
+    } */
+   if (isDisguised) {
+      if (_disguiseWall != null) {
+        // Counteract the massive scale of characters like the Goliath
+        _disguiseWall!.scale = Vector2.all(1.0 / visualScale);
+        
+        // Mathematically center the inversely-scaled block over the player
+        double scaledWallSize = 64.0 / visualScale;
+        _disguiseWall!.position = Vector2(16.0 - scaledWallSize / 2, 16.0 - scaledWallSize / 2);
+      }
     } else {
       if (_disguiseWall != null) _disguiseWall!.position = Vector2(-9999, -9999);
     }

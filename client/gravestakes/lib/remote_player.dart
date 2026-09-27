@@ -6,6 +6,7 @@ import 'package:flutter_soloud/flutter_soloud.dart';
 import 'game.dart'; 
 import 'voxel_character_component.dart';
 import 'audio_manager.dart';
+import 'game_map.dart';
 
 class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
   String currentColorStr = 'red';
@@ -46,7 +47,7 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
   bool isDisguised = false;
   bool isMoving = false;
   bool isInvisible = false;
-  SpriteComponent? _bushSprite;
+  WallComponent? _disguiseWall;
 
   RemotePlayer() : super(size: Vector2.all(32.0), anchor: Anchor.center);
 
@@ -58,12 +59,11 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
     _buildVoxelComponent();
 
     try {
-      final sheet = game.images.fromCache('Base_BaseChip_pipo.png');
-      _bushSprite = SpriteComponent(
-        sprite: Sprite(sheet, srcPosition: Vector2(0, 160), srcSize: Vector2(32, 32)),
-        size: Vector2.all(32),
-        anchor: Anchor.center,
+      _disguiseWall = WallComponent(
+        position: Vector2(-9999, -9999), 
+        tileSize: 64.0,
       );
+      add(_disguiseWall!);
     } catch (e) {}
   }
 
@@ -168,7 +168,10 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
 
     if (!isStunned && _distanceAccumulator >= 85.0) {
       _distanceAccumulator = 0.0; 
-      AudioManager.instance.playEntityFootstep(equippedCharacterId, position, isLocal: false);
+      // --- CULL REMOTE FOOTSTEPS if too far, to save audio channels and cpu ---
+      if (position.distanceTo(game.player.position) < 900.0) {
+        AudioManager.instance.playEntityFootstep(equippedCharacterId, position, isLocal: false);
+      }
     }
 
     if (highlightTimer > 0) {
@@ -212,12 +215,24 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
       }
     }
 
-    if (isDisguised) {
+    /* if (isDisguised) {
       if (_bushSprite != null && _bushSprite!.parent == null) add(_bushSprite!);
     } else if (isInvisible) {
       if (_bushSprite != null && _bushSprite!.parent != null) _bushSprite!.removeFromParent();
     } else {
       if (_bushSprite != null && _bushSprite!.parent != null) _bushSprite!.removeFromParent();
+    } */
+   // --- THE FIX: USE THE PROCEDURAL WALL BLOCK WITH INVERSE SCALING ---
+    if (isDisguised) {
+      if (_disguiseWall != null) {
+        _disguiseWall!.scale = Vector2.all(1.0 / visualScale);
+        
+        // Mathematically center the inversely-scaled block over the remote player
+        double scaledWallSize = 64.0 / visualScale;
+        _disguiseWall!.position = Vector2(16.0 - scaledWallSize / 2, 16.0 - scaledWallSize / 2);
+      }
+    } else {
+      if (_disguiseWall != null) _disguiseWall!.position = Vector2(-9999, -9999);
     }
   }
 

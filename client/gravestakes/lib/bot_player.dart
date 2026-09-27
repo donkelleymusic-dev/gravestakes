@@ -843,7 +843,11 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
                 text: 'MISSED!', 
                 worldPosition: Vector2(position.x - 20, position.y - 60),
               ));
-              AudioManager.instance.playEntityFootstep(assignedCharacterId, position, isLocal: false);
+              //AudioManager.instance.playEntityFootstep(assignedCharacterId, position, isLocal: false);
+              // --- CULL WHIFF SOUNDS if too far ---
+              if (position.distanceTo(game.player.position) < 900.0) {
+                AudioManager.instance.playEntityFootstep(assignedCharacterId, position, isLocal: false); 
+              }
               attackCooldown = 4.0; 
               
             } else {
@@ -923,7 +927,11 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
           _footstepTimer += dt;
           if (_footstepTimer >= dynamicInterval) {
             _footstepTimer = 0.0; 
-            AudioManager.instance.playEntityFootstep(assignedCharacterId, position, isLocal: false);
+            //AudioManager.instance.playEntityFootstep(assignedCharacterId, position, isLocal: false);
+            // --- CULL FOOTSTEPS THAT ARE TOO FAR TO HEAR, to save cpu and also audio channels (max 16) ---
+            if (position.distanceTo(game.player.position) < 900.0) {
+              AudioManager.instance.playEntityFootstep(assignedCharacterId, position, isLocal: false);
+            }
           }
         } else { _footstepTimer = 0.0; }
       } else { _footstepTimer = 0.0; }
