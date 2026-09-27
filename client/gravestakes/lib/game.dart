@@ -1477,6 +1477,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           
           if (senderId == null || senderId == mySessionId) return;
 
+          // 1. Is it a Remote Player?
           if (networkPlayers.containsKey(senderId)) {
             final remote = networkPlayers[senderId]!;
             remote.add(ChatBubbleComponent(
@@ -1484,9 +1485,19 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               borderColor: Color(colorValue),
             ));
             
-            // Play a UI ping sound so players know to look
             if (AudioManager.instance.isInitialized && AudioManager.instance.tickSource != null) {
               SoLoud.instance.play(AudioManager.instance.tickSource!, volume: 0.8);
+            }
+          } 
+          // 2. Is it a Bot?
+          else if (senderId.startsWith('bot_')) {
+            int botIndex = int.tryParse(senderId.split('_')[1]) ?? -1;
+            if (botIndex >= 0 && botIndex < bots.length) {
+              bots[botIndex].add(ChatBubbleComponent(text: text, borderColor: Color(colorValue)));
+              
+              if (AudioManager.instance.isInitialized && AudioManager.instance.tickSource != null) {
+                SoLoud.instance.play(AudioManager.instance.tickSource!, volume: 0.8);
+              }
             }
           }
         },

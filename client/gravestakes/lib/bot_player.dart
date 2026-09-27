@@ -15,6 +15,7 @@ import 'critter.dart';
 import 'flying_scare_blast.dart';
 import 'siren_blast.dart';
 import 'spooky_box.dart';
+import 'chat_bubble_component.dart';
 
 enum BotState { wander, hunt, investigate, charmed, flee }
 enum BotPersonality { grunt, stalker, phantom, trapdoor }
@@ -30,6 +31,18 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   double visualScale = 1.0;
   String assignedCharacterId = 'default';
   String species = 'humanoid';
+
+  bool _canTaunt = false;
+  double _idleTimer = 0.0;
+  static const List<String> _idleTaunts = [
+    'WHERE IS EVERYONE?',
+    'SO QUIET...',
+    'I CAN HEAR YOU BREATHING.',
+    'COME OUT, COME OUT.',
+    'IS THIS A GRAVEYARD?',
+    'BORED...',
+    'ANYONE THERE?'
+  ];
   
   int teamId = 0;
   
@@ -68,6 +81,8 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   double acousticAggroTimer = 0.0;
   List<Vector2> _hunterPath = [];
   double _pathRecalcTimer = 0.0;
+
+  
 
   static const List<String> _fakeNames = [
     'ShadowWalker99', 'GraveDigger', 'LumenThief', 'SpookyToast', 
@@ -235,6 +250,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   @override
   Future<void> onLoad() async {
     priority = ((position.y + 16) * 10).toInt(); 
+    _canTaunt = _random.nextDouble() < 0.20; // 20% chance this bot can talk
 
     if (!isHunter) {
       if (_random.nextInt(10) == 0) {
@@ -638,6 +654,31 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     }
 
     if (!game.isHost) return;
+
+    // --- IDLE TAUNT LOGIC ---
+    if (_canTaunt && currentState == BotState.wander && !isStunned) {
+      _idleTimer += dt;
+      if (_idleTimer > 40.0) { // 40 seconds of zero action
+        _idleTimer = -9999.0; // Ensure they only do it once per massive lull
+        
+        if (_random.nextDouble() < 0.6) { // 60% chance to actually speak
+          String msg = _idleTaunts[_random.nextInt(_idleTaunts.length)];
+          add(ChatBubbleComponent(text: msg, borderColor: Colors.redAccent));
+          
+          game.myChannel.sendBroadcastMessage(
+            event: 'quick_chat', 
+            payload: {
+              'id': 'bot_${game.bots.indexOf(this)}',
+              'text': msg,
+              'color': Colors.redAccent.value,
+              'target_id': 'all',
+            }
+          );
+        }
+      }
+    } else if (currentState == BotState.hunt || isStunned || currentState == BotState.flee) {
+      if (_idleTimer > 0) _idleTimer = 0.0; // Reset if they find action
+    }
 
     if (!isStunned) {
       double currentSpeed = wanderSpeed;
