@@ -6,6 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'ad_manager.dart';
 
+import 'vessel_opener_overlay.dart';
+import 'loadout_screen.dart';
+
 class StoreScreen extends StatefulWidget {
   const StoreScreen({super.key});
 
@@ -179,7 +182,10 @@ class _StoreScreenState extends State<StoreScreen> {
       return;
     }
 
+    setState(() => _isLoading = true); // Block the UI so they don't double-charge
+
     try {
+      // 1. Process the transaction
       await supabase.rpc('buy_item', params: {
         'p_item_type': 'vessel',
         'p_item_id': vesselType,
@@ -187,15 +193,47 @@ class _StoreScreenState extends State<StoreScreen> {
         'p_currency': currency,
       });
 
+      // 2. Update local wallets
       setState(() {
         if (currency == 'coins') {
           _playerCoins -= price;
         } else {
           _playerShadows -= price;
         }
+        _isLoading = false;
       });
-      _showSuccess('$vesselType acquired! Check your Crypt.');
+
+      // 3. Trigger the Opener Animation!
+      if (mounted) {
+        await VesselOpenerOverlay.show(context, vesselType);
+        
+        // 4. Offer a direct portal to the Crypt once they close the loot screen
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text(
+                'Loot secured! Ready to equip?',
+                style: TextStyle(fontFamily: 'Courier', fontWeight: FontWeight.bold),
+              ),
+              backgroundColor: Colors.purple[800],
+              duration: const Duration(seconds: 6),
+              behavior: SnackBarBehavior.floating,
+              action: SnackBarAction(
+                label: 'ENTER CRYPT',
+                textColor: Colors.greenAccent,
+                onPressed: () {
+                  // Teleport them to the Loadout screen
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const LoadoutScreen()),
+                  );
+                },
+              ),
+            ),
+          );
+        }
+      }
     } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
       _showError('Transaction failed: $e');
     }
   }

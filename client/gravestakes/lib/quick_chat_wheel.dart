@@ -8,6 +8,8 @@ import 'chat_bubble_component.dart';
 class QuickChatWheel extends PositionComponent with DragCallbacks, HasGameReference<GraveStakesGame> {
   bool _isActive = false;
   Vector2 _dragDelta = Vector2.zero();
+
+  String? _lockedCategory;
   
   double _cooldownTimer = 0.0;
   final double _maxCooldown = 3.0;
@@ -35,28 +37,42 @@ class QuickChatWheel extends PositionComponent with DragCallbacks, HasGameRefere
     if (_cooldownTimer > 0) return; 
     _isActive = true;
     _dragDelta = Vector2.zero();
+    _lockedCategory = null;
   }
 
   @override
   void onDragUpdate(DragUpdateEvent event) {
-    if (_isActive) _dragDelta += event.localDelta;
+    if (_isActive) {
+      _dragDelta += event.localDelta;
+      
+      // Lock the category once they pass the outer threshold
+      if (_dragDelta.length > _tierThreshold) {
+        _lockedCategory ??= _getQuadrant(_dragDelta.screenAngle());
+      } 
+      // Unlock back to the main menu if they pull their thumb back to dead-center
+      else if (_dragDelta.length < 20.0) {
+        _lockedCategory = null; 
+      }
+    }
   }
 
   @override
   void onDragEnd(DragEndEvent event) {
     super.onDragEnd(event);
-    // Only execute if they committed by dragging into the outer tier
-    if (_isActive && _dragDelta.length > _tierThreshold) {
+    // Only execute if a category is locked and they haven't returned to center
+    if (_isActive && _lockedCategory != null && _dragDelta.length > 20.0) {
       _executePing();
     }
     _isActive = false;
     _dragDelta = Vector2.zero();
+    _lockedCategory = null;
   }
 
   @override
   void onDragCancel(DragCancelEvent event) {
     super.onDragCancel(event);
     _isActive = false;
+    _lockedCategory = null;
   }
 
   // --- DYNAMIC DICTIONARIES ---
@@ -104,9 +120,11 @@ class QuickChatWheel extends PositionComponent with DragCallbacks, HasGameRefere
   }
 
   void _executePing() {
+    if (_lockedCategory == null) return;
+    
     _cooldownTimer = _maxCooldown; 
     
-    String categoryQuad = _getQuadrant(_dragDelta.screenAngle());
+    String categoryQuad = _lockedCategory!;
     String specificQuad = _getQuadrant(_dragDelta.screenAngle()); 
     
     Color color = Colors.white;
@@ -150,8 +168,7 @@ class QuickChatWheel extends PositionComponent with DragCallbacks, HasGameRefere
     }
 
     if (_isActive) {
-      String currentCategory = _getQuadrant(_dragDelta.screenAngle());
-      bool isOuterRing = _dragDelta.length > _tierThreshold;
+      bool isOuterRing = _lockedCategory != null;
 
       // Draw the Outer Ring Background dynamically
       canvas.drawCircle(center, 90.0, Paint()..color = Colors.black87.withOpacity(0.8));
@@ -165,19 +182,21 @@ class QuickChatWheel extends PositionComponent with DragCallbacks, HasGameRefere
         _drawText(canvas, center, _loadout['LEFT']!['LABEL']!, Colors.purpleAccent, -pi/2, 30);
       } else {
         // TIER 2: Pushed into the outer ring, showing specific shouts for the selected category
-        Map<String, String> activeSet = _loadout[currentCategory]!;
-        Color activeColor = currentCategory == 'UP' ? Colors.redAccent : 
-                           (currentCategory == 'RIGHT' ? Colors.orangeAccent : 
-                           (currentCategory == 'DOWN' ? Colors.cyanAccent : Colors.purpleAccent));
+        Map<String, String> activeSet = _loadout[_lockedCategory!]!;
+        Color activeColor = _lockedCategory == 'UP' ? Colors.redAccent : 
+                           (_lockedCategory == 'RIGHT' ? Colors.orangeAccent : 
+                           (_lockedCategory == 'DOWN' ? Colors.cyanAccent : Colors.purpleAccent));
+
+        String currentSelection = _getQuadrant(_dragDelta.screenAngle());
 
         // Center Label (Faded)
         _drawText(canvas, center, activeSet['LABEL']!, activeColor.withOpacity(0.5), 0, 0);
 
-        // Subcategory Targets
-        _drawText(canvas, center, activeSet['UP']!, activeColor, 0, 65);
-        _drawText(canvas, center, activeSet['RIGHT']!, activeColor, pi/2, 65);
-        _drawText(canvas, center, activeSet['DOWN']!, activeColor, pi, 65);
-        _drawText(canvas, center, activeSet['LEFT']!, activeColor, -pi/2, 65);
+        // Subcategory Targets - Highlighted in white when hovered!
+        _drawText(canvas, center, activeSet['UP']!, currentSelection == 'UP' ? Colors.white : activeColor, 0, 65);
+        _drawText(canvas, center, activeSet['RIGHT']!, currentSelection == 'RIGHT' ? Colors.white : activeColor, pi/2, 65);
+        _drawText(canvas, center, activeSet['DOWN']!, currentSelection == 'DOWN' ? Colors.white : activeColor, pi, 65);
+        _drawText(canvas, center, activeSet['LEFT']!, currentSelection == 'LEFT' ? Colors.white : activeColor, -pi/2, 65);
       }
 
       // Draw the Thumb Drag Indicator
