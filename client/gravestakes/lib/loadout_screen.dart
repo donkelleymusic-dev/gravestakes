@@ -1049,6 +1049,8 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       groupedChars.putIfAbsent(species, () => []).add({
         'id': charId,
         'state': state, 
+        'is_owned': isOwned, // Added for sorting
+        'shards_needed': max(0, maxShards - currentShards), // Added for sorting
         'name': charData['name'] ?? charId,
         'thumbnail_path': charData['thumbnail_path'],
         'price': charData['price'] ?? 0,
@@ -1056,6 +1058,23 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         'current_shards': currentShards,
         'max_shards': maxShards,
         'bind_cost': maxShards * 25,
+      });
+    });
+
+    // --- NEW: SORT THE CHARACTERS WITHIN EACH SPECIES ---
+    groupedChars.forEach((species, chars) {
+      chars.sort((a, b) {
+        // 1. Owned characters always jump to the front
+        if (a['is_owned'] && !b['is_owned']) return -1;
+        if (!a['is_owned'] && b['is_owned']) return 1;
+        
+        // 2. If neither are owned, sort by lowest shards needed
+        if (!a['is_owned'] && !b['is_owned']) {
+          return (a['shards_needed'] as int).compareTo(b['shards_needed'] as int);
+        }
+        
+        // 3. Otherwise, keep their natural catalog order
+        return 0;
       });
     });
 
@@ -1127,7 +1146,17 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                       children: [
                         Expanded(
                           child: Center(
-                            child: buildSafeItemThumbnail(assetPath: char['thumbnail_path'], slotType: 'character', size: 60.0),
+                            child: charId == 'default'
+                                ? IgnorePointer( // Prevents the mini 3D canvas from intercepting scroll gestures
+                                    child: SizedBox(
+                                      width: 42,
+                                      height: 42,
+                                      child: GameWidget(
+                                        game: MannequinGame()..loadBaseCharacter('default'),
+                                      ),
+                                    ),
+                                  )
+                                : buildSafeItemThumbnail(assetPath: char['thumbnail_path'], slotType: 'character', size: 60.0),
                           ),
                         ),
                         Container(

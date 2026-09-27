@@ -18,6 +18,9 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
   late Vector2 velocity;
   double lifeTimer = 3.0; 
   double spawnTimer = 0.15; 
+
+  // --- NEW: Animation state ---
+  double _scuttleTimer = 0.0;
   
   SoundHandle? _scurryHandle;
   static const double _audioScale = 50.0;
@@ -31,8 +34,7 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
     required this.ownerId,
   }) : super(
          position: position,
-         radius: 2, 
-         paint: Paint()..color = Colors.greenAccent,
+         radius: 2, // Keeps the physical hitbox tiny so they don't get stuck on walls
          anchor: Anchor.center,
        ) {
     
@@ -67,6 +69,10 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
   void update(double dt) {
     super.update(dt);
     priority = ((position.y + 16) * 10).toInt();
+    
+    // --- NEW: Advance animation and rotate body to face movement direction ---
+    _scuttleTimer += dt * 40.0;
+    angle = atan2(velocity.y, velocity.x); 
     
     lifeTimer -= dt;
     if (lifeTimer <= 0) {
@@ -153,6 +159,48 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
         }
       }
     }
+  }
+
+  // --- NEW: Procedural Render Method ---
+  @override
+  void render(Canvas canvas) {
+    // We do NOT call super.render(canvas) to hide the default green circle
+
+    final paintBody = Paint()..color = const Color(0xFF151515); 
+    final paintEye = Paint()..color = Colors.redAccent; 
+    final paintMouth = Paint()..color = Colors.black..strokeWidth = 1.0;
+    final paintAppendage = Paint()
+      ..color = Colors.grey.shade900
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+
+    // Body (Width 18, Height 10 pill shape)
+    canvas.drawOval(Rect.fromCenter(center: Offset.zero, width: 18, height: 10), paintBody);
+
+    // Animated Tail (Whips back and forth)
+    double tailWiggle = sin(_scuttleTimer) * 5.0;
+    final tailPath = Path()
+      ..moveTo(-9, 0)
+      ..quadraticBezierTo(-14, tailWiggle, -20, -tailWiggle * 0.5); 
+    canvas.drawPath(tailPath, paintAppendage);
+
+    // Eyes (Positioned near the front)
+    canvas.drawCircle(const Offset(5, -2.5), 1.2, paintEye);
+    canvas.drawCircle(const Offset(5, 2.5), 1.2, paintEye);
+
+    // Mouth
+    canvas.drawLine(const Offset(8, -1), const Offset(8, 1), paintMouth);
+
+    // Scuttling Legs
+    double legWiggle = cos(_scuttleTimer) * 3.0;
+
+    // Left/Top side legs
+    canvas.drawLine(const Offset(-4, -5), Offset(-4 + legWiggle, -9), paintAppendage);
+    canvas.drawLine(const Offset(4, -5), Offset(4 - legWiggle, -9), paintAppendage);
+
+    // Right/Bottom side legs
+    canvas.drawLine(const Offset(-4, 5), Offset(-4 - legWiggle, 9), paintAppendage);
+    canvas.drawLine(const Offset(4, 5), Offset(4 + legWiggle, 9), paintAppendage);
   }
 
   @override
