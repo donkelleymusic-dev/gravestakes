@@ -15,8 +15,8 @@ class SynthManager {
     try {
       if (!SoLoud.instance.isInitialized) return;
       
-      // Dropped one octave (131 Hz) using the new harmonic generator
-      final synthBytes = _generateSynthWav(frequency: 131.0, duration: 1.0);
+      // Dropped one octave (65.5 Hz) 
+      final synthBytes = _generateSynthWav(frequency: 65.5, duration: 1.0);
       
       _synthWave = await SoLoud.instance.loadMem('pure_synth.wav', synthBytes);
       
@@ -58,7 +58,7 @@ class SynthManager {
       SoLoud.instance.setRelativePlaySpeed(handle, pitch);
       SoLoud.instance.setPause(handle, false);
       
-      SoLoud.instance.fadeVolume(handle, 1.0, Duration(milliseconds: durationMs));
+      SoLoud.instance.fadeVolume(handle, 0.8, Duration(milliseconds: durationMs));
       activeHandles.add(handle);
     }
     return activeHandles;
@@ -82,7 +82,7 @@ class SynthManager {
 
     for (double pitch in majorTriad) {
       // Strike the chord at MAXIMUM volume (1.0)
-      final handle = SoLoud.instance.play(_synthWave!, volume: 1.0, paused: true, looping: true);
+      final handle = SoLoud.instance.play(_synthWave!, volume: 0.8, paused: true, looping: true);
       SoLoud.instance.setRelativePlaySpeed(handle, pitch);
       SoLoud.instance.setPause(handle, false); 
       
