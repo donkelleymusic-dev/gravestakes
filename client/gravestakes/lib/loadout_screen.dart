@@ -116,7 +116,8 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       final responses = await Future.wait<dynamic>([
         supabase.from('wallets').select('shadows, coins').eq('id', userId).single(), 
         supabase.from('wearables').select(),                                         
-        supabase.from('masks').select().order('price'),                             
+        supabase.from('masks').select().order('price'),
+        supabase.from('characters').select().eq('enabled', true),                          
         supabase.from('characters').select(),                                       
         supabase.from('user_loadouts').select('slot_type, item_value').eq('user_id', userId), 
         supabase.from('user_inventory').select('item_id, item_type').eq('user_id', userId),   
@@ -1149,14 +1150,14 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                             child: charId == 'default'
                                 ? IgnorePointer( // Prevents the mini 3D canvas from intercepting scroll gestures
                                     child: SizedBox(
-                                      width: 42,
-                                      height: 42,
+                                      width: 90,
+                                      height: 90,
                                       child: GameWidget(
                                         game: MannequinGame()..loadBaseCharacter('default'),
                                       ),
                                     ),
                                   )
-                                : buildSafeItemThumbnail(assetPath: char['thumbnail_path'], slotType: 'character', size: 60.0),
+                                : buildSafeItemThumbnail(assetPath: char['thumbnail_path'], slotType: 'character', size: 90.0),
                           ),
                         ),
                         Container(
@@ -1239,7 +1240,7 @@ class MannequinGame extends FlameGame {
       String zipPath = 'assets/character_assets.zip'; 
       if (characterId != 'default') {
         final charRes = await Supabase.instance.client
-            .from('characters').select('zip_asset_path').eq('id', characterId).maybeSingle();
+            .from('characters').select('zip_asset_path').eq('id', characterId).eq('enabled', true).maybeSingle();
         if (charRes != null && charRes['zip_asset_path'] != null) {
           zipPath = charRes['zip_asset_path'];
         }

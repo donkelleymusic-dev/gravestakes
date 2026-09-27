@@ -275,7 +275,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
 
     try {
       final supabase = Supabase.instance.client;
-      final charsRes = await supabase.from('characters').select('*');
+      final charsRes = await supabase.from('characters').select('*').eq('enabled', true);
       
       if (charsRes != null && charsRes.isNotEmpty) {
         final List<Map<String, dynamic>> chars = List<Map<String, dynamic>>.from(charsRes);

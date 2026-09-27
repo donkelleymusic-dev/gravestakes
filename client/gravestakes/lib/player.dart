@@ -496,6 +496,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
             .from('characters')
             .select('*')
             .eq('id', equippedCharacterId)
+            .eq('enabled', true)
             .maybeSingle();
 
         if (charRes != null) {

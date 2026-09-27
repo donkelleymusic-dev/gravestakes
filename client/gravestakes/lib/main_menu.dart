@@ -995,7 +995,10 @@ class AmbientMenuGame extends FlameGame {
   @override
   Future<void> onLoad() async {
     try {
-      final res = await Supabase.instance.client.from('characters').select('id, base_speed');
+      final res = await Supabase.instance.client
+          .from('characters')
+          .select('id, base_speed')
+          .eq('enabled', true); 
       availableCharacters = List<Map<String, dynamic>>.from(res);
     } catch (e) {}
 

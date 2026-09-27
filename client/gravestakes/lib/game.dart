@@ -1791,7 +1791,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     try {
       final charRes = await Supabase.instance.client
-          .from('characters').select('zip_asset_path').eq('id', charId).maybeSingle();
+          .from('characters').select('zip_asset_path').eq('id', charId).eq('enabled', true).maybeSingle();
       
       if (charRes == null || charRes['zip_asset_path'] == null) return;
       
