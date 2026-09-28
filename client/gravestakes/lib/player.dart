@@ -614,6 +614,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       game.world.add(WendigoDecoy(position: position.clone(), angle: facingAngle, ownerId: game.mySessionId));
     } else if (currentMask.id == 'poltergeist') {
       game.world.add(PoltergeistTrap(position: position.clone(), angle: facingAngle, ownerId: game.mySessionId));
+    } else if (currentMask.id == 'banshee') {
+      game.world.add(BansheeBeam(position: position.clone(), angle: facingAngle));
     } else {
       if (!isGunner && currentMask.id != 'siren') {
         final forward = Vector2(sin(facingAngle), -cos(facingAngle));

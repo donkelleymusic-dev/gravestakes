@@ -868,6 +868,8 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
                 game.world.add(PoltergeistTrap(position: position.clone(), angle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
               } else if (currentMaskId == 'siren') {
                 add(SirenBlast()..position = size / 2);
+              } else if (currentMaskId == 'banshee') {
+                game.world.add(BansheeBeam(position: position.clone(), angle: facingAngle)); // <-- NEW BANSHEE LASER
               } else {
                 game.world.add(ScareBlast(position: position.clone(), angle: facingAngle - (pi / 2))..priority = priority + 5);
               }

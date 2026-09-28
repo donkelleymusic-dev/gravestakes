@@ -1515,6 +1515,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
                 }
               } else if (bot.currentMaskId == 'siren') {
                 bot.add(SirenBlast()..position = bot.size / 2);
+              } else if (bot.currentMaskId == 'banshee') {
+                world.add(BansheeBeam(position: bot.position.clone(), angle: bot.facingAngle));
               } else {
                 world.add(ScareBlast(position: bot.position.clone(), angle: bot.facingAngle - (pi / 2))..priority = bot.priority + 5);
               }
@@ -1650,6 +1652,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               }
             } else if (maskId == 'siren') {
               remote.add(SirenBlast()..position = remote.size / 2);
+            } else if (maskId == 'banshee') {
+                world.add(BansheeBeam(position: remote.position.clone(), angle: remote.facingAngle));
              } else {
               world.add(ScareBlast(position: remote.position.clone(), angle: remote.facingAngle - (pi / 2))..priority = remote.priority + 5);
             }
