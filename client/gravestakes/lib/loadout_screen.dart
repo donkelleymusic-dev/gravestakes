@@ -18,6 +18,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'voxel_character_component.dart';
 import 'character_asset_manager.dart';
 
+import 'tactical_analyzer.dart';
+
 // --- DATA MODELS ---
 class WearableDef {
   final String id;
@@ -103,7 +105,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this); 
+    _tabController = TabController(length: 6, vsync: this); // Change length to 6
     _mannequinGame = MannequinGame();
     _fetchLoadoutData();
   }
@@ -725,6 +727,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 children: [
                   TabBar(
                     controller: _tabController,
+                    isScrollable: true, // <-- ADD THIS so the tabs can slide horizontally
                     indicatorColor: Colors.purpleAccent,
                     labelColor: Colors.purpleAccent,
                     unselectedLabelColor: Colors.white54,
@@ -748,6 +751,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                       const Tab(icon: Icon(Icons.diamond, size: 18), text: 'Neck'),
                       const Tab(icon: Icon(Icons.back_hand, size: 18), text: 'Arms'),
                       const Tab(icon: Icon(Icons.accessibility, size: 18), text: 'Belt'),
+                      const Tab(icon: Icon(Icons.analytics_outlined, size: 18), text: 'Intel'), // <-- ADD THE NEW TAB
                     ],
                   ),
                   Expanded(
@@ -759,6 +763,9 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                         _buildInventoryGrid('wearable_neck'),
                         _buildInventoryGrid('wearable_arms'),
                         _buildInventoryGrid('wearable_belt'),
+                        const SingleChildScrollView(
+                          child: TacticalDossierPanel(),
+                        ),
                       ],
                     ),
                   ),
@@ -1527,4 +1534,81 @@ class AttackTypeIconPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class TacticalDossierPanel extends StatelessWidget {
+  const TacticalDossierPanel({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, String>?>(
+      future: TacticalAnalyzer.generateDossier(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(16.0),
+              child: CircularProgressIndicator(color: Colors.cyanAccent),
+            ),
+          );
+        }
+
+        final data = snapshot.data;
+        if (data == null) return const SizedBox.shrink();
+
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
+          padding: const EdgeInsets.all(16.0),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.6),
+            border: Border.all(color: Colors.cyanAccent.withOpacity(0.5)),
+            borderRadius: BorderRadius.circular(8.0),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.analytics_outlined, color: Colors.cyanAccent, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'TACTICAL DOSSIER: ${data['title']}',
+                    style: const TextStyle(
+                      color: Colors.cyanAccent,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Courier',
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                data['body']!,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Text(
+                    'RECOMMENDED ACQUISITION: ',
+                    style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    data['suggested_item']!.toUpperCase(),
+                    style: const TextStyle(color: Colors.amberAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
