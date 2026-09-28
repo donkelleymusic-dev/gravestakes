@@ -131,6 +131,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
   Map<String, int> playerTeams = {};
 
+  bool _isFavoredPrey(String attackerSpecies, String victimSpecies) {
+    final a = attackerSpecies.toLowerCase();
+    final v = victimSpecies.toLowerCase();
+    if (a.contains('ghost') && v.contains('humanoid')) return true;
+    if (a.contains('humanoid') && v.contains('cybernetic')) return true;
+    if (a.contains('cybernetic') && v.contains('alien')) return true;
+    if (a.contains('alien') && v.contains('beast')) return true;
+    if (a.contains('beast') && v.contains('ghost')) return true;
+    return false;
+  }
+
   bool _matchesDoctrine(dynamic target) {
     if (guildActiveDoctrine == 'none') return false;
     String targetSpecies = 'humanoid'; 
@@ -1240,8 +1251,15 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       if (matchMode == '2v2' && getEntityTeam(player) == getEntityTeam(bot)) continue; 
       if (bot.localImmunityToMe > 0) continue; 
       
+      // --- CIRCLE OF TORMENT CHECK ---
+      String vSpecies = bot.species ?? 'humanoid';
+      bool isPrey = _isFavoredPrey(player.species, vSpecies);
+      
+      // 15% Area of Effect Boost against prey
+      double effectiveRadius = scareRadius * (isPrey ? 1.15 : 1.0);
+
       final toBot = bot.position - attackerPos;
-      if (toBot.length < scareRadius) {
+      if (toBot.length < effectiveRadius) {
         toBot.normalize();
         final dot = forward.dot(toBot);
 
@@ -1275,6 +1293,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               }
             } else {
               double stunDuration = _matchesDoctrine(bot) ? 4.4 : 4.0;
+              
+              // 15% Stun Duration Boost against prey
+              if (isPrey) stunDuration *= 1.15; 
+              
               bot.applyStun(stunDuration); 
               bot.localImmunityToMe = 7.0; 
               bot.triggerPrivateHighlight(); 
@@ -1309,8 +1331,18 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       var remotePlayer = networkPlayers[remoteId]!;
       if (remotePlayer.localImmunityToMe > 0) continue; 
       
+      // --- CIRCLE OF TORMENT CHECK ---
+      // Safely grab the remote player's species (defaulting to humanoid if missing)
+      String vSpecies = 'humanoid';
+      try { vSpecies = remotePlayer.species; } catch (_) {}
+      
+      bool isPrey = _isFavoredPrey(player.species, vSpecies);
+
+      // 15% Area of Effect Boost against favored prey
+      double effectiveRadius = scareRadius * (isPrey ? 1.15 : 1.0);
+      
       final toPlayer = remotePlayer.position - attackerPos;
-      if (toPlayer.length < scareRadius) {
+      if (toPlayer.length < effectiveRadius) {
         toPlayer.normalize();
         final dot = forward.dot(toPlayer);
 
@@ -1332,11 +1364,15 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             remotePlayer.triggerPrivateHighlight(); 
             
             double stunDuration = _matchesDoctrine(remotePlayer) ? 2.2 : 2.0;
+            
+            // 15% Stun Duration Boost against favored prey
+            if (isPrey) stunDuration *= 1.15;
+
             myChannel.sendBroadcastMessage(event: 'stun', payload: {
               'id': remoteId, 
               'duration': stunDuration, 
               'attacker_id': mySessionId,
-              'attacker_x': attackerPos.x, // Send your position so they can recoil too!
+              'attacker_x': attackerPos.x,
               'attacker_y': attackerPos.y
             });
 
@@ -1347,7 +1383,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               attackerMaskId: maskId,
               victimName: remoteId.substring(0, 4), 
               victimCharId: remotePlayer.equippedCharacterId,
-              victimId: remoteId, // <-- NEW: Pass the full UUID here
+              victimId: remoteId, 
               timestamp: gameTimer.timeLeft.toInt(),
               mapX: attackerPos.x,
               mapY: attackerPos.y,

@@ -33,9 +33,9 @@ class WearableDef {
   final String? assetPath;
 
   WearableDef.fromJson(Map<String, dynamic> json)
-      : id = json['id'] as String,
-        name = json['name'] as String,
-        slotType = json['slot_type'] as String,
+      : id = json['id']?.toString() ?? 'unknown',
+        name = json['name']?.toString() ?? 'Unknown',
+        slotType = json['slot_type']?.toString() ?? 'unknown',
         counterTarget = json['counter_target'] as String? ?? '',
         buffStat = json['buff_stat'] as String? ?? '',
         buffValue = (json['buff_value'] as num?)?.toDouble() ?? 1.0,
@@ -154,8 +154,12 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       _committedMasks = ['', '', '', ''];
 
       for (var row in loadoutRes) {
-        final slot = row['slot_type'] as String;
-        final val = row['item_value'] as String;
+        // Safely parse strings, falling back to empty if null
+        final slot = row['slot_type']?.toString() ?? '';
+        final val = row['item_value']?.toString() ?? '';
+        
+        // Skip malformed rows where the slot or value is missing
+        if (slot.isEmpty || val.isEmpty) continue;
         
         if (slot == 'character') {
           _committedCharacterId = val;

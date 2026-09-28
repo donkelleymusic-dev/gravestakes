@@ -1172,7 +1172,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
             if (dissonanceTimer <= 0) isDissonant = false;
           }
 
+          // --- APPLY WEARABLE SPEED MULTIPLIER ---
           double baseMax = hasGunnerAttached ? maxSpeed * 1.3 : maxSpeed;
+          baseMax *= speedMult; // Wearables now make you faster!
           double currentSpeed = isPoweredUp ? 280.0 : baseMax;
           
           final potentialPosition = position + (movementDelta * currentSpeed * dt);
@@ -1255,7 +1257,11 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     if (timeRemaining <= 120 && timeRemaining > 60) regenMultiplier = 0.7; 
     if (timeRemaining <= 60) regenMultiplier = 1.3; 
     
-    energy = (energy + (energyRegenRate * regenMultiplier * dt)).clamp(0.0, maxEnergy);
+    // --- APPLY WEARABLE MULTIPLIERS FOR ENERGY ---
+    double effectiveMaxEnergy = maxEnergy * maxEnergyMult;
+    double effectiveRegen = energyRegenRate * energyRegenMult;
+    
+    energy = (energy + (effectiveRegen * regenMultiplier * dt)).clamp(0.0, effectiveMaxEnergy);
 
     if (isRecharging) {
       flashlightBattery += (100.0 / 6.0) * dt; 
