@@ -1467,6 +1467,58 @@ class AttackTypeIconPainter extends CustomPainter {
       canvas.drawPath(path, strokePaint);
       canvas.drawLine(Offset(c.dx - 3, c.dy + 2), Offset(c.dx - 3, c.dy + 5), strokePaint);
       canvas.drawLine(Offset(c.dx + 3, c.dy + 2), Offset(c.dx + 3, c.dy + 5), strokePaint);
+    }
+    // --- NEW TACTICAL MASKS ---
+    else if (maskId == 'gorgon') {
+      // Reptilian Eye with vertical slit pupil
+      final path = Path()
+        ..moveTo(c.dx - 7, c.dy)
+        ..quadraticBezierTo(c.dx, c.dy - 6, c.dx + 7, c.dy)
+        ..quadraticBezierTo(c.dx, c.dy + 6, c.dx - 7, c.dy);
+      canvas.drawPath(path, strokePaint);
+      canvas.drawLine(Offset(c.dx, c.dy - 3), Offset(c.dx, c.dy + 3), strokePaint..strokeWidth = 2);
+    }
+    else if (maskId == 'poltergeist') {
+      // Shattered Diamond Ward with glowing core
+      final path = Path()
+        ..moveTo(c.dx, c.dy - 6)
+        ..lineTo(c.dx + 6, c.dy)
+        ..lineTo(c.dx, c.dy + 6)
+        ..lineTo(c.dx - 6, c.dy)
+        ..close();
+      canvas.drawPath(path, strokePaint);
+      canvas.drawCircle(c, 1.5, fillPaint);
+    }
+    else if (maskId == 'banshee') {
+      // Screaming Mouth with directional sonic waves
+      canvas.drawOval(Rect.fromCenter(center: Offset(c.dx - 4, c.dy), width: 3, height: 8), fillPaint);
+      canvas.drawArc(Rect.fromCircle(center: Offset(c.dx - 2, c.dy), radius: 5), -pi/3, (2*pi)/3, false, strokePaint);
+      canvas.drawArc(Rect.fromCircle(center: Offset(c.dx - 2, c.dy), radius: 8), -pi/3, (2*pi)/3, false, strokePaint);
+    }
+    else if (maskId == 'wendigo') {
+      // Jagged Antlers
+      final path = Path()
+        ..moveTo(c.dx, c.dy + 5)
+        ..lineTo(c.dx - 5, c.dy - 4)
+        ..moveTo(c.dx, c.dy + 5)
+        ..lineTo(c.dx + 5, c.dy - 4)
+        ..moveTo(c.dx - 2.5, c.dy + 0.5)
+        ..lineTo(c.dx - 6, c.dy + 1)
+        ..moveTo(c.dx + 2.5, c.dy + 0.5)
+        ..lineTo(c.dx + 6, c.dy + 1);
+      canvas.drawPath(path, strokePaint);
+    }
+    else if (maskId == 'parasite') {
+      // Circular Maw with inward-facing teeth
+      canvas.drawCircle(c, 6, strokePaint);
+      for (int i = 0; i < 8; i++) {
+        double angle = i * (pi / 4);
+        canvas.drawLine(
+          Offset(c.dx + cos(angle) * 6, c.dy + sin(angle) * 6),
+          Offset(c.dx + cos(angle) * 3, c.dy + sin(angle) * 3),
+          strokePaint..strokeWidth = 1.0
+        );
+      }
     } 
     else {
       canvas.drawCircle(c, 2, fillPaint);
