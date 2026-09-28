@@ -1,5 +1,7 @@
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
+import 'dart:math';
+import 'game.dart';
 
 class ScareBlast extends PositionComponent {
   double lifeTimer = 0.25;
