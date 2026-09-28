@@ -180,7 +180,7 @@ class CinematicTrailerGame extends FlameGame {
         debugPrint('TIMECODE [${_elapsedTime.toStringAsFixed(2)}]: JUMP SCARE. CUT TO BLACK.');
         
         // Trigger the mask pop/shake animation on the Voxel engine
-        actorMonster.triggerScareAnimation();
+        actorMonster.triggerScareAnimation('standard');
         
         Future.delayed(const Duration(milliseconds: 300), () {
            cinematicDarkness.paint.color = Colors.black.withOpacity(1.0);

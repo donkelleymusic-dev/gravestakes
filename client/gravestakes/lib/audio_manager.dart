@@ -202,14 +202,22 @@ class AudioManager {
     if (source == null) return;
 
     const double audioScale = 50.0;
+    
+    // --- BANSHEE Z-AXIS OVERRIDE ---
+    // Ground level is 0.0. The Banshee shrieks from 80.0 units in the air.
+    final double zAxis = (maskId == 'banshee') ? 80.0 : 0.0;
+
     final handle = SoLoud.instance.play3d(
       source,
       worldPos.x / audioScale,
       worldPos.y / audioScale,
-      0.0,
+      zAxis,
       volume: 0.95,
     );
-    SoLoud.instance.set3dSourceMinMaxDistance(handle, 2.0, 30.0);
+    
+    // Banshee sounds travel much further
+    final maxDist = (maskId == 'banshee') ? 50.0 : 30.0;
+    SoLoud.instance.set3dSourceMinMaxDistance(handle, 2.0, maxDist);
     SoLoud.instance.set3dSourceAttenuation(handle, 1, 1.2);
   }
 }

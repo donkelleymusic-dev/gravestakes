@@ -45,6 +45,21 @@ class FpsMaskEffect extends PositionComponent with HasGameReference {
 
     // Dramatic scale: Starts small, explodes past the camera lens, then fades
     double scale = 0.5 + (progress * 2.5);
+    
+    // --- THE BANSHEE ASCENSION ---
+    if (maskId == 'banshee') {
+      // 1. Calculate a perfect parabolic arc that peaks at exactly 50% of the animation
+      // sin(progress * pi) creates a smooth curve from 0.0 -> 1.0 -> 0.0
+      double arc = sin(progress * pi);
+      
+      // 2. Shoot the mask 800 pixels into the "sky" (negative Y)
+      double skywardTranslation = -800.0 * arc;
+      canvas.translate(0, skywardTranslation);
+      
+      // 3. Keep the mask slightly smaller so it feels high up and distant
+      scale = 0.5 + (progress * 1.2); 
+    }
+
     canvas.scale(scale, scale);
 
     // Slight rotation punch

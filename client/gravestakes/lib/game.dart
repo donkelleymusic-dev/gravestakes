@@ -721,7 +721,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         // 20.5s: SCARE TRIGGER (Exactly as the camera locks onto South)
         if (snapTime > 0.5 && snapTime < 0.55) {
           if (cinematicMonster!.voxelComponent != null) {
-              cinematicMonster!.voxelComponent!.triggerScareAnimation();
+              cinematicMonster!.voxelComponent!.triggerScareAnimation('siren');
           }
           if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
             SoLoud.instance.play(AudioManager.instance.impactSource!); 
@@ -1239,23 +1239,26 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     int hitCount = 0;
     final forward = Vector2(sin(attackerAngle), -cos(attackerAngle));
     
-    final double scareRadius = maskId == 'siren' ? 2000.0 : (hasExtendedRange ? 600.0 : range);
+    // --- DYNAMIC RADIUS ASSIGNMENT ---
+    double scareRadius = range;
+    if (hasExtendedRange) scareRadius = 600.0;
+    if (maskId == 'siren') scareRadius = 2000.0;
+    if (maskId == 'gorgon') scareRadius = 1200.0; // Massive room-wide blast
+    if (maskId == 'banshee') scareRadius = 1500.0; // Extreme sniper range
 
     for (var bot in bots) {
-      if (bot.isHunter) {
-        bot.hearLoudNoise(attackerPos);
-      }
+      if (bot.isHunter) bot.hearLoudNoise(attackerPos);
     }
 
+    // ==========================================
+    // 1. BOT COLLISION LOOP
+    // ==========================================
     for (var bot in bots) {
       if (matchMode == '2v2' && getEntityTeam(player) == getEntityTeam(bot)) continue; 
       if (bot.localImmunityToMe > 0) continue; 
       
-      // --- CIRCLE OF TORMENT CHECK ---
       String vSpecies = bot.species ?? 'humanoid';
       bool isPrey = _isFavoredPrey(player.species, vSpecies);
-      
-      // 15% Area of Effect Boost against prey
       double effectiveRadius = scareRadius * (isPrey ? 1.15 : 1.0);
 
       final toBot = bot.position - attackerPos;
@@ -1265,80 +1268,76 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
         if (maskId == 'siren') {
           if (dot > 0.0) { 
-            double duration = 15.0; 
-            bot.applyCharm(duration, player);
+            bot.applyCharm(15.0, player);
             bot.localImmunityToMe = 16.0;
             hitCount++;
           }
         } 
         else {
-          final coneThreshold = isPoweredUp ? -0.2 : 0.1;
-          if (dot > coneThreshold && gameMap.hasLineOfSight(bot.position, attackerPos)) {
+          // --- MASK-SPECIFIC RAYCAST RULES ---
+          // Banshee uses a razor-thin cone (0.85 instead of 0.1)
+          final coneThreshold = (maskId == 'banshee') ? 0.85 : (isPoweredUp ? -0.2 : 0.1);
+          
+          // Banshee ignores walls completely
+          bool hasLOS = (maskId == 'banshee') ? true : gameMap.hasLineOfSight(bot.position, attackerPos);
+          
+          // Gorgon requires the victim to be facing the attacker
+          bool isLookingAtAttacker = true;
+          if (maskId == 'gorgon') {
+             final botForward = Vector2(sin(bot.facingAngle), -cos(bot.facingAngle));
+             final botToAttacker = (attackerPos - bot.position).normalized();
+             isLookingAtAttacker = botForward.dot(botToAttacker) > 0.2; // They must be facing you
+          }
+
+          if (dot > coneThreshold && hasLOS && isLookingAtAttacker) {
             if (bot.isHunter) {
               if (bot.isCoreExposed) {
-                bot.applyStun(8.0); 
-                bot.localImmunityToMe = 10.0; 
-                hitCount++;
-                player.score += 2500; 
-                camera.viewport.add(FloatingText(
-                  text: 'CRITICAL OVERLOAD! +2500', 
-                  worldPosition: Vector2(bot.position.x - 40, bot.position.y - 60),
-                ));
+                bot.applyStun(8.0); bot.localImmunityToMe = 10.0; hitCount++; player.score += 2500; 
+                camera.viewport.add(FloatingText(text: 'CRITICAL OVERLOAD! +2500', worldPosition: Vector2(bot.position.x - 40, bot.position.y - 60)));
               } else {
                 bot.applyStun(0.1); 
-                camera.viewport.add(FloatingText(
-                  text: 'ARMOR DEFLECTED!', 
-                  worldPosition: Vector2(bot.position.x - 20, bot.position.y - 40),
-                ));
+                camera.viewport.add(FloatingText(text: 'ARMOR DEFLECTED!', worldPosition: Vector2(bot.position.x - 20, bot.position.y - 40)));
               }
             } else {
               double stunDuration = _matchesDoctrine(bot) ? 4.4 : 4.0;
-              
-              // 15% Stun Duration Boost against prey
               if (isPrey) stunDuration *= 1.15; 
               
-              bot.applyStun(stunDuration); 
-              bot.localImmunityToMe = 7.0; 
-              bot.triggerPrivateHighlight(); 
-              hitCount++;
+              // --- PARASITE VAMPIRISM ---
+              if (maskId == 'parasite') {
+                stunDuration = 1.5; // Very short stun
+                player.flashlightBattery = (player.flashlightBattery + 25.0).clamp(0.0, 100.0);
+                player.energy = (player.energy + 3.0).clamp(0.0, player.maxEnergy);
+              }
+              
+              bot.applyStun(stunDuration); bot.localImmunityToMe = 7.0; bot.triggerPrivateHighlight(); hitCount++;
 
-              // --- TAKE THE POLAROID (BOT VICTIM) ---
               logScareSnapshot(ScareSnapshot(
                 attackerName: player.score > 0 ? 'You' : 'Attacker', 
-                attackerCharId: player.equippedCharacterId,
-                attackerMaskId: maskId,
-                victimName: bot.fakeUsername,
-                victimCharId: bot.assignedCharacterId,
-                timestamp: gameTimer.timeLeft.toInt(),
-                mapX: attackerPos.x,
-                mapY: attackerPos.y,
+                attackerCharId: player.equippedCharacterId, attackerMaskId: maskId,
+                victimName: bot.fakeUsername, victimCharId: bot.assignedCharacterId,
+                timestamp: gameTimer.timeLeft.toInt(), mapX: attackerPos.x, mapY: attackerPos.y,
               ), isHuman: false);
 
-              // SPAWN SCORE OVER BOT'S HEAD
-              camera.viewport.add(FloatingText(
-                text: '+100 SOULS',
-                worldPosition: Vector2(bot.position.x - 25, bot.position.y - 60),
-              ));
+              camera.viewport.add(FloatingText(text: '+100 SOULS', worldPosition: Vector2(bot.position.x - 25, bot.position.y - 60)));
             }
           }
         }
       }
     }
 
+    // ==========================================
+    // 2. REMOTE PLAYER COLLISION LOOP
+    // ==========================================
     for (var remoteId in networkPlayers.keys) {
       if (matchMode == '2v2' && getEntityTeam(player) == getEntityTeam(remoteId)) continue; 
       
       var remotePlayer = networkPlayers[remoteId]!;
       if (remotePlayer.localImmunityToMe > 0) continue; 
       
-      // --- CIRCLE OF TORMENT CHECK ---
-      // Safely grab the remote player's species (defaulting to humanoid if missing)
       String vSpecies = 'humanoid';
       try { vSpecies = remotePlayer.species; } catch (_) {}
-      
       bool isPrey = _isFavoredPrey(player.species, vSpecies);
 
-      // 15% Area of Effect Boost against favored prey
       double effectiveRadius = scareRadius * (isPrey ? 1.15 : 1.0);
       
       final toPlayer = remotePlayer.position - attackerPos;
@@ -1348,52 +1347,49 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
         if (maskId == 'siren') {
           if (dot > 0.0) {
-            double duration = 15.0;
-            remotePlayer.localImmunityToMe = 16.0;
-            hitCount++;
-            myChannel.sendBroadcastMessage(event: 'charm', payload: {
-              'id': remoteId, 'duration': duration, 
-              'charmer_x': attackerPos.x, 'charmer_y': attackerPos.y
-            });
+            remotePlayer.localImmunityToMe = 16.0; hitCount++;
+            myChannel.sendBroadcastMessage(event: 'charm', payload: {'id': remoteId, 'duration': 15.0, 'charmer_x': attackerPos.x, 'charmer_y': attackerPos.y});
           }
         } else {
-          final coneThreshold = isPoweredUp ? -0.2 : 0.1;
-          if (dot > coneThreshold && gameMap.hasLineOfSight(remotePlayer.position, attackerPos)) {
+          // --- MASK-SPECIFIC RAYCAST RULES ---
+          final coneThreshold = (maskId == 'banshee') ? 0.85 : (isPoweredUp ? -0.2 : 0.1);
+          bool hasLOS = (maskId == 'banshee') ? true : gameMap.hasLineOfSight(remotePlayer.position, attackerPos);
+          
+          bool isLookingAtAttacker = true;
+          if (maskId == 'gorgon') {
+             final rpForward = Vector2(sin(remotePlayer.facingAngle), -cos(remotePlayer.facingAngle));
+             final rpToAttacker = (attackerPos - remotePlayer.position).normalized();
+             isLookingAtAttacker = rpForward.dot(rpToAttacker) > 0.2; 
+          }
+
+          if (dot > coneThreshold && hasLOS && isLookingAtAttacker) {
             hitCount++;
             remotePlayer.localImmunityToMe = 5.0; 
             remotePlayer.triggerPrivateHighlight(); 
             
             double stunDuration = _matchesDoctrine(remotePlayer) ? 2.2 : 2.0;
-            
-            // 15% Stun Duration Boost against favored prey
             if (isPrey) stunDuration *= 1.15;
+            
+            // --- PARASITE VAMPIRISM ---
+            if (maskId == 'parasite') {
+              stunDuration = 1.5; 
+              player.flashlightBattery = (player.flashlightBattery + 25.0).clamp(0.0, 100.0);
+              player.energy = (player.energy + 3.0).clamp(0.0, player.maxEnergy);
+            }
 
             myChannel.sendBroadcastMessage(event: 'stun', payload: {
-              'id': remoteId, 
-              'duration': stunDuration, 
-              'attacker_id': mySessionId,
-              'attacker_x': attackerPos.x,
-              'attacker_y': attackerPos.y
+              'id': remoteId, 'duration': stunDuration, 
+              'attacker_id': mySessionId, 'attacker_x': attackerPos.x, 'attacker_y': attackerPos.y,
+              'mask_id': maskId // <-- Pass the mask ID so the victim knows to drain their own battery!
             });
 
-            // --- TAKE THE POLAROID (PLAYER VICTIM) ---
             logScareSnapshot(ScareSnapshot(
-              attackerName: 'You',
-              attackerCharId: player.equippedCharacterId,
-              attackerMaskId: maskId,
-              victimName: remoteId.substring(0, 4), 
-              victimCharId: remotePlayer.equippedCharacterId,
-              victimId: remoteId, 
-              timestamp: gameTimer.timeLeft.toInt(),
-              mapX: attackerPos.x,
-              mapY: attackerPos.y,
+              attackerName: 'You', attackerCharId: player.equippedCharacterId, attackerMaskId: maskId,
+              victimName: remoteId.substring(0, 4), victimCharId: remotePlayer.equippedCharacterId,
+              victimId: remoteId, timestamp: gameTimer.timeLeft.toInt(), mapX: attackerPos.x, mapY: attackerPos.y,
             ), isHuman: true);
 
-            // SPAWN SCORE OVER REMOTE PLAYER'S HEAD
-            camera.viewport.add(FloatingText(
-              text: '+100 SOULS',
-              worldPosition: Vector2(remotePlayer.position.x - 25, remotePlayer.position.y - 60),
-            ));
+            camera.viewport.add(FloatingText(text: '+100 SOULS', worldPosition: Vector2(remotePlayer.position.x - 25, remotePlayer.position.y - 60)));
           }
         }
       }
@@ -1486,7 +1482,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               bot.position.y = payload['y'] as double;
               bot.facingAngle = payload['a'] as double;
               
-              if (bot.voxelComponent != null) bot.voxelComponent!.triggerScareAnimation();
+              if (bot.voxelComponent != null) bot.voxelComponent!.triggerScareAnimation(bot.currentMaskId);
               AudioManager.instance.playSpatialScare(bot.currentMaskId, bot.position);
               
               if (bot.currentMaskId == 'flying') {
@@ -1615,7 +1611,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             remote.currentMaskId = maskId;
 
             // Fire the visual animation instead of the old variable!
-            if (remote.voxelComponent != null) remote.voxelComponent!.triggerScareAnimation();
+            if (remote.voxelComponent != null) remote.voxelComponent!.triggerScareAnimation(maskId);
             //remote.visualAttackCooldown = 0.6;
 
             AudioManager.instance.playSpatialScare(maskId, remote.position);
@@ -1658,6 +1654,29 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         },
       )
       .onBroadcast(
+        event: 'trap_detonate',
+        callback: (payload) {
+          final ownerId = payload['owner_id'] as String?;
+          
+          // Only render this if WE aren't the owner (since the owner already rendered it locally)
+          if (ownerId != null && ownerId != mySessionId) {
+            final trapX = (payload['x'] as num).toDouble();
+            final trapY = (payload['y'] as num).toDouble();
+            final trapAngle = (payload['a'] as num).toDouble();
+            final trapPos = Vector2(trapX, trapY);
+
+            // Spawn the visuals and audio for bystanders
+            world.add(ScareBlast(position: trapPos.clone(), angle: trapAngle - (pi / 2))..priority = 1000);
+            AudioManager.instance.playSpatialScare('standard', trapPos);
+            
+            camera.viewport.add(FloatingText(
+              text: 'POLTERGEIST TRIGGERED!', 
+              worldPosition: Vector2(trapX - 60, trapY - 60)
+            ));
+          }
+        },
+      )
+      .onBroadcast(
         event: 'charm',
         callback: (payload) {
           final targetId = payload['id'] as String?;
@@ -1687,6 +1706,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           if (targetId == null) return;
           final duration = (payload['duration'] as num).toDouble();
           final attackerId = payload['attacker_id'] as String?;
+          final maskId = payload['mask_id'] as String? ?? 'standard'; // Check the weapon
 
           if (targetId == mySessionId) {
             jumpScareEffect.trigger();
@@ -1694,6 +1714,13 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             Vector2? atkPos;
             if (payload.containsKey('attacker_x') && payload.containsKey('attacker_y')) {
               atkPos = Vector2((payload['attacker_x'] as num).toDouble(), (payload['attacker_y'] as num).toDouble());
+            }
+
+            // --- THE PARASITE PENALTY ---
+            if (maskId == 'parasite') {
+              player.flashlightBattery = (player.flashlightBattery - 25.0).clamp(0.0, 100.0);
+              player.energy = (player.energy - 3.0).clamp(0.0, player.maxEnergy);
+              camera.viewport.add(FloatingText(text: 'VAMPIRIZED!', worldPosition: Vector2(player.position.x - 20, player.position.y - 40)));
             }
 
             player.applyStun(duration, attackerPos: atkPos);

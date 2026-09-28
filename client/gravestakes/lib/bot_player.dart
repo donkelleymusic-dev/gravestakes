@@ -16,6 +16,7 @@ import 'flying_scare_blast.dart';
 import 'siren_blast.dart';
 import 'spooky_box.dart';
 import 'chat_bubble_component.dart';
+import 'tactical_entities.dart';
 
 enum BotState { wander, hunt, investigate, charmed, flee }
 enum BotPersonality { grunt, stalker, phantom, trapdoor }
@@ -853,7 +854,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
             } else {
               // --- THE BOT HIT! FIRE VISUALS & SOUNDS ---
               AudioManager.instance.playSpatialScare(currentMaskId, position);
-              if (voxelComponent != null) voxelComponent!.triggerScareAnimation();
+              if (voxelComponent != null) voxelComponent!.triggerScareAnimation(currentMaskId);
               
               if (currentMaskId == 'flying') {
                 game.world.add(FlyingScareBlast(position: position.clone(), angle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
@@ -861,6 +862,10 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
                 for (int i = 0; i < 15; i++) {
                   game.scareManager.spawnCritter(Critter(position: position.clone(), behavior: SwarmBehavior.scatter, seed: DateTime.now().millisecondsSinceEpoch, index: i, initialAngle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
                 }
+              } else if (currentMaskId == 'wendigo') {
+                game.world.add(WendigoDecoy(position: position.clone(), angle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
+              } else if (currentMaskId == 'poltergeist') {
+                game.world.add(PoltergeistTrap(position: position.clone(), angle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
               } else if (currentMaskId == 'siren') {
                 add(SirenBlast()..position = size / 2);
               } else {
@@ -879,25 +884,56 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
               if (!isHunter && personality == BotPersonality.trapdoor) attackWord = 'AMBUSHED!';
               game.camera.viewport.add(FloatingText(text: attackWord, worldPosition: Vector2(position.x - 30, position.y - 60)));
 
-              // Apply Stuns and Add to simulatedScore!
-              if (currentTarget == game.player) {
-                game.jumpScareEffect.trigger(); 
-                game.player.applyStun(2.0, attackerPos: position);   
-                triggerPrivateHighlight();
-                game.player.triggerPrivateHighlight();
-                simulatedScore += 100; // <--- FIX: Bot gets points!
-              } else if (currentTarget is RemotePlayer) {
-                String? targetId;
-                game.networkPlayers.forEach((key, val) { if (val == currentTarget) targetId = key; });
-                if (targetId != null) game.myChannel.sendBroadcastMessage(event: 'stun', payload: {'id': targetId, 'duration': 2.0});
-                simulatedScore += 100; // <--- FIX: Bot gets points!
-              } else if (currentTarget is BotPlayer) {
-                (currentTarget as BotPlayer).applyStun(2.0, attackerPos: position);
-                simulatedScore += 100; // <--- FIX: Bot gets points!
+              // Apply Charms or Stuns instantly ONLY for standard and siren masks. 
+              // Flying and Vermin masks spawn physical entities that handle their own collision!
+              if (currentMaskId == 'siren') {
+                if (currentTarget == game.player) {
+                  // CHARM THE LOCAL PLAYER
+                  game.player.applyCharm(15.0, position, charmerId: 'bot_${game.bots.indexOf(this)}');
+                  triggerPrivateHighlight();
+                  simulatedScore += 100; 
+                } else if (currentTarget is RemotePlayer) {
+                  // CHARM A REMOTE PLAYER OVER THE NETWORK
+                  String? targetId;
+                  game.networkPlayers.forEach((key, val) { if (val == currentTarget) targetId = key; });
+                  if (targetId != null) {
+                    game.myChannel.sendBroadcastMessage(event: 'charm', payload: {
+                      'id': targetId, 'duration': 15.0, 
+                      'charmer_x': position.x, 'charmer_y': position.y
+                    });
+                  }
+                  simulatedScore += 100; 
+                } else if (currentTarget is BotPlayer) {
+                  // CHARM ANOTHER BOT
+                  (currentTarget as BotPlayer).applyCharm(15.0, this);
+                  simulatedScore += 100; 
+                }
+              } else if (currentMaskId == 'standard') {
+                if (currentTarget == game.player) {
+                  game.jumpScareEffect.trigger(); 
+                  game.player.applyStun(2.0, attackerPos: position);   
+                  triggerPrivateHighlight();
+                  game.player.triggerPrivateHighlight();
+                  simulatedScore += 100; 
+                } else if (currentTarget is RemotePlayer) {
+                  String? targetId;
+                  game.networkPlayers.forEach((key, val) { if (val == currentTarget) targetId = key; });
+                  if (targetId != null) game.myChannel.sendBroadcastMessage(event: 'stun', payload: {'id': targetId, 'duration': 2.0});
+                  simulatedScore += 100; 
+                } else if (currentTarget is BotPlayer) {
+                  (currentTarget as BotPlayer).applyStun(2.0, attackerPos: position);
+                  simulatedScore += 100; 
+                }
               }
+              // If currentMaskId is 'flying', 'vermin', 'wendigo', or 'poltergeist', it safely skips this block!
+              // The spawned entities will handle their own delayed collision/detonation logic.
               
               double cooldownMult = game.player.score > 2000 ? 0.75 : 1.0; 
-              attackCooldown = 8.0 * cooldownMult; 
+              if (currentMaskId == 'siren') {
+                attackCooldown = 15.0; // Bots are also completely defenseless while channeling
+              } else {
+                attackCooldown = 8.0 * cooldownMult; 
+              }
             }
 
             movementDelta = (position - currentTarget!.position).normalized();

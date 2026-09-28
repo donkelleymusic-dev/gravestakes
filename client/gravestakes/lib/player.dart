@@ -23,6 +23,7 @@ import 'fps_mask_effect.dart';
 import 'puzzle_door.dart';
 import 'vanity_screen.dart';
 import 'remote_player.dart';
+import 'tactical_entities.dart';
 
 class Player extends PositionComponent with KeyboardHandler, HasGameReference<GraveStakesGame> {
   final JoystickComponent leftJoystick;
@@ -554,10 +555,14 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     }
     
     selectedMaskIndex = targetIndex;
-    attackCooldown = currentMask.cooldown * swapSpeedModifier; 
+    if (currentMask.id == 'siren') {
+      attackCooldown = 15.0; // Hard lock for the full duration of the trance
+    } else {
+      attackCooldown = currentMask.cooldown * swapSpeedModifier; 
+    }
 
     // Fire the visual animation!
-    if (voxelComponent != null) voxelComponent!.triggerScareAnimation();
+    if (voxelComponent != null) voxelComponent!.triggerScareAnimation(currentMask.id);
 
     // --- TRIGGER FIRST-PERSON SCREEN MASK EFFECT ---
     if (game.isFpsMode && !isGunner) {
@@ -581,19 +586,15 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     final masterSeed = DateTime.now().millisecondsSinceEpoch;
 
     if (currentMask.isFlying) {
-      // --- Add directly to the world for proper z-index sorting ---
-      game.world.add(FlyingScareBlast(
-        position: position.clone(), 
-        angle: facingAngle,
-        ownerId: game.mySessionId,
-      )); 
+      game.world.add(FlyingScareBlast(position: position.clone(), angle: facingAngle, ownerId: game.mySessionId)); 
     } else if (currentMask.swarmBehavior != SwarmBehavior.none) {
       for (int i = 0; i < currentMask.swarmCount; i++) {
-        game.scareManager.spawnCritter(Critter(
-          position: position.clone(), behavior: currentMask.swarmBehavior,
-          seed: masterSeed, index: i, initialAngle: facingAngle, ownerId: game.mySessionId,
-        )); 
+        game.scareManager.spawnCritter(Critter(position: position.clone(), behavior: currentMask.swarmBehavior, seed: masterSeed, index: i, initialAngle: facingAngle, ownerId: game.mySessionId)); 
       }
+    } else if (currentMask.id == 'wendigo') {
+      game.world.add(WendigoDecoy(position: position.clone(), angle: facingAngle, ownerId: game.mySessionId));
+    } else if (currentMask.id == 'poltergeist') {
+      game.world.add(PoltergeistTrap(position: position.clone(), angle: facingAngle, ownerId: game.mySessionId));
     } else {
       if (!isGunner && currentMask.id != 'siren') {
         final forward = Vector2(sin(facingAngle), -cos(facingAngle));
@@ -662,6 +663,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         game.world.add(FloatingText(text: popupText, worldPosition: Vector2(position.x - 20, position.y - 50)));
       }
     }
+
     channel.sendBroadcastMessage(event: 'scare', payload: {'id': game.mySessionId, 'x': position.x, 'y': position.y, 'a': facingAngle, 'mask_id': currentMask.id, 'seed': masterSeed});
   }
 

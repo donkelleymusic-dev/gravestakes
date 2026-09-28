@@ -13,8 +13,10 @@ class VoxelCharacterComponent extends PositionComponent {
   bool isStunned = false;
   bool isVisible = true;
   bool isInvisible = false;
-  bool showStars = false; // --- NEW: Toggle for wall collision stars ---
+  bool showStars = false; // --- Toggle for wall collision stars ---
   double stunTimer = 0.0;
+
+  String currentMaskId = 'standard';
 
   double attackCooldown = 0.0;
   double swapAnimTimer = 0.0;
@@ -28,9 +30,9 @@ class VoxelCharacterComponent extends PositionComponent {
     swapAnimTimer = 0.15;
   }
 
-  // Triggers the 0.5s lunge animation
-  void triggerScareAnimation() {
-    scareAnimTimer = 0.75;//0.5;
+  void triggerScareAnimation(String maskId) {
+    currentMaskId = maskId;
+    scareAnimTimer = 0.75;
   }
 
   VoxelCharacterComponent({
@@ -182,18 +184,30 @@ class VoxelCharacterComponent extends PositionComponent {
 
       // --- SCARE LUNGE ANIMATION ---
       if (scareAnimTimer > 0) {
-        // Progress goes from 1.0 down to 0.0
-        double progress = scareAnimTimer / 0.5; 
+        // Progress goes from 0.0 up to 1.0
+        double progress = 1.0 - (scareAnimTimer / 0.75); 
         
-        // 1. The Lunge: Move the mask "up/forward" off the face
-        double lungeDistance = sin(progress * pi) * 30.0;
-        canvas.translate(0, -lungeDistance);
-        
-        // 2. The Pop: Scale the mask to 2.2x its normal size at the peak
-        maskScale += sin(progress * pi) * 1.2;
-        
-        // 3. The Violent Shake: Rapidly vibrate back and forth 3 times
-        canvas.rotate(sin(progress * pi * 10) * 0.35); 
+        if (currentMaskId == 'banshee') {
+           // --- THE BANSHEE SKYWARD LAUNCH ---
+           // The mask rockets into the air and snaps back down
+           double arc = sin(progress * pi);
+           double skywardDistance = -150.0 * arc; // 150 pixels straight up
+           canvas.translate(0, skywardDistance);
+           
+           // Shake violently at the peak of the scream
+           canvas.rotate(sin(progress * pi * 20) * 0.25);
+        } else {
+           // --- STANDARD LUNGE ---
+           // 1. Move the mask "up/forward" off the face
+           double lungeDistance = sin(progress * pi) * 30.0;
+           canvas.translate(0, -lungeDistance);
+           
+           // 2. Scale the mask to 2.2x its normal size at the peak
+           maskScale += sin(progress * pi) * 1.2;
+           
+           // 3. Rapidly vibrate back and forth
+           canvas.rotate(sin(progress * pi * 10) * 0.35); 
+        }
       }
       // ---------------------------------
 
