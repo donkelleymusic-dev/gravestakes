@@ -239,7 +239,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     isCharmed = true;
     charmTimer = duration;
-    charmTargetPos = charmerPos;
+    charmerTarget = charmerPos;
   }
 
   void applyStun(double duration, {bool isVermin = false, String? attackerId, Vector2? attackerPos}) {
@@ -735,9 +735,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   @override
   void update(double dt) {    
     priority = ((position.y + 16) * 10).toInt();
-    //if (!game.gameStarted) return; 
-
-    // --- FIX: STOP AUDIO WHEN MATCH ENDS ---
     if (!game.gameStarted) {
       if (_breathingHandle != null) {
         SoLoud.instance.stop(_breathingHandle!);
@@ -745,7 +742,16 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       }
       return; 
     }
-    // ---------------------------------------
+    
+    super.update(dt);
+    
+    // --- SAFE TIMER DECREMENTS ---
+    // Moved to the top so they are guaranteed to tick down even if 
+    // audio, networking, or pathfinding crashes later in the frame!
+    if (attackCooldown > 0) attackCooldown -= dt;
+    if (maskSwapAnimationTimer > 0) maskSwapAnimationTimer -= dt;
+    if (activeDefenseCooldown > 0) activeDefenseCooldown -= dt;
+    // ----------------------------
 
     // --- THE AUTO-RAILS SYSTEM ---
     if (isInPuzzleRoom) {
@@ -870,7 +876,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           SoLoud.instance.stop(_breathingHandle!);
           _breathingHandle = null;
         } else {
-          SoLoud.instance.setVolume(_breathingHandle!, breathExertionLevel * 0.6);
+          try {
+            SoLoud.instance.setVolume(_breathingHandle!, breathExertionLevel * 0.6);
+          } catch (e) {}
         }
       }
     }
@@ -899,9 +907,11 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       } catch (e) {}
     }
 
+    /* moved these to start of update(...
+    
     if (attackCooldown > 0) attackCooldown -= dt;
     if (maskSwapAnimationTimer > 0) maskSwapAnimationTimer -= dt;
-    if (activeDefenseCooldown > 0) activeDefenseCooldown -= dt;
+    if (activeDefenseCooldown > 0) activeDefenseCooldown -= dt; */
     
     bool isBuffActive = false;
     double lowestTimer = 999.0;
