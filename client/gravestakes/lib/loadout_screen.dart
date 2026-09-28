@@ -1568,17 +1568,20 @@ class TacticalDossierPanel extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start, // Keeps the icon at the top if text wraps
                 children: [
                   const Icon(Icons.analytics_outlined, color: Colors.cyanAccent, size: 20),
                   const SizedBox(width: 8),
-                  Text(
-                    'TACTICAL DOSSIER: ${data['title']}',
-                    style: const TextStyle(
-                      color: Colors.cyanAccent,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'Courier',
-                      letterSpacing: 1.2,
+                  Expanded( // <-- Wraps the text so it drops to the next line instead of cutting off
+                    child: Text(
+                      'TACTICAL DOSSIER:\n${data['title']}', // Added a newline for a cleaner layout
+                      style: const TextStyle(
+                        color: Colors.cyanAccent,
+                        fontSize: 15, // Slightly reduced size
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Courier',
+                        letterSpacing: 1.0,
+                      ),
                     ),
                   ),
                 ],
@@ -1594,14 +1597,17 @@ class TacticalDossierPanel extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
                     'RECOMMENDED ACQUISITION: ',
                     style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.bold),
                   ),
-                  Text(
-                    data['suggested_item']!.toUpperCase(),
-                    style: const TextStyle(color: Colors.amberAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                  Expanded( // <-- Ensures long item names don't cut off either
+                    child: Text(
+                      data['suggested_item']!.toUpperCase(),
+                      style: const TextStyle(color: Colors.amberAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ],
               ),
