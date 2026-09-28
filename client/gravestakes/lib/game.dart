@@ -1096,6 +1096,23 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         } catch (e) {
           debugPrint('Reward error: $e');
         }
+        // --- SEND TACTICAL TELEMETRY ---
+        try {
+          await Supabase.instance.client.from('player_tactics_log').insert({
+            'user_id': Supabase.instance.client.auth.currentUser!.id,
+            'match_id': roomId,
+            'scares_attempted': player.scaresAttempted,
+            'scares_landed': player.scaresLanded, 
+            'time_zero_energy': player.timeZeroEnergy,
+            'times_stunned_standard': player.timesStunnedStandard,
+            'times_charmed_siren': player.timesCharmedSiren,
+            'times_hit_swarm': player.timesHitSwarm,
+            'distance_sprinted': player.distanceSprinted,
+            'distance_sneaked': player.distanceSneaked,
+          });
+        } catch (e) {
+          debugPrint('Telemetry logging error: $e');
+        }
       }
     }
 
@@ -1271,6 +1288,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             bot.applyCharm(15.0, player);
             bot.localImmunityToMe = 16.0;
             hitCount++;
+            player.scaresLanded++;
           }
         } 
         else {
@@ -1292,7 +1310,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           if (dot > coneThreshold && hasLOS && isLookingAtAttacker) {
             if (bot.isHunter) {
               if (bot.isCoreExposed) {
-                bot.applyStun(8.0); bot.localImmunityToMe = 10.0; hitCount++; player.score += 2500; 
+                bot.applyStun(8.0); bot.localImmunityToMe = 10.0; 
+                hitCount++;
+                player.scaresLanded++;                
+                player.score += 2500; 
                 camera.viewport.add(FloatingText(text: 'CRITICAL OVERLOAD! +2500', worldPosition: Vector2(bot.position.x - 40, bot.position.y - 60)));
               } else {
                 bot.applyStun(0.1); 
@@ -1364,6 +1385,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
           if (dot > coneThreshold && hasLOS && isLookingAtAttacker) {
             hitCount++;
+            player.scaresLanded++;
             remotePlayer.localImmunityToMe = 5.0; 
             remotePlayer.triggerPrivateHighlight(); 
             

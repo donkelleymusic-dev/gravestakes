@@ -72,6 +72,16 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
   bool isInPuzzleRoom = false;
 
+  // --- TACTICAL TELEMETRY ---
+  int scaresAttempted = 0;
+  int scaresLanded = 0;
+  double timeZeroEnergy = 0.0;
+  int timesStunnedStandard = 0;
+  int timesCharmedSiren = 0;
+  int timesHitSwarm = 0;
+  double distanceSprinted = 0.0;
+  double distanceSneaked = 0.0;
+
   double get flashlightScale {
     // --- BLACKOUT OVERRIDE (IGNORED IN PUZZLE ROOM) ---
     if (game.isGlobalBlackout && !isInPuzzleRoom) return 0.0; 
@@ -234,12 +244,14 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           'charmer_y': position.y,
         },
       );
+      //timesCharmedSiren++; here??
       return;
     }
 
     isCharmed = true;
     charmTimer = duration;
     charmerTarget = charmerPos;
+    timesCharmedSiren++;
   }
 
   void applyStun(double duration, {bool isVermin = false, String? attackerId, Vector2? attackerPos}) {
@@ -257,6 +269,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         worldPosition: Vector2(position.x - 20, position.y - 40),
       ));
       return;
+    } else if (isVermin) {
+      timesHitSwarm++;
+    } else {
+      timesStunnedStandard++;
     }
 
     // --- DYNAMIC LEAP RECOIL FOR LOCAL PLAYER ---
@@ -553,6 +569,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     } else {
       energy -= currentMask.energyCost;
     }
+
+    
+    scaresAttempted++;
     
     selectedMaskIndex = targetIndex;
     if (currentMask.id == 'siren') {
@@ -1274,6 +1293,20 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     double effectiveRegen = energyRegenRate * energyRegenMult;
     
     energy = (energy + (effectiveRegen * regenMultiplier * dt)).clamp(0.0, effectiveMaxEnergy);
+
+    if (energy <= 0.1) timeZeroEnergy += dt;
+
+    if (isMoving && !isStunned) {
+      // Approximate the movement speed based on standard game values (e.g. 250 sprint, 120 sneak)
+      // Alternatively, if your Player class has a global 'speed' variable, you can use 'speed * dt'
+      double distMoved = (isHoldingBreath ? 120.0 : 250.0) * dt;
+      
+      if (isHoldingBreath) {
+        distanceSneaked += distMoved;
+      } else {
+        distanceSprinted += distMoved;
+      }
+    }
 
     if (isRecharging) {
       flashlightBattery += (100.0 / 6.0) * dt; 
