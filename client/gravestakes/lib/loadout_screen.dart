@@ -36,14 +36,14 @@ class WearableDef {
       : id = json['id']?.toString() ?? 'unknown',
         name = json['name']?.toString() ?? 'Unknown',
         slotType = json['slot_type']?.toString() ?? 'unknown',
-        counterTarget = json['counter_target'] as String? ?? '',
-        buffStat = json['buff_stat'] as String? ?? '',
+        counterTarget = json['counter_target']?.toString() ?? '',
+        buffStat = json['buff_stat']?.toString() ?? '',
         buffValue = (json['buff_value'] as num?)?.toDouble() ?? 1.0,
         isActiveDefense = json['is_active_defense'] as bool? ?? false, 
         energyCost = (json['energy_cost'] as num?)?.toDouble() ?? 0.0,
         price = (json['price'] as num?)?.toInt() ?? 0,
-        currency = json['currency'] as String? ?? 'shadows',
-        assetPath = json['asset_path'] ?? json['thumbnail_path'];
+        currency = json['currency']?.toString() ?? 'shadows',
+        assetPath = json['asset_path']?.toString() ?? json['thumbnail_path']?.toString();
 }
 
 class LoadoutScreen extends StatefulWidget {
@@ -116,9 +116,8 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       final responses = await Future.wait<dynamic>([
         supabase.from('wallets').select('shadows, coins').eq('id', userId).single(), 
         supabase.from('wearables').select(),                                         
-        supabase.from('masks').select().order('price'),
-        supabase.from('characters').select().eq('enabled', true),                          
-        supabase.from('characters').select(),                                       
+        supabase.from('masks').select().order('price'),                             
+        supabase.from('characters').select().neq('enabled', false), // Fixed duplicate and used .neq()                                       
         supabase.from('user_loadouts').select('slot_type, item_value').eq('user_id', userId), 
         supabase.from('user_inventory').select('item_id, item_type').eq('user_id', userId),   
         supabase.from('user_characters').select('character_id').eq('user_id', userId),
@@ -132,20 +131,24 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       final wearablesRes = List<Map<String, dynamic>>.from(responses[1]);
       _wearablesCatalog.clear();
       for (var row in wearablesRes) {
-        final w = WearableDef.fromJson(row);
-        _wearablesCatalog[w.id] = w;
+        try {
+          final w = WearableDef.fromJson(row);
+          _wearablesCatalog[w.id] = w;
+        } catch (e) {
+          debugPrint('Skipping malformed wearable: $e');
+        }
       }
 
       final masksRes = List<Map<String, dynamic>>.from(responses[2]);
       _masksCatalog.clear();
       for (var row in masksRes) {
-        _masksCatalog[row['id'].toString()] = row;
+        _masksCatalog[row['id']?.toString() ?? 'unknown'] = row;
       }
 
       final charactersRes = List<Map<String, dynamic>>.from(responses[3]);
       _charactersCatalog.clear();
       for (var row in charactersRes) {
-        _charactersCatalog[row['id'].toString()] = row;
+        _charactersCatalog[row['id']?.toString() ?? 'unknown'] = row;
       }
 
       final loadoutRes = List<Map<String, dynamic>>.from(responses[4]);
@@ -154,11 +157,9 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       _committedMasks = ['', '', '', ''];
 
       for (var row in loadoutRes) {
-        // Safely parse strings, falling back to empty if null
         final slot = row['slot_type']?.toString() ?? '';
         final val = row['item_value']?.toString() ?? '';
         
-        // Skip malformed rows where the slot or value is missing
         if (slot.isEmpty || val.isEmpty) continue;
         
         if (slot == 'character') {
@@ -174,13 +175,15 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       _inventory = List<Map<String, dynamic>>.from(responses[5]);
 
       final userCharsRes = List<Map<String, dynamic>>.from(responses[6]);
-      _ownedCharacters = userCharsRes.map((r) => r['character_id'].toString()).toList();
+      _ownedCharacters = userCharsRes.map((r) => r['character_id']?.toString() ?? 'unknown').toList();
       if (!_ownedCharacters.contains('default')) _ownedCharacters.add('default');
 
       final userShardsRes = List<Map<String, dynamic>>.from(responses[7]);
       _userShards.clear();
       for (var row in userShardsRes) {
-        _userShards[row['character_id'].toString()] = row['shard_count'] as int;
+        final charId = row['character_id']?.toString() ?? 'unknown';
+        final shardCount = (row['shard_count'] as num?)?.toInt() ?? 0;
+        _userShards[charId] = shardCount;
       }
 
       _revertDraft(); 
@@ -192,7 +195,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     }
 
     final prefs = await SharedPreferences.getInstance();
-    // NEW: Ensure we only trigger if the phase is exactly 'loadout'
     if (prefs.getString('tutorial_phase') == 'loadout') {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _scaffoldKey.currentContext != null) {
