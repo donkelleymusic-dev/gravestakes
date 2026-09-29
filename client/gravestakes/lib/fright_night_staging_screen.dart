@@ -147,6 +147,7 @@ class _FrightNightStagingScreenState extends State<FrightNightStagingScreen> {
             game: GraveStakesGame(
               roomId: roomId,
               matchMode: 'fright_night',
+              chaosModifier: widget.chaosMode,
               targetPlayers: 8,
             ),
             loadingBuilder: (context) => Container(

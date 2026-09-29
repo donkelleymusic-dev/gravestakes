@@ -97,6 +97,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   final String? scrimmageMessageId;
   String? myGuildId;
   String guildActiveDoctrine = 'none';
+  final String chaosModifier;
 
   bool isPuzzleRoomOccupied = false;
   bool isHallwaySolved = false;
@@ -181,6 +182,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     this.targetPlayers = 8,
     this.isGuildScrimmage = false,
     this.scrimmageMessageId,
+    this.chaosModifier = 'none',
   });
 
   late final JoystickComponent leftJoystick;
@@ -950,7 +952,30 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
         if (matchMode == '2v2') nextTeam = (nextTeam == 1) ? 2 : 1; 
       }
-    }
+
+      // --- NEW: FRIGHT NIGHT CHAOS MODIFIERS ---
+      if (matchMode == 'fright_night' && chaosModifier == 'swarm') {
+        // Find safe spawn points across the map to unleash the vermin
+        for (int i = 0; i < 25; i++) {
+          if (availableSpawns.isEmpty) break;
+          Vector2 spawnPos = gameMap.getSafeSpawnLocation(
+            availableSpawns[Random().nextInt(availableSpawns.length)], 
+            Vector2.all(16.0)
+          );
+          
+          scareManager.spawnCritter(Critter(
+            position: spawnPos, 
+            behavior: SwarmBehavior.scatter, // They will scatter and start hunting
+            seed: DateTime.now().millisecondsSinceEpoch + i, 
+            index: i, 
+            initialAngle: Random().nextDouble() * pi * 2, 
+            ownerId: 'server_swarm' // Identifies it as an environmental hazard
+          ));
+        }
+      }
+      // -----------------------------------------
+
+    } // <--- This is the closing bracket for the big `else` block
 
     final random = Random();
     for (int i = 0; i < 4; i++) {
