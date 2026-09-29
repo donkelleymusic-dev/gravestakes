@@ -1310,6 +1310,7 @@ class FrightNightLoginAlert extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final DateTime eventTime = DateTime.parse(eventData['scheduled_time']).toLocal();
+    final bool isPast = eventTime.isBefore(DateTime.now());
     
     return AlertDialog(
       backgroundColor: Colors.black87,
@@ -1317,11 +1318,11 @@ class FrightNightLoginAlert extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         side: const BorderSide(color: Colors.redAccent, width: 2),
       ),
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
-          SizedBox(width: 8),
-          Text('GUILD SUMMONS', style: TextStyle(color: Colors.white, letterSpacing: 2.0)),
+          Icon(isPast ? Icons.history : Icons.warning_amber_rounded, color: Colors.redAccent),
+          const SizedBox(width: 8),
+          Text(isPast ? 'MISSED SUMMONS' : 'GUILD SUMMONS', style: const TextStyle(color: Colors.white, letterSpacing: 2.0)),
         ],
       ),
       content: Column(
@@ -1333,23 +1334,38 @@ class FrightNightLoginAlert extends StatelessWidget {
           Text('DATE: ${eventTime.toString().split('.')[0]}', style: const TextStyle(color: Colors.white70)),
           Text('MODIFIER: ${eventData['chaos_modifier'].toString().toUpperCase()}', style: const TextStyle(color: Colors.amberAccent)),
           const SizedBox(height: 16),
-          const Text('Will you answer the call?', style: TextStyle(color: Colors.white54, fontStyle: FontStyle.italic)),
+          Text(
+            isPast 
+              ? 'This Fright Night has already concluded. You missed the bloodbath!' 
+              : 'Will you answer the call?', 
+            style: const TextStyle(color: Colors.white54, fontStyle: FontStyle.italic),
+          ),
         ],
       ),
-      actions: [
+      actions: isPast ? [
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[800]),
+          onPressed: () async {
+            // Await the database write so it doesn't loop
+            await _submitRSVP(eventData['id'], 'missed');
+            if (context.mounted) Navigator.pop(context);
+          },
+          child: const Text('ACKNOWLEDGE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ),
+      ] : [
         TextButton(
-          onPressed: () {
-            _submitRSVP(eventData['id'], 'declined');
-            Navigator.pop(context);
+          onPressed: () async {
+            await _submitRSVP(eventData['id'], 'declined');
+            if (context.mounted) Navigator.pop(context);
           },
           child: const Text('DECLINE', style: TextStyle(color: Colors.grey)),
         ),
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800]),
-          onPressed: () {
-            _submitRSVP(eventData['id'], 'attending');
+          onPressed: () async {
+            await _submitRSVP(eventData['id'], 'attending');
             FrightNightScheduler.addToPhoneCalendar(eventData['title'], eventTime);
-            Navigator.pop(context);
+            if (context.mounted) Navigator.pop(context);
           },
           child: const Text('ACCEPT & SYNC', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         ),
@@ -1357,13 +1373,17 @@ class FrightNightLoginAlert extends StatelessWidget {
     );
   }
 
-  void _submitRSVP(String eventId, String status) {
+  Future<void> _submitRSVP(String eventId, String status) async {
     final userId = Supabase.instance.client.auth.currentUser!.id;
-    Supabase.instance.client.from('fright_night_rsvps').upsert({
-      'event_id': eventId,
-      'user_id': userId,
-      'status': status,
-    });
+    try {
+      await Supabase.instance.client.from('fright_night_rsvps').upsert({
+        'event_id': eventId,
+        'user_id': userId,
+        'status': status,
+      });
+    } catch (e) {
+      debugPrint('Error submitting RSVP: $e');
+    }
   }
 }
 
