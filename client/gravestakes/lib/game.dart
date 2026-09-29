@@ -955,7 +955,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
       // --- NEW: FRIGHT NIGHT CHAOS MODIFIERS ---
       if (matchMode == 'fright_night' && chaosModifier == 'swarm') {
-        // Find safe spawn points across the map to unleash the vermin
+        List<Map<String, dynamic>> swarmData = [];
+        int baseSeed = roomId.hashCode; // A shared, consistent seed!
+        
         for (int i = 0; i < 25; i++) {
           if (availableSpawns.isEmpty) break;
           Vector2 spawnPos = gameMap.getSafeSpawnLocation(
@@ -963,19 +965,28 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             Vector2.all(16.0)
           );
           
+          double startAngle = Random().nextDouble() * pi * 2;
+          
+          swarmData.add({
+            'x': spawnPos.x,
+            'y': spawnPos.y,
+            'seed': baseSeed + i,
+            'angle': startAngle
+          });
+          
+          // Host spawns locally
           scareManager.spawnCritter(Critter(
-            position: spawnPos, 
-            behavior: SwarmBehavior.scatter, // They will scatter and start hunting
-            seed: DateTime.now().millisecondsSinceEpoch + i, 
-            index: i, 
-            initialAngle: Random().nextDouble() * pi * 2, 
-            ownerId: 'server_swarm' // Identifies it as an environmental hazard
+            position: spawnPos, behavior: SwarmBehavior.scatter, 
+            seed: baseSeed + i, index: i, initialAngle: startAngle, ownerId: 'server_swarm'
           ));
         }
+        
+        // Blast the spawn instructions to the clients ONCE. Zero traffic after this!
+        myChannel.sendBroadcastMessage(event: 'spawn_swarm', payload: {'swarm': swarmData});
       }
       // -----------------------------------------
 
-    } // <--- This is the closing bracket for the big `else` block
+    }
 
     final random = Random();
     for (int i = 0; i < 4; i++) {
@@ -1553,6 +1564,25 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           }
         });
       })
+      .onBroadcast(
+        event: 'spawn_swarm',
+        callback: (payload) {
+          if (!isHost) {
+            final swarmList = payload['swarm'] as List<dynamic>;
+            for (int i = 0; i < swarmList.length; i++) {
+              final data = swarmList[i];
+              scareManager.spawnCritter(Critter(
+                position: Vector2(data['x'] as double, data['y'] as double),
+                behavior: SwarmBehavior.scatter,
+                seed: data['seed'] as int,
+                index: i,
+                initialAngle: data['angle'] as double,
+                ownerId: 'server_swarm'
+              ));
+            }
+          }
+        },
+      )
       .onBroadcast(
         event: 'hunter_emerge',
         callback: (payload) {
