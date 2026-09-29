@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import 'game.dart';
 import 'spectator_mode.dart';
 import 'match_summary_overlay.dart';
+import 'fright_night_staging_screen.dart';
 
 class GuildScreen extends StatefulWidget {
   const GuildScreen({super.key});
@@ -1538,39 +1539,31 @@ class FrightNightChatCard extends StatelessWidget {
     onStatusUpdated();
   }
 
-  void _launchFrightNightLobby(BuildContext context, String eventId, String chaosMode) {
-    // Route directly into the game using the event ID as the room container
+  void _launchFrightNightLobby(BuildContext context, String eventId, String chaosMode) async {
+    final userId = Supabase.instance.client.auth.currentUser!.id;
+    
+    // Check if the current user is the founder of the guild to grant leader permissions in the staging room
+    bool isLeader = false;
+    try {
+      final guildRes = await Supabase.instance.client
+          .from('guilds')
+          .select('founder_id')
+          .eq('id', messageMeta['guild_id'] ?? '') // or verify via your loaded guild state
+          .maybeSingle();
+      if (guildRes != null && guildRes['founder_id'] == userId) {
+        isLeader = true;
+      }
+    } catch (_) {}
+
+    // Fallback: if you want any officer/founder to lead, use your _myRole logic from the parent screen.
+    // For now, let's open the staging lounge:
+    if (!context.mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => Scaffold(
-          body: GameWidget<GraveStakesGame>(
-            game: GraveStakesGame(
-              roomId: 'fright_$eventId',
-              matchMode: 'fright_night', // Passes the mode so the game engine recognizes it
-              targetPlayers: 8,
-            ),
-            loadingBuilder: (context) => Container(
-              color: Colors.black,
-              child: const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(color: Colors.redAccent),
-                    SizedBox(height: 20),
-                    Text(
-                      'ENTERING FRIGHT NIGHT...',
-                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2.0, fontFamily: 'Courier'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            overlayBuilderMap: {
-              'summary': (BuildContext context, GraveStakesGame game) => MatchSummaryOverlay(game: game),
-              'searching': (BuildContext context, GraveStakesGame game) => SearchingOverlay(game: game),
-              'countdown': (BuildContext context, GraveStakesGame game) => CountdownOverlay(game: game),
-            },
-          ),
+        builder: (context) => FrightNightStagingScreen(
+          eventId: eventId,
+          chaosMode: chaosMode,
+          isLeader: true, // Set to true for testing, or pass your dynamic check
         ),
       ),
     );

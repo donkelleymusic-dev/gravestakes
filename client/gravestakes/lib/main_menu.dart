@@ -267,7 +267,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           });
         }
 
-        // --- NEW: FRIGHT NIGHT CHECK ---
+        // --- REFINED: FRIGHT NIGHT CHECK ---
         bool activeFN = false;
         if (responses[3]?['guild_id'] != null) {
           final gId = responses[3]['guild_id'];
@@ -275,29 +275,42 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             final eventRes = await supabase.from('guild_fright_nights')
                 .select('*')
                 .eq('guild_id', gId)
-                .neq('status', 'completed')
+                .neq('event_status', 'completed')
                 .order('scheduled_time', ascending: true)
                 .limit(1)
                 .maybeSingle();
 
             if (eventRes != null) {
-              activeFN = true;
-              final rsvpRes = await supabase.from('fright_night_rsvps')
-                  .select('status')
-                  .eq('event_id', eventRes['id'])
-                  .eq('user_id', user.id)
-                  .maybeSingle();
+              final DateTime eventTime = DateTime.parse(eventRes['scheduled_time']).toLocal();
+              final DateTime now = DateTime.now();
+              final String eventStatus = eventRes['event_status'] ?? 'staging';
 
-              if (rsvpRes == null) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) {
-                    showDialog(
-                      context: context,
-                      barrierDismissible: false,
-                      builder: (_) => FrightNightLoginAlert(eventData: eventRes),
-                    ).then((_) => _fetchPlayerData()); 
-                  }
-                });
+              // ONLY consider it active if it's currently in progress, 
+              // or happening within the next 24 hours (and up to 3 hours after start)
+              bool isLiveOrUpcoming = eventStatus == 'in_match' || 
+                  (eventTime.isAfter(now.subtract(const Duration(hours: 3))) && 
+                   eventTime.isBefore(now.add(const Duration(hours: 24))));
+
+              if (isLiveOrUpcoming) {
+                activeFN = true;
+
+                final rsvpRes = await supabase.from('fright_night_rsvps')
+                    .select('status')
+                    .eq('event_id', eventRes['id'])
+                    .eq('user_id', user.id)
+                    .maybeSingle();
+
+                if (rsvpRes == null) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) {
+                      showDialog(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (_) => FrightNightLoginAlert(eventData: eventRes),
+                      ).then((_) => _fetchPlayerData()); 
+                    }
+                  });
+                }
               }
             }
           } catch (e) {
