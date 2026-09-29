@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flame/game.dart';
+import 'package:share_plus/share_plus.dart';
 import 'game.dart';
 import 'spectator_mode.dart';
 import 'match_summary_overlay.dart';
@@ -26,6 +27,7 @@ class _GuildScreenState extends State<GuildScreen> {
   List<Map<String, dynamic>> _publicGuilds = [];
   List<Map<String, dynamic>> _messages = [];
   RealtimeChannel? _chatChannel;
+  Map<String, String> _myRsvps = {};
 
   @override
   void initState() {
@@ -105,6 +107,15 @@ class _GuildScreenState extends State<GuildScreen> {
         .eq('guild_id', guildId)
         .order('created_at', ascending: true)
         .limit(50);
+
+    final user = supabase.auth.currentUser;
+    if (user != null) {
+      final rsvpRes = await supabase.from('fright_night_rsvps').select('event_id, status').eq('user_id', user.id);
+      _myRsvps.clear();
+      for (var row in rsvpRes) {
+        _myRsvps[row['event_id'].toString()] = row['status'];
+      }
+    }
 
     if (mounted) {
       setState(() {
@@ -504,6 +515,52 @@ class _GuildScreenState extends State<GuildScreen> {
     );
   }
 
+  
+
+  Future<void> _scheduleFrightNight(DateTime scheduledTime, String chaosMode) async {
+    final user = supabase.auth.currentUser;
+    if (user == null || _myGuild == null) return;
+
+    try {
+      // 1. Create the Event
+      final eventRes = await supabase.from('guild_fright_nights').insert({
+        'guild_id': _myGuild!['id'],
+        'creator_id': user.id,
+        'title': 'OP: ${chaosMode.toUpperCase()}',
+        'scheduled_time': scheduledTime.toUtc().toIso8601String(),
+        'chaos_modifier': chaosMode,
+      }).select('id').single();
+
+      // 2. Auto-RSVP the creator
+      await supabase.from('fright_night_rsvps').insert({
+        'event_id': eventRes['id'],
+        'user_id': user.id,
+        'status': 'attending',
+      });
+
+      // 3. Broadcast to Guild Chat
+      await supabase.from('guild_messages').insert({
+        'guild_id': _myGuild!['id'],
+        'sender_id': user.id,
+        'message': 'A new Fright Night has been scheduled!',
+        'metadata': {
+          'type': 'fright_night_invite', // <-- Moved inside metadata!
+          'event_id': eventRes['id'],
+          'title': 'OP: ${chaosMode.toUpperCase()}',
+          'time': scheduledTime.toUtc().toIso8601String(),
+          'chaos_mode': chaosMode
+        }
+      });
+
+      _fetchMessages(_myGuild!['id']);
+    } catch (e) {
+      debugPrint('Error scheduling Fright Night: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to schedule: $e'), backgroundColor: Colors.red));
+    }
+  }
+
+
+
   void _showChallengeMenu() {
     showModalBottomSheet(
       context: context,
@@ -534,6 +591,106 @@ class _GuildScreenState extends State<GuildScreen> {
                 _sendScrimmageInvite('2v2');
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.people, color: Colors.orangeAccent),
+              title: const Text('2v2 Squad Scrimmage', style: TextStyle(color: Colors.white)),
+              subtitle: const Text('Team training session.', style: TextStyle(color: Colors.white54, fontSize: 12)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _sendScrimmageInvite('2v2');
+              },
+            ),
+            // --- NEW: FRIGHT NIGHT BUTTON ---
+            if (_myRole == 'founder' || _myRole == 'officer') ...[
+              const Divider(color: Colors.grey),
+              ListTile(
+                leading: const Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
+                title: const Text('Schedule Fright Night', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                subtitle: const Text('Massive guild-wide survival event.', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                onTap: () {void _showFrightNightScheduler() {
+    DateTime selectedDate = DateTime.now().add(const Duration(days: 1));
+    TimeOfDay selectedTime = const TimeOfDay(hour: 19, minute: 0); 
+    String selectedModifier = 'swarm';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.grey[900],
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setStateSheet) {
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+              left: 16.0, right: 16.0, top: 16.0,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('SCHEDULE FRIGHT NIGHT', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                const Divider(color: Colors.grey),
+                
+                ListTile(
+                  leading: const Icon(Icons.calendar_today, color: Colors.white),
+                  title: Text('Date: ${selectedDate.toLocal().toString().split(' ')[0]}', style: const TextStyle(color: Colors.white)),
+                  trailing: const Icon(Icons.edit, color: Colors.white54, size: 16),
+                  onTap: () async {
+                    final date = await showDatePicker(context: context, initialDate: selectedDate, firstDate: DateTime.now(), lastDate: DateTime.now().add(const Duration(days: 30)));
+                    if (date != null) setStateSheet(() => selectedDate = date);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.access_time, color: Colors.white),
+                  title: Text('Time: ${selectedTime.format(context)}', style: const TextStyle(color: Colors.white)),
+                  trailing: const Icon(Icons.edit, color: Colors.white54, size: 16),
+                  onTap: () async {
+                    final time = await showTimePicker(context: context, initialTime: selectedTime);
+                    if (time != null) setStateSheet(() => selectedTime = time);
+                  },
+                ),
+                const SizedBox(height: 12),
+                
+                DropdownButtonFormField<String>(
+                  dropdownColor: Colors.grey[850],
+                  value: selectedModifier,
+                  decoration: InputDecoration(
+                    labelText: 'Chaos Modifier',
+                    labelStyle: const TextStyle(color: Colors.redAccent),
+                    filled: true,
+                    fillColor: Colors.black45,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'swarm', child: Text('Swarm (15 Fast Grunts)', style: TextStyle(color: Colors.white))),
+                    DropdownMenuItem(value: 'pitch_black', child: Text('Pitch Black (No Lights)', style: TextStyle(color: Colors.white))),
+                    DropdownMenuItem(value: 'juggernaut', child: Text('Juggernaut (1 Goliath vs All)', style: TextStyle(color: Colors.white))),
+                  ],
+                  onChanged: (val) => setStateSheet(() => selectedModifier = val!),
+                ),
+                const SizedBox(height: 24),
+                
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800], minimumSize: const Size.fromHeight(48)),
+                  onPressed: () {
+                    final finalDateTime = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, selectedTime.hour, selectedTime.minute);
+                    Navigator.pop(ctx);
+                    _scheduleFrightNight(finalDateTime, selectedModifier);
+                  },
+                  child: const Text('DISPATCH SUMMONS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
+          );
+        }
+      ),
+    );
+  }
+                  Navigator.pop(ctx);
+                  _showFrightNightScheduler();
+                },
+              ),
+            ],
           ],
         ),
       ),
@@ -989,10 +1146,25 @@ _buildDoctrineCard(
               final msg = _messages[index];
               final metadata = msg['metadata'] as Map<String, dynamic>? ?? {};
 
-              if (metadata['type'] == 'scrimmage_invite') {
+              // --- UPDATED: Scrimmage Intercept ---
+              if (msg['message_type'] == 'scrimmage_invite' || metadata['type'] == 'scrimmage_invite') {
                 return _buildScrimmageBubble(msg, metadata);
               }
 
+              // --- NEW: Fright Night Intercepts ---
+              if (metadata['type'] == 'fright_night_invite') {
+                return FrightNightChatCard(
+                  messageMeta: metadata,
+                  myRsvpStatus: _myRsvps[metadata['event_id'].toString()] ?? 'pending',
+                  onStatusUpdated: () => _fetchMessages(_myGuild!['id']),
+                );
+              }
+              
+              if (metadata['type'] == 'fright_night_results') {
+                return FrightNightResultsCard(messageMeta: metadata);
+              }
+
+              // --- EXISTING: Standard Chat Messages ---
               final profile = msg['profiles'] ?? {};
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8.0),
@@ -1007,7 +1179,7 @@ _buildDoctrineCard(
 
         Container(
           padding: const EdgeInsets.all(8),
-          color: Colors.grey[900],
+          color: const Color.fromARGB(255, 226, 182, 182),
           child: Row(
             children: [
               IconButton(
@@ -1067,6 +1239,129 @@ Container(
   }
 }
 
+class FrightNightResultsCard extends StatelessWidget {
+  final Map<String, dynamic> messageMeta;
+
+  const FrightNightResultsCard({Key? key, required this.messageMeta}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final results = Map<String, dynamic>.from(messageMeta['results'] ?? {});
+    final highlight = messageMeta['highlight'] as Map<String, dynamic>?;
+    final List<MapEntry<String, dynamic>> rankings = results.entries.toList();
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
+      padding: const EdgeInsets.all(16.0),
+      decoration: BoxDecoration(
+        color: Colors.black87,
+        border: Border.all(color: Colors.redAccent.withOpacity(0.6), width: 1.5),
+        borderRadius: BorderRadius.circular(8.0),
+        boxShadow: [
+          BoxShadow(color: Colors.redAccent.withOpacity(0.2), blurRadius: 8, spreadRadius: 1),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.military_tech, color: Colors.amberAccent),
+              SizedBox(width: 8),
+              Text(
+                'FRIGHT NIGHT RESULTS',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 2.0),
+              ),
+              SizedBox(width: 8),
+              Icon(Icons.military_tech, color: Colors.amberAccent),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Divider(color: Colors.redAccent, height: 1),
+          const SizedBox(height: 12),
+          
+          // --- THE SCOREBOARD ---
+          ...List.generate(rankings.length, (index) {
+            final entry = rankings[index];
+            final isMVP = index == 0; 
+            
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        '#${index + 1} ',
+                        style: TextStyle(
+                          color: isMVP ? Colors.amberAccent : Colors.white54, 
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Courier',
+                        ),
+                      ),
+                      Text(
+                        entry.key,
+                        style: TextStyle(
+                          color: isMVP ? Colors.amberAccent : Colors.white70,
+                          fontWeight: isMVP ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      Text(
+                        '${entry.value} ',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Courier'),
+                      ),
+                      const Icon(Icons.nights_stay, color: Colors.purpleAccent, size: 12),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          }),
+
+          // --- THE HIGHLIGHT REEL POLAROID ---
+          if (highlight != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.black,
+                border: Border.all(color: Colors.white24),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Column(
+                children: [
+                  const Text('📸 HIGHLIGHT REEL', style: TextStyle(color: Colors.white54, fontSize: 10, letterSpacing: 2.0, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  RichText(
+                    textAlign: TextAlign.center,
+                    text: TextSpan(
+                      style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+                      children: [
+                        TextSpan(text: '${highlight['attacker']} ', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                        const TextSpan(text: 'terrified '),
+                        TextSpan(text: '${highlight['victim']}', style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold)),
+                        const TextSpan(text: '\nusing the '),
+                        TextSpan(text: '${highlight['mask_id'].toString().toUpperCase()} MASK', style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold)),
+                        TextSpan(text: ' at T-${highlight['time']}s.'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 // ==========================================
 // OVERLAYS FOR SCRIMMAGES
 // ==========================================
@@ -1122,6 +1417,159 @@ class CountdownOverlay extends StatelessWidget {
             fontSize: 120, 
             fontWeight: FontWeight.bold,
             shadows: [Shadow(color: Colors.black, blurRadius: 10)]
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class FrightNightChatCard extends StatelessWidget {
+  final Map<String, dynamic> messageMeta;
+  final String myRsvpStatus; 
+  final VoidCallback onStatusUpdated;
+
+  const FrightNightChatCard({Key? key, required this.messageMeta, required this.myRsvpStatus, required this.onStatusUpdated}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final DateTime eventTime = DateTime.parse(messageMeta['time']).toLocal();
+    final DateTime now = DateTime.now();
+    
+    // Allow entry starting from 15 minutes before the event up to 3 hours after
+    final bool isLive = now.isAfter(eventTime.subtract(const Duration(minutes: 15))) && 
+                        now.isBefore(eventTime.add(const Duration(hours: 3)));
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12.0),
+      padding: const EdgeInsets.all(12.0),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        border: Border.all(color: isLive ? Colors.amberAccent : Colors.redAccent.withOpacity(0.5), width: isLive ? 2.0 : 1.0),
+        borderRadius: BorderRadius.circular(8.0),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(isLive ? Icons.local_fire_department : Icons.event_available, color: isLive ? Colors.amberAccent : Colors.redAccent, size: 18),
+              const SizedBox(width: 6),
+              Expanded(child: Text('FRIGHT NIGHT: ${messageMeta['title']}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+              
+              IconButton(
+                icon: const Icon(Icons.share, color: Colors.cyanAccent, size: 20),
+                tooltip: 'Send Guest Pass',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () async {
+                  final String inviteLink = 'https://gravestakes.com/guest?event=${messageMeta['event_id']}';
+                  final String message = 'My guild is hosting a Fright Night!\n\nHere is your 1-night Guest Pass. Tap to download Grave Stakes and join the lobby:\n\n$inviteLink';
+                  await Share.share(message, subject: 'Fright Night Guest Pass');
+                },
+              ),
+            ],
+          ),
+          const Divider(color: Colors.white24),
+          Text('TIME: ${eventTime.toString().split('.')[0]}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          Text('MODIFIER: ${messageMeta['chaos_mode'].toString().toUpperCase()}', style: const TextStyle(color: Colors.amberAccent, fontSize: 12)),
+          const SizedBox(height: 12),
+          
+          // --- DYNAMIC LAUNCH LOGIC ---
+          if (isLive && (myRsvpStatus == 'attending' || myRsvpStatus == 'guest_pass'))
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red[900],
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  side: const BorderSide(color: Colors.amberAccent, width: 1.5),
+                ),
+                onPressed: () {
+                  // Launch the match using the event_id as the custom roomId!
+                  _launchFrightNightLobby(context, messageMeta['event_id'], messageMeta['chaos_mode']);
+                },
+                icon: const Icon(Icons.play_arrow, color: Colors.amberAccent),
+                label: const Text('ENTER FRIGHT NIGHT LOBBY', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+              ),
+            )
+          else if (myRsvpStatus == 'pending')
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _updateStatus('declined'),
+                    child: const Text('PASS', style: TextStyle(color: Colors.white54)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800]),
+                    onPressed: () => _updateStatus('attending'),
+                    child: const Text('RSVP', style: TextStyle(color: Colors.white)),
+                  ),
+                ),
+              ],
+            )
+          else
+            Center(
+              child: Text(
+                myRsvpStatus == 'attending' ? 'ATTENDING (WAITING FOR START TIME)' : 'YOU DECLINED',
+                style: TextStyle(
+                  color: myRsvpStatus == 'attending' ? Colors.greenAccent : Colors.grey,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12
+                ),
+              ),
+            )
+        ],
+      ),
+    );
+  }
+
+  void _updateStatus(String status) async {
+    await Supabase.instance.client.from('fright_night_rsvps').upsert({
+      'event_id': messageMeta['event_id'],
+      'user_id': Supabase.instance.client.auth.currentUser!.id,
+      'status': status,
+    });
+    onStatusUpdated();
+  }
+
+  void _launchFrightNightLobby(BuildContext context, String eventId, String chaosMode) {
+    // Route directly into the game using the event ID as the room container
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          body: GameWidget<GraveStakesGame>(
+            game: GraveStakesGame(
+              roomId: 'fright_$eventId',
+              matchMode: 'fright_night', // Passes the mode so the game engine recognizes it
+              targetPlayers: 8,
+            ),
+            loadingBuilder: (context) => Container(
+              color: Colors.black,
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: Colors.redAccent),
+                    SizedBox(height: 20),
+                    Text(
+                      'ENTERING FRIGHT NIGHT...',
+                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2.0, fontFamily: 'Courier'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            overlayBuilderMap: {
+              'summary': (BuildContext context, GraveStakesGame game) => MatchSummaryOverlay(game: game),
+              'searching': (BuildContext context, GraveStakesGame game) => SearchingOverlay(game: game),
+              'countdown': (BuildContext context, GraveStakesGame game) => CountdownOverlay(game: game),
+            },
           ),
         ),
       ),

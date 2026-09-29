@@ -6,6 +6,7 @@ import 'package:flame/game.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:add_2_calendar/add_2_calendar.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flame/components.dart';
@@ -70,6 +71,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   int _lumen = 0;
   bool _completedTutorial = false;
   String? _guildId;
+
+  bool _isFrightNightActive = false;
 
   final GlobalKey _loadoutKey = GlobalKey();
   final GlobalKey _startKey = GlobalKey();
@@ -178,6 +181,24 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       return; 
     }
 
+    // --- NEW: REDEEM PENDING GUEST PASSES ---
+    final prefs = await SharedPreferences.getInstance();
+    final pendingEventId = prefs.getString('pending_guest_pass');
+    if (pendingEventId != null) {
+      try {
+        await supabase.from('fright_night_rsvps').upsert({
+          'event_id': pendingEventId,
+          'user_id': user.id,
+          'status': 'guest_pass',
+        });
+        await prefs.remove('pending_guest_pass'); // Clear it so it only fires once
+        debugPrint('Pending guest pass redeemed upon login!');
+      } catch (e) {
+        debugPrint('Error redeeming pending guest pass: $e');
+      }
+    }
+    // ----------------------------------------
+
     try {
       await Purchases.logIn(user.id);
     } catch (e) {
@@ -246,6 +267,44 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           });
         }
 
+        // --- NEW: FRIGHT NIGHT CHECK ---
+        bool activeFN = false;
+        if (responses[3]?['guild_id'] != null) {
+          final gId = responses[3]['guild_id'];
+          try {
+            final eventRes = await supabase.from('guild_fright_nights')
+                .select('*')
+                .eq('guild_id', gId)
+                .neq('status', 'completed')
+                .order('scheduled_time', ascending: true)
+                .limit(1)
+                .maybeSingle();
+
+            if (eventRes != null) {
+              activeFN = true;
+              final rsvpRes = await supabase.from('fright_night_rsvps')
+                  .select('status')
+                  .eq('event_id', eventRes['id'])
+                  .eq('user_id', user.id)
+                  .maybeSingle();
+
+              if (rsvpRes == null) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) {
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (_) => FrightNightLoginAlert(eventData: eventRes),
+                    ).then((_) => _fetchPlayerData()); 
+                  }
+                });
+              }
+            }
+          } catch (e) {
+            debugPrint('Fright Night Check Error: $e');
+          }
+        }
+
         if (mounted) {
           setState(() {
             _username = responses[0]['username'] ?? 'Ghost';
@@ -258,6 +317,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             _guildId = responses[3]?['guild_id'];
             _unclaimedPassTiers = unclaimedTiers;
             _freeMarketItems = freeMarketItems;
+            _isFrightNightActive = activeFN;
             _isLoading = false;
             _checkTutorialPhase();
           });
@@ -509,7 +569,10 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               _buildSidebarIcon(icon: Icons.people, color: Colors.cyanAccent, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FriendsScreen()))),
-                              _buildSidebarIcon(icon: Icons.shield, color: Colors.blueAccent, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GuildScreen()))),
+                              AnimatedGuildSidebarIcon(
+                                isFrightNightActive: _isFrightNightActive, 
+                                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GuildScreen())),
+                              ),
                               _buildSidebarIcon(icon: Icons.leaderboard, color: Colors.yellowAccent, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LeaderboardScreen()))),
                             ],
                           ),
@@ -1222,5 +1285,145 @@ class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame
     super.render(canvas);
     
     canvas.restore();
+  }
+}
+
+class FrightNightScheduler {
+  static void addToPhoneCalendar(String eventTitle, DateTime startTime) {
+    final Event event = Event(
+      title: 'Grave Stakes: $eventTitle',
+      description: 'Guild Fright Night! Be online and ready in The Crypt.',
+      location: 'Grave Stakes App',
+      startDate: startTime,
+      endDate: startTime.add(const Duration(hours: 1)),
+      iosParams: const IOSParams(reminder: Duration(minutes: 15)), 
+      androidParams: const AndroidParams(emailInvites: []), 
+    );
+    Add2Calendar.addEvent2Cal(event);
+  }
+}
+
+class FrightNightLoginAlert extends StatelessWidget {
+  final Map<String, dynamic> eventData;
+  const FrightNightLoginAlert({Key? key, required this.eventData}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final DateTime eventTime = DateTime.parse(eventData['scheduled_time']).toLocal();
+    
+    return AlertDialog(
+      backgroundColor: Colors.black87,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Colors.redAccent, width: 2),
+      ),
+      title: const Row(
+        children: [
+          Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
+          SizedBox(width: 8),
+          Text('GUILD SUMMONS', style: TextStyle(color: Colors.white, letterSpacing: 2.0)),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(eventData['title'].toString().toUpperCase(), style: const TextStyle(color: Colors.redAccent, fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Text('DATE: ${eventTime.toString().split('.')[0]}', style: const TextStyle(color: Colors.white70)),
+          Text('MODIFIER: ${eventData['chaos_modifier'].toString().toUpperCase()}', style: const TextStyle(color: Colors.amberAccent)),
+          const SizedBox(height: 16),
+          const Text('Will you answer the call?', style: TextStyle(color: Colors.white54, fontStyle: FontStyle.italic)),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            _submitRSVP(eventData['id'], 'declined');
+            Navigator.pop(context);
+          },
+          child: const Text('DECLINE', style: TextStyle(color: Colors.grey)),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800]),
+          onPressed: () {
+            _submitRSVP(eventData['id'], 'attending');
+            FrightNightScheduler.addToPhoneCalendar(eventData['title'], eventTime);
+            Navigator.pop(context);
+          },
+          child: const Text('ACCEPT & SYNC', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ),
+      ],
+    );
+  }
+
+  void _submitRSVP(String eventId, String status) {
+    final userId = Supabase.instance.client.auth.currentUser!.id;
+    Supabase.instance.client.from('fright_night_rsvps').upsert({
+      'event_id': eventId,
+      'user_id': userId,
+      'status': status,
+    });
+  }
+}
+
+class AnimatedGuildSidebarIcon extends StatefulWidget {
+  final bool isFrightNightActive;
+  final VoidCallback onTap;
+  const AnimatedGuildSidebarIcon({Key? key, required this.isFrightNightActive, required this.onTap}) : super(key: key);
+
+  @override
+  State<AnimatedGuildSidebarIcon> createState() => _AnimatedGuildSidebarIconState();
+}
+
+class _AnimatedGuildSidebarIconState extends State<AnimatedGuildSidebarIcon> with SingleTickerProviderStateMixin {
+  late AnimationController _pulseController;
+  late Animation<Color?> _colorAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
+    _colorAnimation = ColorTween(begin: Colors.blueAccent, end: Colors.redAccent).animate(CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut));
+    if (widget.isFrightNightActive) _pulseController.repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(AnimatedGuildSidebarIcon oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isFrightNightActive && !_pulseController.isAnimating) _pulseController.repeat(reverse: true);
+    else if (!widget.isFrightNightActive && _pulseController.isAnimating) _pulseController.reset();
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _colorAnimation,
+      builder: (context, child) {
+        final color = widget.isFrightNightActive ? _colorAnimation.value! : Colors.blueAccent;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16.0),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            child: Container(
+              width: 48, height: 48,
+              decoration: BoxDecoration(
+                color: Colors.grey[900]?.withOpacity(0.8),
+                shape: BoxShape.circle,
+                border: Border.all(color: color.withOpacity(0.5), width: 2),
+                boxShadow: [BoxShadow(color: color.withOpacity(0.1), blurRadius: 8)],
+              ),
+              child: Icon(widget.isFrightNightActive ? Icons.warning_amber_rounded : Icons.shield, color: color, size: 24),
+            ),
+          ),
+        );
+      }
+    );
   }
 }

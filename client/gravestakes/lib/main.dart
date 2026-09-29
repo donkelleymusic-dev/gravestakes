@@ -6,10 +6,15 @@ import 'package:flutter/widgets.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:easy_localization/easy_localization.dart'; 
 
-// --- NEW IMPORTS FOR PAYMENTS ---
+// --- IMPORTS FOR PAYMENTS ---
 import 'package:flutter/foundation.dart'; 
 import 'dart:io' show Platform; 
 import 'package:purchases_flutter/purchases_flutter.dart';
+
+// --- NEW IMPORTS FOR GUEST PASS ROUTING ---
+import 'package:app_links/app_links.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
 // --------------------------------
 
 import 'package:google_mobile_ads/google_mobile_ads.dart';
@@ -104,6 +109,10 @@ class _GraveStakesAppState extends State<GraveStakesApp> {
   @override
   void initState() {
     super.initState();
+    
+    // --- NEW: START LISTENING FOR INVITE LINKS IMMEDIATELY ---
+    DeepLinkHandler.init();
+    
     _lifecycleListener = AppLifecycleListener(
       onPause: () => AudioManager.instance.mute(),
       onInactive: () => AudioManager.instance.mute(),
@@ -113,14 +122,16 @@ class _GraveStakesAppState extends State<GraveStakesApp> {
 
   @override
   void dispose() {
+    // --- NEW: CLEANUP LINK LISTENER ---
+    DeepLinkHandler.dispose();
+    
     _lifecycleListener.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // --- NEW: Safe Localization Fallback ---
-    // If the translations fail to load, this prevents the fatal crash by defaulting to standard Flutter English
+    // --- Safe Localization Fallback ---
     Iterable<LocalizationsDelegate<dynamic>>? delegates;
     Iterable<Locale>? supportedLocales;
     Locale? currentLocale;
@@ -144,7 +155,7 @@ class _GraveStakesAppState extends State<GraveStakesApp> {
       ],
       title: 'Lumen Breach', 
       theme: ThemeData.dark(),
-      home: const AuthGatekeeper(), // Note: Routing to AuthGatekeeper to check login state 
+      home: const AuthGatekeeper(), 
     );
   }
 }
@@ -177,5 +188,55 @@ class _AuthGatekeeperState extends State<AuthGatekeeper> {
         return const LoginScreen();
       },
     );
+  }
+}
+
+// ============================================================================
+// THE GUEST PASS DEEP LINK CATCHER
+// ============================================================================
+class DeepLinkHandler {
+  static late AppLinks _appLinks;
+  static StreamSubscription<Uri>? _linkSubscription;
+
+  static void init() {
+    _appLinks = AppLinks();
+
+    // Catch links while the app is actively running or in the background
+    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
+      _processUri(uri);
+    });
+  }
+
+  static Future<void> _processUri(Uri uri) async {
+    // Look for our specific Fright Night web URL path
+    if (uri.path.contains('/guest')) {
+      final eventId = uri.queryParameters['event'];
+      if (eventId != null) {
+        final prefs = await SharedPreferences.getInstance();
+        final supabase = Supabase.instance.client;
+        
+        if (supabase.auth.currentUser != null) {
+          // Player is already logged in, grant the guest pass immediately
+          try {
+            await supabase.from('fright_night_rsvps').upsert({
+              'event_id': eventId,
+              'user_id': supabase.auth.currentUser!.id,
+              'status': 'guest_pass',
+            });
+            debugPrint('Mercenary Guest Pass activated for event: $eventId');
+          } catch (e) {
+            debugPrint('Failed to apply guest pass: $e');
+          }
+        } else {
+          // Brand new player! Save the ID so we can apply it after they register
+          await prefs.setString('pending_guest_pass', eventId);
+          debugPrint('Brand new player invite caught. Saving $eventId to cache.');
+        }
+      }
+    }
+  }
+
+  static void dispose() {
+    _linkSubscription?.cancel();
   }
 }

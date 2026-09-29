@@ -62,6 +62,7 @@ class ScareSnapshot {
   final String attackerMaskId;
   final String victimName;
   final String victimCharId;
+  final String victimMaskId;
   final String? victimId;
   final int timestamp; 
   final double mapX;
@@ -73,6 +74,7 @@ class ScareSnapshot {
     required this.attackerMaskId,
     required this.victimName,
     required this.victimCharId,
+    required this.victimMaskId,
     this.victimId,
     required this.timestamp,
     required this.mapX,
@@ -93,6 +95,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   final int targetPlayers;
   final bool isGuildScrimmage;
   final String? scrimmageMessageId;
+  String? myGuildId;
   String guildActiveDoctrine = 'none';
 
   bool isPuzzleRoomOccupied = false;
@@ -354,6 +357,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             .maybeSingle();
             
         if (membership != null && membership['guilds'] != null) {
+          myGuildId = membership['guild_id'];
           guildActiveDoctrine = membership['guilds']['active_doctrine'] ?? 'none';
         }
       } catch (e) {}
@@ -1186,6 +1190,47 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           debugPrint('Failed to post scrimmage results to chat: $e');
         }
       }
+      // --- NEW: FRIGHT NIGHT SCOREBOARD & HIGHLIGHT REEL ---
+      if (matchMode == 'fright_night' && myGuildId != null) {
+        try {
+          String _short(String id) => id.length >= 4 ? id.substring(0, 4) : id;
+          
+          Map<String, int> finalResults = {
+            'Host (You)': player.score,
+          };
+          networkPlayers.forEach((id, rp) {
+            finalResults['Player ${_short(id)}'] = rp.score;
+          });
+
+          var sortedEntries = finalResults.entries.toList()
+            ..sort((a, b) => b.value.compareTo(a.value));
+          Map<String, int> sortedResults = Map.fromEntries(sortedEntries);
+
+          Map<String, dynamic>? highlightMeta;
+          if (matchPhotos.isNotEmpty) {
+            final snapshot = matchPhotos[Random().nextInt(matchPhotos.length)];
+            highlightMeta = {
+              'attacker': snapshot.attackerName,
+              'victim': snapshot.victimName,
+              'mask_id': snapshot.attackerMaskId,
+              'time': snapshot.timestamp,
+            };
+          }
+
+          await Supabase.instance.client.from('guild_messages').insert({
+            'guild_id': myGuildId,
+            'sender_id': Supabase.instance.client.auth.currentUser!.id,
+            'message': 'The bloodbath has concluded.',
+            'metadata': {
+              'type': 'fright_night_results', // <-- Moved inside metadata!
+              'results': sortedResults,
+              'highlight': highlightMeta, 
+            }
+          });
+        } catch (e) {
+          debugPrint('Failed to post Fright Night results to chat: $e');
+        }
+      }
     }
 
     /* if (!isGuildScrimmage && buildContext != null) {
@@ -1336,6 +1381,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
                 attackerName: player.score > 0 ? 'You' : 'Attacker', 
                 attackerCharId: player.equippedCharacterId, attackerMaskId: maskId,
                 victimName: bot.fakeUsername, victimCharId: bot.assignedCharacterId,
+                victimMaskId: bot.currentMaskId,
                 timestamp: gameTimer.timeLeft.toInt(), mapX: attackerPos.x, mapY: attackerPos.y,
               ), isHuman: false);
 
@@ -1408,6 +1454,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             logScareSnapshot(ScareSnapshot(
               attackerName: 'You', attackerCharId: player.equippedCharacterId, attackerMaskId: maskId,
               victimName: remoteId.substring(0, 4), victimCharId: remotePlayer.equippedCharacterId,
+              victimMaskId: remotePlayer.currentMaskId,
               victimId: remoteId, timestamp: gameTimer.timeLeft.toInt(), mapX: attackerPos.x, mapY: attackerPos.y,
             ), isHuman: true);
 
