@@ -272,10 +272,15 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         if (responses[3]?['guild_id'] != null) {
           final gId = responses[3]['guild_id'];
           try {
+            // 1. Calculate the strict cutoff time (3 hours ago in UTC)
+            final String threeHoursAgo = DateTime.now().toUtc().subtract(const Duration(hours: 3)).toIso8601String();
+
+            // 2. Filter out zombie events directly in the database query
             final eventRes = await supabase.from('guild_fright_nights')
                 .select('*')
                 .eq('guild_id', gId)
                 .neq('event_status', 'completed')
+                .gte('scheduled_time', threeHoursAgo) // <-- Ignores anything older than 3 hours!
                 .order('scheduled_time', ascending: true)
                 .limit(1)
                 .maybeSingle();
@@ -283,15 +288,9 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             if (eventRes != null) {
               final DateTime eventTime = DateTime.parse(eventRes['scheduled_time']).toLocal();
               final DateTime now = DateTime.now();
-              final String eventStatus = eventRes['event_status'] ?? 'staging';
 
-              // ONLY consider it active if it's currently in progress, 
-              // or happening within the next 24 hours (and up to 3 hours after start)
-              bool isLiveOrUpcoming = eventStatus == 'in_match' || 
-                  (eventTime.isAfter(now.subtract(const Duration(hours: 3))) && 
-                   eventTime.isBefore(now.add(const Duration(hours: 24))));
-
-              if (isLiveOrUpcoming) {
+              // 3. Ensure the event isn't too far in the future (within 24 hours)
+              if (eventTime.isBefore(now.add(const Duration(hours: 24)))) {
                 activeFN = true;
 
                 final rsvpRes = await supabase.from('fright_night_rsvps')
