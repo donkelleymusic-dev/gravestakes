@@ -1437,9 +1437,10 @@ class FrightNightChatCard extends StatelessWidget {
     final DateTime eventTime = DateTime.parse(messageMeta['time']).toLocal();
     final DateTime now = DateTime.now();
     
-    // Allow entry starting from 15 minutes before the event up to 3 hours after
-    final bool isLive = now.isAfter(eventTime.subtract(const Duration(minutes: 15))) && 
-                        now.isBefore(eventTime.add(const Duration(hours: 3)));
+    // THE 3 TIME PHASES
+    final bool isConcluded = now.isAfter(eventTime.add(const Duration(hours: 3)));
+    final bool isLive = !isConcluded && now.isAfter(eventTime.subtract(const Duration(minutes: 15)));
+    final bool isUpcoming = now.isBefore(eventTime.subtract(const Duration(minutes: 15)));
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12.0),
@@ -1454,30 +1455,35 @@ class FrightNightChatCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(isLive ? Icons.local_fire_department : Icons.event_available, color: isLive ? Colors.amberAccent : Colors.redAccent, size: 18),
+              Icon(isConcluded ? Icons.history : (isLive ? Icons.local_fire_department : Icons.event_available), color: isConcluded ? Colors.grey : (isLive ? Colors.amberAccent : Colors.redAccent), size: 18),
               const SizedBox(width: 6),
-              Expanded(child: Text('FRIGHT NIGHT: ${messageMeta['title']}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+              Expanded(child: Text('FRIGHT NIGHT: ${messageMeta['title']}', style: TextStyle(color: isConcluded ? Colors.grey : Colors.white, fontWeight: FontWeight.bold))),
               
-              IconButton(
-                icon: const Icon(Icons.share, color: Colors.cyanAccent, size: 20),
-                tooltip: 'Send Guest Pass',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                onPressed: () async {
-                  final String inviteLink = 'https://gravestakes.com/guest?event=${messageMeta['event_id']}';
-                  final String message = 'My guild is hosting a Fright Night!\n\nHere is your 1-night Guest Pass. Tap to download Grave Stakes and join the lobby:\n\n$inviteLink';
-                  await Share.share(message, subject: 'Fright Night Guest Pass');
-                },
-              ),
+              if (!isConcluded)
+                IconButton(
+                  icon: const Icon(Icons.share, color: Colors.cyanAccent, size: 20),
+                  tooltip: 'Send Guest Pass',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () async {
+                    final String inviteLink = 'https://gravestakes.com/guest?event=${messageMeta['event_id']}';
+                    final String message = 'My guild is hosting a Fright Night!\n\nHere is your 1-night Guest Pass. Tap to download Grave Stakes and join the lobby:\n\n$inviteLink';
+                    await Share.share(message, subject: 'Fright Night Guest Pass');
+                  },
+                ),
             ],
           ),
           const Divider(color: Colors.white24),
-          Text('TIME: ${eventTime.toString().split('.')[0]}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
-          Text('MODIFIER: ${messageMeta['chaos_mode'].toString().toUpperCase()}', style: const TextStyle(color: Colors.amberAccent, fontSize: 12)),
+          Text('TIME: ${eventTime.toString().split('.')[0]}', style: TextStyle(color: isConcluded ? Colors.grey : Colors.white70, fontSize: 12)),
+          Text('MODIFIER: ${messageMeta['chaos_mode'].toString().toUpperCase()}', style: TextStyle(color: isConcluded ? Colors.grey : Colors.amberAccent, fontSize: 12)),
           const SizedBox(height: 12),
           
-          // --- DYNAMIC LAUNCH LOGIC ---
-          if (isLive && (myRsvpStatus == 'attending' || myRsvpStatus == 'guest_pass'))
+          // --- DYNAMIC PHASE RENDERER ---
+          if (isConcluded)
+            const Center(
+              child: Text('EVENT CONCLUDED', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+            )
+          else if (isLive && (myRsvpStatus == 'attending' || myRsvpStatus == 'guest_pass'))
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -1486,15 +1492,12 @@ class FrightNightChatCard extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   side: const BorderSide(color: Colors.amberAccent, width: 1.5),
                 ),
-                onPressed: () {
-                  // Launch the match using the event_id as the custom roomId!
-                  _launchFrightNightLobby(context, messageMeta['event_id'], messageMeta['chaos_mode']);
-                },
-                icon: const Icon(Icons.play_arrow, color: Colors.amberAccent),
-                label: const Text('ENTER FRIGHT NIGHT LOBBY', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                onPressed: () => _launchFrightNightLobby(context, messageMeta['event_id'], messageMeta['chaos_mode']),
+                icon: const Icon(Icons.meeting_room, color: Colors.amberAccent),
+                label: const Text('ENTER STAGING LOUNGE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
               ),
             )
-          else if (myRsvpStatus == 'pending')
+          else if (isUpcoming && myRsvpStatus == 'pending')
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -1541,29 +1544,30 @@ class FrightNightChatCard extends StatelessWidget {
 
   void _launchFrightNightLobby(BuildContext context, String eventId, String chaosMode) async {
     final userId = Supabase.instance.client.auth.currentUser!.id;
-    
-    // Check if the current user is the founder of the guild to grant leader permissions in the staging room
     bool isLeader = false;
+    
     try {
-      final guildRes = await Supabase.instance.client
-          .from('guilds')
-          .select('founder_id')
-          .eq('id', messageMeta['guild_id'] ?? '') // or verify via your loaded guild state
+      // Check if the current user is the actual creator of the event
+      final eventRes = await Supabase.instance.client
+          .from('guild_fright_nights')
+          .select('creator_id')
+          .eq('id', eventId)
           .maybeSingle();
-      if (guildRes != null && guildRes['founder_id'] == userId) {
+          
+      if (eventRes != null && eventRes['creator_id'] == userId) {
         isLeader = true;
       }
     } catch (_) {}
 
-    // Fallback: if you want any officer/founder to lead, use your _myRole logic from the parent screen.
-    // For now, let's open the staging lounge:
     if (!context.mounted) return;
+    
+    // Route to the multi-round Staging Lounge
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => FrightNightStagingScreen(
           eventId: eventId,
           chaosMode: chaosMode,
-          isLeader: true, // Set to true for testing, or pass your dynamic check
+          isLeader: isLeader, 
         ),
       ),
     );

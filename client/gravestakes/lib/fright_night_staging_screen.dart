@@ -69,6 +69,13 @@ class _FrightNightStagingScreenState extends State<FrightNightStagingScreen> {
       }
     } catch (e) {
       debugPrint('Error loading staging state: $e');
+      if (mounted) {
+        // --- CRUCIAL FIX: Stop the spinner even if the database fails! ---
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to load event data. It may have expired.'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
