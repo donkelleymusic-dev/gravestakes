@@ -863,7 +863,7 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
                   game.scareManager.spawnCritter(Critter(position: position.clone(), behavior: SwarmBehavior.scatter, seed: DateTime.now().millisecondsSinceEpoch, index: i, initialAngle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
                 }
               } else if (currentMaskId == 'wendigo') {
-                game.world.add(WendigoDecoy(position: position.clone(), angle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
+                game.world.add(WendigoDecoy(position: position.clone(), angle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}', charId: assignedCharacterId));
               } else if (currentMaskId == 'poltergeist') {
                 game.world.add(PoltergeistTrap(position: position.clone(), angle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
               } else if (currentMaskId == 'siren') {

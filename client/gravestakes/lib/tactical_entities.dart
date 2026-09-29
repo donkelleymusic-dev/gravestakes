@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 
@@ -6,17 +7,47 @@ import 'game.dart';
 import 'audio_manager.dart';
 import 'scare_blast.dart';
 import 'floating_text.dart';
+import 'voxel_character_component.dart';
 
 class WendigoDecoy extends PositionComponent with HasGameReference<GraveStakesGame> {
   final String ownerId;
-  final double angle;
-  double _lifeTimer = 3.5; // Runs for 3.5 seconds
+  final String charId;
+  double angle;
+  
+  double _lifeTimer = 2.5; // Sprints for exactly 2.5 seconds
   double _footstepTimer = 0.0;
-  late Vector2 velocity;
+  
+  VoxelCharacterComponent? _voxel;
+  final Random _random = Random();
 
-  WendigoDecoy({required Vector2 position, required this.angle, required this.ownerId})
-      : super(position: position, size: Vector2.all(32), anchor: Anchor.center) {
-    velocity = Vector2(sin(angle), -cos(angle)) * 260.0; // Sprints slightly faster than a player
+  WendigoDecoy({
+    required Vector2 position, 
+    required this.angle, 
+    required this.ownerId,
+    required this.charId,
+  }) : super(position: position, size: Vector2.all(32), anchor: Anchor.center);
+
+  @override
+  Future<void> onLoad() async {
+    priority = ((position.y + 16) * 10).toInt();
+
+    // Pull the exact 3D rig the attacker is wearing
+    final rig = GraveStakesGame.characterRigCache[charId] ?? game.loadedRigData;
+    final images = GraveStakesGame.characterImagesCache[charId] ?? game.loadedAssetImages;
+
+    if (rig != null) {
+      _voxel = VoxelCharacterComponent(
+        images: images,
+        rigData: rig,
+        hitboxSize: size,
+      )
+        ..anchor = Anchor.bottomCenter
+        ..position = Vector2(size.x / 2, size.y)
+        ..isMoving = true
+        ..targetAngle = angle - (pi / 2);
+      
+      add(_voxel!);
+    }
   }
 
   @override
@@ -24,40 +55,51 @@ class WendigoDecoy extends PositionComponent with HasGameReference<GraveStakesGa
     super.update(dt);
     _lifeTimer -= dt;
 
-    // The decoy physically moves through the world
-    final potentialPosition = position + (velocity * dt);
-    if (!game.gameMap.checkCollision(potentialPosition, size)) {
-      position = potentialPosition;
-    } else {
-      // If it hits a wall early, it vanishes instantly without the fake blast
-      removeFromParent();
-      return;
-    }
-
-    // Drops heavy fake footsteps to trick the audio system
-    _footstepTimer += dt;
-    if (_footstepTimer >= 0.3) {
-      _footstepTimer = 0.0;
-      if (AudioManager.instance.isInitialized) {
-        AudioManager.instance.playEntityFootstep('default', position, isLocal: false);
-      }
-    }
-
-    // Detonates the fake blast at the end of its run
     if (_lifeTimer <= 0) {
       game.world.add(ScareBlast(position: position.clone(), angle: angle - (pi / 2)));
       AudioManager.instance.playSpatialScare('standard', position);
       removeFromParent();
+      return;
     }
+
+    // 1. Move Forward Fast
+    Vector2 velocity = Vector2(sin(angle), -cos(angle)) * 280.0; 
+    final potentialPosition = position + (velocity * dt);
+
+    // 2. Wall Deflection Logic
+    if (!game.gameMap.checkCollision(potentialPosition, size)) {
+      position = potentialPosition;
+    } else {
+      // Panic turn: Pick left or right 90 degrees to slide down the hallway
+      double turn = _random.nextBool() ? (pi / 2) : -(pi / 2);
+      angle += turn;
+      if (_voxel != null) _voxel!.targetAngle = angle - (pi / 2);
+    }
+
+    // 3. Audio Trickery
+    _footstepTimer += dt;
+    if (_footstepTimer >= 0.25) {
+      _footstepTimer = 0.0;
+      if (AudioManager.instance.isInitialized) {
+        AudioManager.instance.playEntityFootstep(charId, position, isLocal: false);
+      }
+    }
+    
+    // Update rendering priority as it moves
+    priority = ((position.y + 16) * 10).toInt();
   }
 
   @override
   void render(Canvas canvas) {
-    // Draws a shadowy, featureless blur
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset(size.x / 2, size.y / 2), width: 24, height: 16),
-      Paint()..color = Colors.black.withOpacity(0.5)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5.0)
+    // Wrap the entire child voxel tree in a ghostly, scanlined cyan filter
+    canvas.saveLayer(
+      Rect.fromLTWH(-100, -100, 200, 200),
+      Paint()
+        ..colorFilter = const ColorFilter.mode(Colors.cyanAccent, BlendMode.modulate)
+        ..color = Colors.white.withOpacity(0.65), 
     );
+    super.render(canvas);
+    canvas.restore();
   }
 }
 

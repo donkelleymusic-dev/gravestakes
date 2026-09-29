@@ -611,7 +611,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         game.scareManager.spawnCritter(Critter(position: position.clone(), behavior: currentMask.swarmBehavior, seed: masterSeed, index: i, initialAngle: facingAngle, ownerId: game.mySessionId)); 
       }
     } else if (currentMask.id == 'wendigo') {
-      game.world.add(WendigoDecoy(position: position.clone(), angle: facingAngle, ownerId: game.mySessionId));
+      game.world.add(WendigoDecoy(position: position.clone(), angle: facingAngle, ownerId: game.mySessionId, charId: equippedCharacterId));
     } else if (currentMask.id == 'poltergeist') {
       game.world.add(PoltergeistTrap(position: position.clone(), angle: facingAngle, ownerId: game.mySessionId));
     } else if (currentMask.id == 'banshee') {
