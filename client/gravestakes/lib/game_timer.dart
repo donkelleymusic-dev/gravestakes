@@ -20,8 +20,12 @@ class GameTimer extends TextComponent with HasGameReference<GraveStakesGame> {
   @override
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
-    position = Vector2(size.x / 2, 40); 
+    // Push the timer down to Y: 75 so it sits cleanly below the ScoreHud
+    position = Vector2(size.x / 2, 75); 
     anchor = Anchor.topCenter;
+    
+    // Scale down the timer on narrow portrait screens to prevent horizontal crowding
+    scale = Vector2.all(size.x < 600 ? 0.8 : 1.0);
   }
 
   @override

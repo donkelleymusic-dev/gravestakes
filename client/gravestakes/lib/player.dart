@@ -124,7 +124,13 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   Vector2 keyboardDelta = Vector2.zero();
   bool isStunned = false;
   double stunTimer = 0;
-  double attackCooldown = 0;
+  
+  // Independent cooldown tracking for each of the 4 mask slots
+  List<double> maskCooldowns = List.filled(4, 0.0);
+  
+  // Backwards-compatible getter for the currently active slot
+  double get attackCooldown => maskCooldowns[selectedMaskIndex];
+  set attackCooldown(double val) => maskCooldowns[selectedMaskIndex] = val;
   
   String equippedColorString = 'red'; 
   Color _baseColor = Colors.redAccent; 
@@ -538,10 +544,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   }
 
   void triggerAttack({int? forceMaskIndex}) {
-    if (attackCooldown > 0 || maskSwapAnimationTimer > 0) return;
-    
     int targetIndex = forceMaskIndex ?? 0;
     if (targetIndex < 0 || targetIndex >= 4) return;
+
+    if (maskCooldowns[targetIndex] > 0 || maskSwapAnimationTimer > 0) return;
 
     final currentMask = equippedMasks[targetIndex];
     if (currentMask == null) {
@@ -570,14 +576,13 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       energy -= currentMask.energyCost;
     }
 
-    
     scaresAttempted++;
     
     selectedMaskIndex = targetIndex;
     if (currentMask.id == 'siren') {
-      attackCooldown = 15.0; // Hard lock for the full duration of the trance
+      maskCooldowns[targetIndex] = 15.0; // Hard lock for the full duration of the trance
     } else {
-      attackCooldown = currentMask.cooldown * swapSpeedModifier; 
+      maskCooldowns[targetIndex] = currentMask.cooldown * swapSpeedModifier; 
     }
 
     // Fire the visual animation!
@@ -769,7 +774,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     // --- SAFE TIMER DECREMENTS ---
     // Moved to the top so they are guaranteed to tick down even if 
     // audio, networking, or pathfinding crashes later in the frame!
-    if (attackCooldown > 0) attackCooldown -= dt;
+    for (int i = 0; i < 4; i++) {
+      if (maskCooldowns[i] > 0) maskCooldowns[i] -= dt;
+    }
     if (maskSwapAnimationTimer > 0) maskSwapAnimationTimer -= dt;
     if (activeDefenseCooldown > 0) activeDefenseCooldown -= dt;
     // ----------------------------
@@ -970,7 +977,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     /* if (isDisguised) {
       if (_disguiseWall != null) _disguiseWall!.position = Vector2(-16, -16);
     } else {
-      if (_disguiseWall != null) _disguiseWall!.position = Vector2(-9999, -9999);
+      if (_disdisguiseWall != null) _disguiseWall!.position = Vector2(-9999, -9999);
     } */
    if (isDisguised) {
       if (_disguiseWall != null) {

@@ -11,6 +11,8 @@ import 'game_map.dart';
 class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
   String currentColorStr = 'red';
 
+  String username = 'Player';
+
   String currentMaskId = 'standard';
   double visualAttackCooldown = 0.0;
 

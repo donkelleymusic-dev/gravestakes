@@ -61,8 +61,8 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
 
     if (targetSlot < game.player.equippedMasks.length && game.player.equippedMasks[targetSlot] != null) {
       final mask = game.player.equippedMasks[targetSlot]!;
-      // Only flash if we have energy AND the cooldown is clear
-      if ((game.player.energy >= mask.energyCost || mask.id == 'standard') && game.player.attackCooldown <= 0) {
+      // Only flash if we have energy AND the specific cooldown is clear
+      if ((game.player.energy >= mask.energyCost || mask.id == 'standard') && game.player.maskCooldowns[targetSlot] <= 0) {
         _triggerFlash(targetSlot);
       }
     }
@@ -233,10 +233,11 @@ class AttackButton extends PositionComponent with HasGameReference<GraveStakesGa
         );
 
         // 2. DRAW COOLDOWN LAYER (RED)
-        if (player.attackCooldown > 0) {
+        double slotCd = player.maskCooldowns[i];
+        if (slotCd > 0) {
           // Calculate the cooldown ratio specific to this mask's maximum cooldown length
           double maxCd = mask.cooldown > 0 ? mask.cooldown : 1.0; 
-          double cdRatio = (player.attackCooldown / maxCd).clamp(0.0, 1.0);
+          double cdRatio = (slotCd / maxCd).clamp(0.0, 1.0);
           
           if (cdRatio > 0) {
             final cdPaint = Paint()..color = Colors.redAccent.withOpacity(0.85)..style = PaintingStyle.fill;

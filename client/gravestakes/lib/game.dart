@@ -204,6 +204,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   late final ScoreHud scoreHud;
   bool gameStarted = false;
   int myPlayerLevel = 1; 
+  String myUsername = 'Ghost';
   
   final List<BotPlayer> bots = [];
   final List<ScareSnapshot> matchPhotos = [];
@@ -343,13 +344,14 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       try {
         final profileRes = await Supabase.instance.client
             .from('profiles')
-            .select('completed_tutorial, level')
+            .select('completed_tutorial, level, username') // <-- Add username here
             .eq('id', user.id)
             .maybeSingle();
             
         if (profileRes != null) {
           needsTutorial = !(profileRes['completed_tutorial'] ?? false);
           myPlayerLevel = profileRes['level'] as int? ?? 1;
+          myUsername = profileRes['username'] as String? ?? 'Ghost'; // <-- Store it here
         }
 
         final membership = await Supabase.instance.client
@@ -1521,7 +1523,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         for (final state in presenceState) {
           for (final presence in state.presences) {
             if (presence.payload != null && presence.payload.containsKey('id')) {
-              allUsers.add({'id': presence.payload['id'], 'joined_at': presence.payload['joined_at']});
+              allUsers.add({
+                'id': presence.payload['id'], 
+                'username': presence.payload['username'] ?? 'Player', // <-- Read incoming names
+                'joined_at': presence.payload['joined_at']
+              });
             }
           }
         }
@@ -1546,6 +1552,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             if (matchPhase != 'searching') continue; 
             
             final newPlayer = RemotePlayer()..position = Vector2(-100, -100);
+            newPlayer.username = user['username'] as String; // <-- Assign it to the avatar
             networkPlayers[id] = newPlayer;
             world.add(newPlayer);
           }
@@ -1970,7 +1977,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       )
       .subscribe((status, [error]) async {
         if (status == RealtimeSubscribeStatus.subscribed) {
-          await myChannel.track({'id': mySessionId, 'joined_at': DateTime.now().toUtc().toIso8601String()});
+          // Add your username to the tracking payload!
+          await myChannel.track({'id': mySessionId, 'username': myUsername, 'joined_at': DateTime.now().toUtc().toIso8601String()});
           myChannel.sendBroadcastMessage(event: 'request_sync', payload: {});
         }
       });

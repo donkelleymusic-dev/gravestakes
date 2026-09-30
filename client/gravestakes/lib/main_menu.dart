@@ -392,6 +392,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           'p_mode': _selectedMatchMode,
           'p_target_players': targetPlayers,
           'p_guild_id': _guildId,
+          'p_player_level': _level,
         }, 
       );
       
