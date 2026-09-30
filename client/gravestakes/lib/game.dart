@@ -1120,19 +1120,33 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
 
     if (!isGuildScrimmage) {
-      final xpEarned = (player.score * 0.1).toInt();
-      final shadowsEarned = (player.score * 0.05).toInt();
+      int xpEarned = (player.score * 0.1).toInt();
+      int shadowsEarned = (player.score * 0.05).toInt();
+      int finalCoins = player.coinsEarned;
+
+      // --- THE ROOKIE BOOST ---
+      // Guarantees massive progression for brand new players to hook them immediately
+      if (myPlayerLevel < 3) {
+        xpEarned *= 3; // Fast-track them out of Level 1
+        shadowsEarned += 2500; // Flat injection to buy their first character
+        finalCoins += 50; // Enough for a basic cosmetic or Spooky Box skip
+        
+        camera.viewport.add(FloatingText(
+          text: 'ROOKIE BONUS APPLIED!', 
+          worldPosition: Vector2(player.position.x - 50, player.position.y - 100)
+        ));
+      }
 
       // --- 3. SEND LUMEN TO DATABASE ---
-      if (player.score > 0 || player.coinsEarned > 0 || matchLumenDelta != 0) {
+      if (player.score > 0 || player.coinsEarned > 0 || matchLumenDelta != 0 || myPlayerLevel < 3) {
         try {
           await Supabase.instance.client.rpc(
             'process_match_rewards',
             params: {
               'xp_earned': xpEarned, 
               'shadows_earned': shadowsEarned, 
-              'coins_earned': player.coinsEarned,
-              'p_lumen_delta': matchLumenDelta, // NEW PARAMETER
+              'coins_earned': finalCoins,
+              'p_lumen_delta': matchLumenDelta, 
             },
           );
         } catch (e) {
@@ -1293,24 +1307,39 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
 
     if (playerId == mySessionId) {
-      // DILUTED POOL: Disguise is now ~5% chance
-      final rewards = [
+      // Keep the original weighted base pool for points and powerups
+      List<ChestReward> rewards = [
         ChestReward(type: ChestRewardType.points, label: '+250 SOULS', value: 250),
         ChestReward(type: ChestRewardType.points, label: '+250 SOULS', value: 250),
         ChestReward(type: ChestRewardType.points, label: '+250 SOULS', value: 250),
         ChestReward(type: ChestRewardType.points, label: '+500 SOULS', value: 500),
         ChestReward(type: ChestRewardType.points, label: '+500 SOULS', value: 500),
-        ChestReward(type: ChestRewardType.currency, label: '+10 COINS', value: 10),
-        ChestReward(type: ChestRewardType.currency, label: '+10 COINS', value: 10),
-        ChestReward(type: ChestRewardType.currency, label: '+15 COINS', value: 15),
         ChestReward(type: ChestRewardType.invisibility, label: 'INVISIBILITY!'),
         ChestReward(type: ChestRewardType.invisibility, label: 'INVISIBILITY!'),
         ChestReward(type: ChestRewardType.teleport, label: 'TELEPORTED!'),
         ChestReward(type: ChestRewardType.teleport, label: 'TELEPORTED!'),
         ChestReward(type: ChestRewardType.rangeIncrease, label: 'RANGE EXTENDED!'),
         ChestReward(type: ChestRewardType.rangeIncrease, label: 'RANGE EXTENDED!'),
-        ChestReward(type: ChestRewardType.disguise, label: 'DISGUISE!'), 
+        ChestReward(type: ChestRewardType.disguise, label: 'DISGUISE!'), // Stays rare!
       ];
+
+      // New players get a heavily weighted chance to pull hard currency
+      if (myPlayerLevel < 4) {
+        rewards.addAll([
+          ChestReward(type: ChestRewardType.currency, label: '+25 COINS', value: 25),
+          ChestReward(type: ChestRewardType.currency, label: '+25 COINS', value: 25),
+          ChestReward(type: ChestRewardType.currency, label: '+50 COINS', value: 50),
+          ChestReward(type: ChestRewardType.currency, label: '+50 COINS', value: 50),
+        ]);
+      } else {
+        // Standard economy for veterans
+        rewards.addAll([
+          ChestReward(type: ChestRewardType.currency, label: '+10 COINS', value: 10),
+          ChestReward(type: ChestRewardType.currency, label: '+10 COINS', value: 10),
+          ChestReward(type: ChestRewardType.currency, label: '+15 COINS', value: 15),
+        ]);
+      }
+
       final selectedReward = rewards[Random().nextInt(rewards.length)];
       player.applyChestReward(selectedReward);
       camera.viewport.add(FloatingText(text: selectedReward.label, worldPosition: Vector2(boxPos.x - 20, boxPos.y - 40)));

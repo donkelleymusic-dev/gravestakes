@@ -105,7 +105,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this); // Change length to 6
+    _tabController = TabController(length: 6, vsync: this); 
     _mannequinGame = MannequinGame();
     _fetchLoadoutData();
   }
@@ -119,7 +119,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         supabase.from('wallets').select('shadows, coins').eq('id', userId).single(), 
         supabase.from('wearables').select(),                                         
         supabase.from('masks').select().order('price'),                             
-        supabase.from('characters').select().neq('enabled', false), // Fixed duplicate and used .neq()                                       
+        supabase.from('characters').select().neq('enabled', false), 
         supabase.from('user_loadouts').select('slot_type, item_value').eq('user_id', userId), 
         supabase.from('user_inventory').select('item_id, item_type').eq('user_id', userId),   
         supabase.from('user_characters').select('character_id').eq('user_id', userId),
@@ -385,12 +385,10 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       setState(() {
         _draftCharacterId = itemId;
         _previewCharacterId = itemId;
-        // Instantly commit the character locally so it doesn't trigger the "Unsaved Changes" bar
         _committedCharacterId = itemId; 
       });
       _mannequinGame.loadBaseCharacter(itemId);
       
-      // --- NEW: INSTANT AUTO-SAVE FOR CHARACTERS ---
       final userId = supabase.auth.currentUser?.id;
       if (userId != null) {
         try {
@@ -403,7 +401,6 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
           debugPrint('Failed to auto-save character selection: $e');
         }
       }
-      // ---------------------------------------------
       
     } else if (itemType == 'mask') {
       _mannequinGame.setPreviewMask(itemId); 
@@ -727,7 +724,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 children: [
                   TabBar(
                     controller: _tabController,
-                    isScrollable: true, // <-- ADD THIS so the tabs can slide horizontally
+                    isScrollable: true, 
                     indicatorColor: Colors.purpleAccent,
                     labelColor: Colors.purpleAccent,
                     unselectedLabelColor: Colors.white54,
@@ -751,7 +748,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                       const Tab(icon: Icon(Icons.diamond, size: 18), text: 'Neck'),
                       const Tab(icon: Icon(Icons.back_hand, size: 18), text: 'Arms'),
                       const Tab(icon: Icon(Icons.accessibility, size: 18), text: 'Belt'),
-                      const Tab(icon: Icon(Icons.analytics_outlined, size: 18), text: 'Intel'), // <-- ADD THE NEW TAB
+                      const Tab(icon: Icon(Icons.analytics_outlined, size: 18), text: 'Intel'), 
                     ],
                   ),
                   Expanded(
@@ -987,17 +984,80 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                         children: [
                           buildSafeItemThumbnail(assetPath: assetPath, slotType: targetItemType, size: 42.0),
                           const SizedBox(height: 4),
-                          Text(
-                            name, 
-                            textAlign: TextAlign.center, 
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 9, 
-                              color: isSelected ? Colors.white : (isOwned ? Colors.white70 : Colors.white38),
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                              fontFamily: 'Courier',
-                            ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  name, 
+                                  textAlign: TextAlign.center, 
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 9, 
+                                    color: isSelected ? Colors.white : (isOwned ? Colors.white70 : Colors.white38),
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                    fontFamily: 'Courier',
+                                  ),
+                                ),
+                              ),
+                              if (targetItemType == 'mask') ...[
+                                const SizedBox(width: 2),
+                                GestureDetector(
+                                  onTap: () {
+                                    final desc = item['description']?.toString() ?? 'A terrifying mask with standard haunting capabilities.';
+                                    final eCost = (item['energy_cost'] as num?)?.toDouble() ?? 2.0;
+                                    final mCd = (item['cooldown'] as num?)?.toDouble() ?? 2.0;
+                                    final mRange = (item['range'] as num?)?.toDouble() ?? 250.0;
+                                    
+                                    showDialog(
+                                      context: context,
+                                      builder: (ctx) => AlertDialog(
+                                        backgroundColor: Colors.black.withOpacity(0.95),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                          side: const BorderSide(color: Colors.cyanAccent, width: 1.5),
+                                        ),
+                                        title: Text(
+                                          name.toUpperCase(),
+                                          style: const TextStyle(
+                                            color: Colors.white, 
+                                            fontFamily: 'Courier', 
+                                            fontWeight: FontWeight.bold,
+                                            shadows: [Shadow(color: Colors.cyanAccent, blurRadius: 4)]
+                                          ),
+                                        ),
+                                        content: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              desc,
+                                              style: const TextStyle(color: Colors.white70, fontSize: 14, fontFamily: 'Courier', height: 1.4),
+                                            ),
+                                            const SizedBox(height: 16),
+                                            const Divider(color: Colors.white30),
+                                            const SizedBox(height: 16),
+                                            Text('ENERGY COST: $eCost', style: const TextStyle(color: Colors.greenAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold)),
+                                            const SizedBox(height: 4),
+                                            Text('COOLDOWN: ${mCd}s', style: const TextStyle(color: Colors.redAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold)),
+                                            const SizedBox(height: 4),
+                                            Text('RANGE: $mRange', style: const TextStyle(color: Colors.yellowAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold)),
+                                          ],
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.of(ctx).pop(),
+                                            child: const Text('CLOSE', style: TextStyle(color: Colors.cyanAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold)),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                  child: const Icon(Icons.info_outline, color: Colors.cyanAccent, size: 12),
+                                ),
+                              ],
+                            ],
                           ),
                           const SizedBox(height: 4),
                           if (!isOwned)
@@ -1568,16 +1628,16 @@ class TacticalDossierPanel extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start, // Keeps the icon at the top if text wraps
+                crossAxisAlignment: CrossAxisAlignment.start, 
                 children: [
                   const Icon(Icons.analytics_outlined, color: Colors.cyanAccent, size: 20),
                   const SizedBox(width: 8),
-                  Expanded( // <-- Wraps the text so it drops to the next line instead of cutting off
+                  Expanded( 
                     child: Text(
-                      'TACTICAL DOSSIER:\n${data['title']}', // Added a newline for a cleaner layout
+                      'TACTICAL DOSSIER:\n${data['title']}', 
                       style: const TextStyle(
                         color: Colors.cyanAccent,
-                        fontSize: 15, // Slightly reduced size
+                        fontSize: 15, 
                         fontWeight: FontWeight.bold,
                         fontFamily: 'Courier',
                         letterSpacing: 1.0,
@@ -1603,7 +1663,7 @@ class TacticalDossierPanel extends StatelessWidget {
                     'RECOMMENDED ACQUISITION: ',
                     style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.bold),
                   ),
-                  Expanded( // <-- Ensures long item names don't cut off either
+                  Expanded( 
                     child: Text(
                       data['suggested_item']!.toUpperCase(),
                       style: const TextStyle(color: Colors.amberAccent, fontSize: 12, fontWeight: FontWeight.bold),
