@@ -265,6 +265,8 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
           _playerShadows -= price;
         }
         _inventory.add({'item_id': itemId, 'item_type': itemType});
+
+        if (itemType == 'character') _ownedCharacters.add(itemId); // ensure either purhcase type (currency or cards) updates.
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1199,13 +1201,25 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                     if (state == 'owned') {
                       _selectInventoryItem('character', charId);
                     } else {
+                      // First tap: preview the character on the 3D mannequin
                       if (_previewCharacterId != charId) {
                         setState(() {
                           _previewCharacterId = charId;
                         });
                         _mannequinGame.loadBaseCharacter(charId);
-                      } else if (state == 'bind') {
+                      } 
+                      // Second tap on the previewed character:
+                      else if (state == 'bind') {
                         _bindOperative(charId, char['bind_cost'], char['name'] ?? charId);
+                      } else {
+                        // Allow direct purchase with Shadows or Coins!
+                        _showPurchaseConfirm(
+                          itemType: 'character',
+                          itemId: charId,
+                          name: char['name'] ?? charId,
+                          price: char['price'] ?? 0,
+                          currency: char['currency'] ?? 'shadows',
+                        );
                       }
                     }
                   },
@@ -1270,7 +1284,30 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                               else if (state == 'progression')
                                 Column(
                                   children: [
-                                    Text(isPreviewed ? 'PREVIEWING' : '${char['current_shards']} / ${char['max_shards']}', style: const TextStyle(color: Colors.grey, fontSize: 8)),
+                                    // If previewing, prompt them to buy with currency
+                                    if (isPreviewed)
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          const Text('BUY ', style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)),
+                                          Icon(
+                                            char['currency'] == 'coins' ? Icons.monetization_on : Icons.dark_mode, 
+                                            size: 9, 
+                                            color: char['currency'] == 'coins' ? Colors.amber : Colors.redAccent
+                                          ),
+                                          const SizedBox(width: 2),
+                                          Text(
+                                            '${char['price']}', 
+                                            style: TextStyle(
+                                              color: char['currency'] == 'coins' ? Colors.amber : Colors.redAccent, 
+                                              fontSize: 8, 
+                                              fontWeight: FontWeight.bold
+                                            )
+                                          ),
+                                        ],
+                                      )
+                                    else
+                                      Text('${char['current_shards']} / ${char['max_shards']}', style: const TextStyle(color: Colors.grey, fontSize: 8)),
                                     const SizedBox(height: 2),
                                     LinearProgressIndicator(
                                       value: (char['current_shards'] / char['max_shards']).clamp(0.0, 1.0),
