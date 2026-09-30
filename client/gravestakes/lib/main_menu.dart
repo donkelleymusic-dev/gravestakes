@@ -391,7 +391,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           'p_map_name': _selectedMapName,
           'p_mode': _selectedMatchMode,
           'p_target_players': targetPlayers,
-          if (_guildId != null) 'p_guild_id': _guildId,
+          'p_guild_id': _guildId,
         }, 
       );
       
