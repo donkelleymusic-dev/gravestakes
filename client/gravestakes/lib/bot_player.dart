@@ -823,21 +823,34 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
         if (distance < 110 && attackCooldown <= 0) {
           if (game.gameMap.hasLineOfSight(position, currentTarget!.position)) {
             
-            // 1. MASK ROULETTE
-            if (_random.nextInt(10) == 0) {
-              List<String> specials = ['flying', 'vermin', 'siren'];
+            // 1. MASK ROULETTE (The Teaser System)
+            // Bots can use all masks immediately. The base chance is 5% at Level 1, 
+            // scaling up to 15% at Level 10+.
+            int rollChance = 20 - (game.myPlayerLevel).clamp(1, 14).toInt(); 
+            if (_random.nextInt(rollChance) == 0) {
+              List<String> specials = ['flying', 'vermin', 'siren', 'wendigo', 'poltergeist'];
               currentMaskId = specials[_random.nextInt(specials.length)];
             } else {
               currentMaskId = 'standard';
             }
 
-            // 2. ACCURACY WHIFF
+            // 2. ACCURACY WHIFF (The Mercy Rule)
             bool targetIsMoving = true; 
             if (currentTarget is Player) targetIsMoving = (currentTarget as Player).isMoving;
             else if (currentTarget is RemotePlayer) targetIsMoving = (currentTarget as RemotePlayer).isMoving;
             else if (currentTarget is BotPlayer) targetIsMoving = (currentTarget as BotPlayer).movementDelta.length > 0;
             
-            bool whiffedAttack = targetIsMoving && (_random.nextDouble() < 0.25);
+            // Base miss chance is 25% for moving targets.
+            double missChance = 0.25;
+            
+            // MERCY OVERRIDE: If targeting the local player with an advanced mask
+            if (currentTarget == game.player && currentMaskId != 'standard') {
+               // Level 1: 80% chance the bot completely misses the special attack.
+               // Scales down linearly so by Level 10+, it returns to the standard 25%.
+               missChance = 0.80 - ((game.myPlayerLevel - 1) * 0.06).clamp(0.0, 0.55);
+            }
+
+            bool whiffedAttack = targetIsMoving && (_random.nextDouble() < missChance);
 
             if (whiffedAttack) {
               game.camera.viewport.add(FloatingText(
