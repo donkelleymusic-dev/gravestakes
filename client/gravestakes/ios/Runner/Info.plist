@@ -85,5 +85,7 @@
 		<true/>
 		<key>UIViewControllerBasedStatusBarAppearance</key>
 		<false/>
+		<key>NSCalendarsUsageDescription</key>
+		<string>Lumen Breach requires access to your calendar to schedule match reminders.</string>
 	</dict>
 </plist>
