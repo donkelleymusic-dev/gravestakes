@@ -85,6 +85,13 @@ class AudioManager {
       maskScareSounds['vermin']   = await SoLoud.instance.loadAsset('assets/audio/bugs.mp3');
       maskScareSounds['siren']    = await SoLoud.instance.loadAsset('assets/audio/Siren_Mask_Lure.mp3');
 
+      // --- NEW TACTICAL MASKS ---
+      maskScareSounds['gorgon']      = await SoLoud.instance.loadAsset('assets/audio/Gorgon.mp3');
+      maskScareSounds['poltergeist'] = await SoLoud.instance.loadAsset('assets/audio/Poltergeist.mp3');
+      maskScareSounds['banshee']     = await SoLoud.instance.loadAsset('assets/audio/Banshee.mp3');
+      maskScareSounds['wendigo']     = await SoLoud.instance.loadAsset('assets/audio/Wendigo.mp3');
+      maskScareSounds['parasite']    = await SoLoud.instance.loadAsset('assets/audio/Parasite.mp3');
+
       // 3. Preload Character-Specific Footsteps (Human vs Steampunk Robot)
       characterFootsteps['default'] = [
         await SoLoud.instance.loadAsset('assets/audio/Footsteps_Type_12.mp3'),
