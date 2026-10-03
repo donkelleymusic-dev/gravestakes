@@ -10,6 +10,7 @@ import 'package:add_2_calendar/add_2_calendar.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flame/components.dart';
+import 'dart:async';
 import 'voxel_character_component.dart';
 import 'game.dart';
 import 'store_screen.dart';
@@ -421,7 +422,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                           letterSpacing: 2.0,
-                          fontFamily: 'Courier',
+                          fontFamily: 'Orbitron',
                         ),
                       ),
                     ],
@@ -546,6 +547,16 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                         Positioned.fill(
                           child: IgnorePointer(
                             child: GameWidget(game: _ambientGame),
+                          ),
+                        ),
+                        
+                        // --- 2.5. CINEMATIC LORE SEQUENCE ---
+                        const Positioned(
+                          top: 150, 
+                          left: 40,
+                          right: 40,
+                          child: IgnorePointer(
+                            child: FadingLoreText(),
                           ),
                         ),
                         
@@ -730,7 +741,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                               value: _selectedMatchMode,
                                               dropdownColor: Colors.black,
                                               icon: const Icon(Icons.arrow_drop_down, color: Colors.purpleAccent),
-                                              style: const TextStyle(color: Colors.purpleAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold, fontSize: 12),
+                                              style: const TextStyle(color: Colors.purpleAccent, fontFamily: 'Orbitron', fontWeight: FontWeight.bold, fontSize: 12),
                                               items: const [
                                                 DropdownMenuItem(value: 'casual', child: Text('CASUAL FFA')),
                                                 DropdownMenuItem(value: '1v1', child: Text('1v1 RANKED')),
@@ -795,7 +806,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                                     fontSize: 18, 
                                                     fontWeight: FontWeight.bold, 
                                                     letterSpacing: 2, 
-                                                    fontFamily: 'Courier', 
+                                                    fontFamily: 'Orbitron', 
                                                     shadows: [Shadow(color: Colors.black, blurRadius: 4)]
                                                   ),
                                                 ),
@@ -908,7 +919,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.bold, fontFamily: 'Courier'),
+                  style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.bold, fontFamily: 'Orbitron'),
                 ),
               ],
             ),
@@ -1166,7 +1177,7 @@ class MenuFog extends PositionComponent with HasGameReference<AmbientMenuGame> {
     double fov = 400.0; 
     double perspective = fov / z;
 
-    double horizonY = game.size.y * 0.25; 
+    double horizonY = game.size.y * 0.65; 
     double cameraHeight = 100.0; // Slightly lower than monsters to hug the ground         
 
     double screenX = (game.size.x / 2) + (worldX * perspective);
@@ -1259,7 +1270,7 @@ class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame
     double fov = 400.0; 
     double perspective = fov / z;
 
-    double horizonY = game.size.y * 0.25; 
+    double horizonY = game.size.y * 0.65; 
     double cameraHeight = 120.0;          
 
     double screenX = (game.size.x / 2) + (worldX * perspective);
@@ -1457,6 +1468,82 @@ class _AnimatedGuildSidebarIconState extends State<AnimatedGuildSidebarIcon> wit
           ),
         );
       }
+    );
+  }
+}
+
+class FadingLoreText extends StatefulWidget {
+  const FadingLoreText({Key? key}) : super(key: key);
+
+  @override
+  State<FadingLoreText> createState() => _FadingLoreTextState();
+}
+
+class _FadingLoreTextState extends State<FadingLoreText> {
+  final List<String> _loreLines = [
+    "THEY PROMISED INFINITE ENERGY FROM THE VOID. THEY CALLED IT LUMEN.",
+    "BUT THE CONTAINMENT GRID FAILED. THE FRACTURE BECAME A BREACH.",
+    "IT DIDN'T JUST LET THE LIGHT OUT. IT LET THE MULTIVERSE IN.",
+    "SPECTERS. BEASTS. CYBERNETIC HORRORS FROM DEAD TIMELINES.",
+    "NOW, SECTOR 4 IS A SHIFTING QUARANTINE ZONE.",
+    "TO HUNT MONSTERS, WE MUST WEAR THEIR FACES.",
+    "HARVEST THE SHADOWS. FEED THE CRYPT. SURVIVE THE BLACKOUT."
+  ];
+
+  int _currentIndex = 0;
+  bool _isVisible = false;
+  Timer? _sequenceTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startSequence();
+  }
+
+  void _startSequence() {
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) setState(() => _isVisible = true);
+    });
+
+    _sequenceTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      if (!mounted) return;
+      setState(() => _isVisible = false);
+      
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted) return;
+      
+      setState(() {
+        _currentIndex = (_currentIndex + 1) % _loreLines.length;
+        _isVisible = true;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _sequenceTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      opacity: _isVisible ? 1.0 : 0.0,
+      duration: const Duration(seconds: 1), // Snappy fade
+      curve: Curves.easeInOut,
+      child: Text(
+        _loreLines[_currentIndex],
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Colors.white70,
+          fontFamily: 'Orbitron',
+          fontSize: 16,
+          fontWeight: FontWeight.w800, // Thick, aggressive weight
+          letterSpacing: 3.0,
+          height: 1.5,
+          shadows: [Shadow(color: Colors.black, blurRadius: 12)],
+        ),
+      ),
     );
   }
 }

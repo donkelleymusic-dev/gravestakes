@@ -83,6 +83,23 @@ flutter:
     - assets/goliath_assets.zip
     - assets/translations/
 
+  fonts:
+    - family: Orbitron
+      fonts:
+        - asset: assets/fonts/Orbitron-Regular.ttf
+        - asset: assets/fonts/Orbitron-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Orbitron-Black.ttf
+          weight: 900
+
+    - family: Courier Prime
+      fonts:
+        - asset: assets/fonts/CourierPrime-Regular.ttf
+        - asset: assets/fonts/CourierPrime-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/CourierPrime-Italic.ttf
+          style: italic
+
 flutter_native_splash:
   # The background color of your loading screen
   color: "#000000"
