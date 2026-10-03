@@ -610,7 +610,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     final masterSeed = DateTime.now().millisecondsSinceEpoch;
 
     if (currentMask.isFlying) {
-      game.world.add(FlyingScareBlast(position: position.clone(), angle: facingAngle, ownerId: game.mySessionId)); 
+      if (!game.isFpsMode) game.world.add(FlyingScareBlast(position: position.clone(), angle: facingAngle, ownerId: game.mySessionId)); 
     } else if (currentMask.swarmBehavior != SwarmBehavior.none) {
       for (int i = 0; i < currentMask.swarmCount; i++) {
         game.scareManager.spawnCritter(Critter(position: position.clone(), behavior: currentMask.swarmBehavior, seed: masterSeed, index: i, initialAngle: facingAngle, ownerId: game.mySessionId)); 
@@ -620,7 +620,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     } else if (currentMask.id == 'poltergeist') {
       game.world.add(PoltergeistTrap(position: position.clone(), angle: facingAngle, ownerId: game.mySessionId));
     } else if (currentMask.id == 'banshee') {
-      game.world.add(BansheeBeam(position: position.clone(), angle: facingAngle));
+      if (!game.isFpsMode) game.world.add(BansheeBeam(position: position.clone(), angle: facingAngle));
     } else {
       if (!isGunner && currentMask.id != 'siren') {
         final forward = Vector2(sin(facingAngle), -cos(facingAngle));
@@ -633,18 +633,11 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         }
       }
       
-      /* if (currentMask.id == 'siren') {
-        add(SirenBlast()..position = size / 2);
-      } else {
-        game.world.add(ScareBlast(position: position.clone(), angle: facingAngle - (pi / 2))..priority = priority + 5);
-      } */
-
       if (currentMask.id == 'siren') {
-        add(SirenBlast()..position = size / 2);
+        if (!game.isFpsMode) add(SirenBlast()..position = size / 2);
       } else {
-        // The twisted angle is ONLY for the visual cone and the collision query
         double trueAttackAngle = facingAngle - (pi / 2);
-        game.world.add(ScareBlast(position: position.clone(), angle: trueAttackAngle)..priority = priority + 5);
+        if (!game.isFpsMode) game.world.add(ScareBlast(position: position.clone(), angle: trueAttackAngle)..priority = priority + 5);
 
         // --- DYNAMIC CO-OP RECOIL ---
         // FIX: The movement vector strictly uses the raw facingAngle
@@ -766,7 +759,10 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         SoLoud.instance.stop(_breathingHandle!);
         _breathingHandle = null;
       }
-      return; 
+      // NEW: Reset physiological states so they don't instantly resume next match!
+      breathExertionLevel = 0.0;
+      isHoldingBreath = false;
+      return;
     }
     
     super.update(dt);

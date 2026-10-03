@@ -529,7 +529,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       children: [
                         // --- 1. BRANDING LOGO (BEHIND THE ENGINE) ---
                         Positioned(
-                          bottom: 160, // Increased from 130 to clear the dropdown menu!
+                          top: 250, // Swapped from 'bottom: 160' to push it above the fog
                           left: 80,    
                           right: 80,   
                           child: IgnorePointer(
@@ -552,9 +552,9 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                         
                         // --- 2.5. CINEMATIC LORE SEQUENCE ---
                         const Positioned(
-                          top: 150, 
-                          left: 40,
-                          right: 40,
+                          top: 130, // Tucked slightly higher
+                          left: 100, // Pinched in to avoid sidebar buttons
+                          right: 100,
                           child: IgnorePointer(
                             child: FadingLoreText(),
                           ),
@@ -1537,7 +1537,7 @@ class _FadingLoreTextState extends State<FadingLoreText> {
         style: const TextStyle(
           color: Colors.white70,
           fontFamily: 'Orbitron',
-          fontSize: 16,
+          fontSize: 12, // Reduced from 16
           fontWeight: FontWeight.w800, // Thick, aggressive weight
           letterSpacing: 3.0,
           height: 1.5,

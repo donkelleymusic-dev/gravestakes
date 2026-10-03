@@ -1025,8 +1025,20 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     // --- STOP MUSIC FOR SCORE SCREEN ---
     if (AudioManager.instance.isInitialized) {
       AudioManager.instance.stopPhysiologyLoops();
+      
       // Explicitly kill the local player's breathing loop!
       player.stopAudio();
+      
+      // NEW: Force-kill all Bot and RemotePlayer audio loops bleeding into the lobby
+      try {
+        for (var child in world.children) {
+          if (child is BotPlayer) (child as dynamic).stopAudio();
+          if (child is RemotePlayer) (child as dynamic).stopAudio();
+        }
+      } catch (e) {
+         debugPrint('Failed to stop remote audio: $e');
+      }
+      
       AudioManager.instance.stopMusic();
     }
 
@@ -1404,12 +1416,25 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           }
         } 
         else {
-          // --- MASK-SPECIFIC RAYCAST RULES ---
-          // Banshee uses a razor-thin cone (0.85 instead of 0.1)
-          final coneThreshold = (maskId == 'banshee') ? 0.85 : (isPoweredUp ? -0.2 : 0.1);
+          // --- MASK-SPECIFIC RAYCAST RULES - now checking an 
+          //     expanding angle to checking their absolute 
+          //     perpendicular distance from your banshee ---
+          bool isHit = false;
           
-          // Banshee ignores walls completely
-          bool hasLOS = (maskId == 'banshee') ? true : gameMap.hasLineOfSight(bot.position, attackerPos);
+          if (maskId == 'banshee') {
+             // Banshee fires a fixed-width laser cylinder, ignoring walls
+             final rawVector = bot.position - attackerPos;
+             final proj = rawVector.dot(forward); // Distance along the laser
+             if (proj > 0) { 
+               final perpDist = (rawVector - (forward * proj)).length; // Distance from center of laser
+               if (perpDist < 64.0) isHit = true; // 128px wide total corridor
+             }
+          } else {
+             // Standard masks use expanding vision cones and check for walls
+             final coneThreshold = isPoweredUp ? -0.2 : 0.1;
+             bool hasLOS = gameMap.hasLineOfSight(bot.position, attackerPos);
+             if (dot > coneThreshold && hasLOS) isHit = true;
+          }
           
           // Gorgon requires the victim to be facing the attacker
           bool isLookingAtAttacker = true;
@@ -1419,7 +1444,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
              isLookingAtAttacker = botForward.dot(botToAttacker) > 0.2; // They must be facing you
           }
 
-          if (dot > coneThreshold && hasLOS && isLookingAtAttacker) {
+          if (isHit && isLookingAtAttacker) {
             if (bot.isHunter) {
               if (bot.isCoreExposed) {
                 bot.applyStun(8.0); bot.localImmunityToMe = 10.0; 
