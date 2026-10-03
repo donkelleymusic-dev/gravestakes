@@ -88,6 +88,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
   List<Map<String, dynamic>> _inventory = [];
   List<String> _ownedCharacters = ['default'];
   Map<String, int> _userShards = {};
+  List<Map<String, dynamic>> _pendingRewards = []; // <-- NEW QUEUE TRACKER
   
   Map<String, WearableDef> _wearablesCatalog = {};
   Map<String, Map<String, dynamic>> _masksCatalog = {};
@@ -124,6 +125,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         supabase.from('user_inventory').select('item_id, item_type').eq('user_id', userId),   
         supabase.from('user_characters').select('character_id').eq('user_id', userId),
         supabase.from('user_shards').select('character_id, shard_count').eq('user_id', userId),
+        supabase.from('pending_rewards').select('*').eq('user_id', userId).eq('is_claimed', false), // <-- FETCH REWARDS
       ]);
 
       final walletData = responses[0] as Map<String, dynamic>;
@@ -188,6 +190,9 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         _userShards[charId] = shardCount;
       }
 
+      // Populate pending rewards
+      _pendingRewards = List<Map<String, dynamic>>.from(responses[8]);
+
       _revertDraft(); 
 
       if (mounted) setState(() => _isLoading = false);
@@ -206,10 +211,55 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     }
   }
 
+  // --- NEW: CLAIM RPC TRIGGER ---
+  Future<void> _claimReward(String rewardId) async {
+    try {
+      final response = await supabase.rpc(
+        'claim_pending_reward',
+        params: {'p_reward_id': rewardId},
+      );
+
+      final status = response['status'];
+      
+      if (mounted) {
+        if (status == 'duplicate_converted') {
+          final comp = response['compensation'];
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Duplicate item converted into $comp Coins!', style: const TextStyle(fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
+              backgroundColor: Colors.amber[900],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Item added to your Crypt!', style: TextStyle(fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
+              backgroundColor: Colors.cyan,
+            ),
+          );
+        }
+        
+        // Refresh the Crypt UI to remove the item from the queue and show it in the inventory
+        setState(() => _isLoading = true);
+        _fetchLoadoutData(); 
+      }
+    } catch (e) {
+      debugPrint('Error claiming reward: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to claim reward. Please try again.', style: TextStyle(fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _bindOperative(String charId, int cost, String name) async {
     if (_playerCoins < cost) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Not enough COINS to bind $name!'), backgroundColor: Colors.red),
+        SnackBar(content: Text('Not enough COINS to bind $name!', style: const TextStyle(fontFamily: 'Orbitron')), backgroundColor: Colors.red),
       );
       return;
     }
@@ -219,13 +269,13 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       await _fetchLoadoutData(); 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$name Evolved Successfully!'), backgroundColor: Colors.greenAccent),
+          SnackBar(content: Text('$name Evolved Successfully!', style: const TextStyle(fontFamily: 'Orbitron')), backgroundColor: Colors.greenAccent),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Binding failed: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Binding failed: $e', style: const TextStyle(fontFamily: 'Orbitron')), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -240,7 +290,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     int currentBalance = currency == 'coins' ? _playerCoins : _playerShadows;
     if (currentBalance < price) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Not enough ${currency.toUpperCase()}!'), backgroundColor: Colors.red),
+        SnackBar(content: Text('Not enough ${currency.toUpperCase()}!', style: const TextStyle(fontFamily: 'Orbitron')), backgroundColor: Colors.red),
       );
       return;
     }
@@ -266,18 +316,18 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         }
         _inventory.add({'item_id': itemId, 'item_type': itemType});
 
-        if (itemType == 'character') _ownedCharacters.add(itemId); // ensure either purhcase type (currency or cards) updates.
+        if (itemType == 'character') _ownedCharacters.add(itemId); 
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$itemId acquired!'), backgroundColor: Colors.green),
+        SnackBar(content: Text('$itemId acquired!', style: const TextStyle(fontFamily: 'Orbitron')), backgroundColor: Colors.green),
       );
 
       _selectInventoryItem(itemType, itemId);
     } catch (e) {
       debugPrint('Crypt Purchase Error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Purchase failed: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text('Purchase failed: $e', style: const TextStyle(fontFamily: 'Orbitron')), backgroundColor: Colors.red),
       );
     }
   }
@@ -293,7 +343,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.grey[900],
-        title: Text('Acquire $name?', style: const TextStyle(color: Colors.white)),
+        title: Text('Acquire $name?', style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
         content: Text(
           'Unlock this $itemType for $price ${currency.toUpperCase()}?',
           style: const TextStyle(color: Colors.white70),
@@ -301,7 +351,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('CANCEL', style: TextStyle(color: Colors.grey)),
+            child: const Text('CANCEL', style: TextStyle(color: Colors.grey, fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -311,7 +361,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
               Navigator.of(ctx).pop();
               _buyItem(itemType, itemId, price, currency);
             },
-            child: Text('BUY ($price ${currency.toUpperCase()})', style: const TextStyle(color: Colors.white)),
+            child: Text('BUY ($price ${currency.toUpperCase()})', style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -572,7 +622,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 fontSize: 8,
                 fontWeight: mId.isNotEmpty ? FontWeight.bold : FontWeight.normal,
                 color: mId.isNotEmpty ? Colors.white : Colors.white38,
-                fontFamily: 'Courier',
+                fontFamily: 'Orbitron',
               ),
             ),
           ],
@@ -622,7 +672,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         key: _scaffoldKey,
         backgroundColor: const Color(0xFF111111),
         appBar: AppBar(
-          title: const Text('THE CRYPT', style: TextStyle(letterSpacing: 2.0, color: Colors.purpleAccent, fontSize: 16)),
+          title: const Text('THE CRYPT', style: TextStyle(letterSpacing: 2.0, color: Colors.purpleAccent, fontSize: 16, fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
           backgroundColor: Colors.black,
           elevation: 0,
           leading: IconButton(
@@ -650,6 +700,48 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
         ),
         body: Column(
           children: [
+          // --- PENDING REWARDS BANNER ---
+          if (_pendingRewards.isNotEmpty)
+            Container(
+              height: 50,
+              decoration: BoxDecoration(
+                color: Colors.red[900]?.withOpacity(0.8),
+                border: const Border(bottom: BorderSide(color: Colors.redAccent, width: 2)),
+              ),
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                itemCount: _pendingRewards.length,
+                itemBuilder: (context, index) {
+                  final reward = _pendingRewards[index];
+                  return GestureDetector(
+                    onTap: () => _claimReward(reward['id']),
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        border: Border.all(color: Colors.white70),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Center(
+                        child: Text(
+                          'CLAIM: ${reward['item_id'].toString().toUpperCase()}',
+                          style: const TextStyle(
+                            fontFamily: 'Orbitron', 
+                            color: Colors.white, 
+                            fontWeight: FontWeight.bold, 
+                            fontSize: 12,
+                            letterSpacing: 1.2
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
           Container(
             height: 175,
             color: Colors.black54,
@@ -668,7 +760,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                         child: Text(
                           (activeCharData['name'] as String?)?.toUpperCase() ?? 'OPERATIVE', 
                           maxLines: 1,
-                          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.0),
+                          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.0, fontFamily: 'Orbitron'),
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -676,7 +768,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                         children: [
                           Text(
                             (activeCharData['species'] as String?)?.toUpperCase() ?? 'UNKNOWN SPECIES',
-                            style: const TextStyle(fontSize: 11, color: Colors.purpleAccent, letterSpacing: 1.5, fontWeight: FontWeight.bold),
+                            style: const TextStyle(fontSize: 11, color: Colors.purpleAccent, letterSpacing: 1.5, fontWeight: FontWeight.bold, fontFamily: 'Orbitron'),
                           ),
                           const SizedBox(width: 6),
                           GestureDetector(
@@ -731,6 +823,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                     labelColor: Colors.purpleAccent,
                     unselectedLabelColor: Colors.white54,
                     labelPadding: const EdgeInsets.symmetric(horizontal: 10),
+                    labelStyle: const TextStyle(fontFamily: 'Orbitron', fontWeight: FontWeight.bold, fontSize: 12),
                     tabs: [
                       const Tab(icon: Icon(Icons.person, size: 18), text: 'Char'),
                       Showcase(
@@ -787,10 +880,10 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('ATTUNED WARDS & MASKS', 
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.orangeAccent, letterSpacing: 1.0)),
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.orangeAccent, letterSpacing: 1.0, fontFamily: 'Orbitron')),
                     Text(
                       _selectedInventoryId != null ? 'TAP SLOT TO BIND' : 'TAP TO DISMISS',
-                      style: const TextStyle(fontSize: 9, color: Colors.white38),
+                      style: const TextStyle(fontSize: 9, color: Colors.white38, fontFamily: 'Orbitron'),
                     ),
                   ],
                 ),
@@ -829,7 +922,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 children: [
                   TextButton(
                     onPressed: _revertDraft,
-                    child: const Text('DISMISS', style: TextStyle(color: Colors.redAccent, letterSpacing: 1.5, fontSize: 13)),
+                    child: const Text('DISMISS', style: TextStyle(color: Colors.redAccent, letterSpacing: 1.5, fontSize: 13, fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
                   ),
                   Showcase(
                     key: _sealKey,
@@ -851,7 +944,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                         }
                         _commitDraft();
                       },
-                      child: const Text('SEAL ATTUNEMENT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2, fontSize: 13)),
+                      child: const Text('SEAL ATTUNEMENT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2, fontSize: 13, fontFamily: 'Orbitron')),
                     ),
                   ),
                 ],
@@ -889,6 +982,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 style: TextStyle(
                   color: assignedId != null ? Colors.white : Colors.white54,
                   fontSize: 10,
+                  fontFamily: 'Orbitron',
                   fontWeight: assignedId != null ? FontWeight.bold : FontWeight.normal,
                 ),
               ),
@@ -928,7 +1022,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     }
 
     if (allCatalogItems.isEmpty) {
-      return const Center(child: Text('No relics cataloged.', style: TextStyle(color: Colors.white54)));
+      return const Center(child: Text('No relics cataloged.', style: TextStyle(color: Colors.white54, fontFamily: 'Orbitron')));
     }
     
     return Center(
@@ -999,7 +1093,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                                     fontSize: 9, 
                                     color: isSelected ? Colors.white : (isOwned ? Colors.white70 : Colors.white38),
                                     fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                    fontFamily: 'Courier',
+                                    fontFamily: 'Orbitron',
                                   ),
                                 ),
                               ),
@@ -1024,7 +1118,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                                           name.toUpperCase(),
                                           style: const TextStyle(
                                             color: Colors.white, 
-                                            fontFamily: 'Courier', 
+                                            fontFamily: 'Orbitron', 
                                             fontWeight: FontWeight.bold,
                                             shadows: [Shadow(color: Colors.cyanAccent, blurRadius: 4)]
                                           ),
@@ -1035,22 +1129,22 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                                           children: [
                                             Text(
                                               desc,
-                                              style: const TextStyle(color: Colors.white70, fontSize: 14, fontFamily: 'Courier', height: 1.4),
+                                              style: const TextStyle(color: Colors.white70, fontSize: 14, fontFamily: 'Orbitron', height: 1.4),
                                             ),
                                             const SizedBox(height: 16),
                                             const Divider(color: Colors.white30),
                                             const SizedBox(height: 16),
-                                            Text('ENERGY COST: $eCost', style: const TextStyle(color: Colors.greenAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold)),
+                                            Text('ENERGY COST: $eCost', style: const TextStyle(color: Colors.greenAccent, fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
                                             const SizedBox(height: 4),
-                                            Text('COOLDOWN: ${mCd}s', style: const TextStyle(color: Colors.redAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold)),
+                                            Text('COOLDOWN: ${mCd}s', style: const TextStyle(color: Colors.redAccent, fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
                                             const SizedBox(height: 4),
-                                            Text('RANGE: $mRange', style: const TextStyle(color: Colors.yellowAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold)),
+                                            Text('RANGE: $mRange', style: const TextStyle(color: Colors.yellowAccent, fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
                                           ],
                                         ),
                                         actions: [
                                           TextButton(
                                             onPressed: () => Navigator.of(ctx).pop(),
-                                            child: const Text('CLOSE', style: TextStyle(color: Colors.cyanAccent, fontFamily: 'Courier', fontWeight: FontWeight.bold)),
+                                            child: const Text('CLOSE', style: TextStyle(color: Colors.cyanAccent, fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
                                           ),
                                         ],
                                       ),
@@ -1068,11 +1162,11 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                               children: [
                                 Icon(currency == 'coins' ? Icons.monetization_on : Icons.dark_mode, size: 9, color: currency == 'coins' ? Colors.amber : Colors.redAccent),
                                 const SizedBox(width: 2),
-                                Text('$price', style: TextStyle(color: currency == 'coins' ? Colors.amber : Colors.redAccent, fontSize: 8, fontWeight: FontWeight.bold)),
+                                Text('$price', style: TextStyle(color: currency == 'coins' ? Colors.amber : Colors.redAccent, fontSize: 8, fontWeight: FontWeight.bold, fontFamily: 'Orbitron')),
                               ],
                             )
                           else
-                            const Text('OWNED', style: TextStyle(color: Colors.greenAccent, fontSize: 8, fontWeight: FontWeight.bold)),
+                            const Text('OWNED', style: TextStyle(color: Colors.greenAccent, fontSize: 8, fontWeight: FontWeight.bold, fontFamily: 'Orbitron')),
                         ],
                       ),
                     ),
@@ -1168,7 +1262,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
               padding: const EdgeInsets.only(top: 8, bottom: 12, left: 4),
               child: Text(
                 '$speciesName OPERATIVES', 
-                style: const TextStyle(color: Colors.purpleAccent, fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 2.0)
+                style: const TextStyle(color: Colors.purpleAccent, fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 2.0, fontFamily: 'Orbitron')
               ),
             ),
             
@@ -1260,24 +1354,24 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                                 textAlign: TextAlign.center,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold, fontFamily: 'Orbitron'),
                               ),
                               const SizedBox(height: 4),
                               
                               if (isEquipped)
-                                const Text('EQUIPPED', textAlign: TextAlign.center, style: TextStyle(color: Colors.greenAccent, fontSize: 8, fontWeight: FontWeight.bold))
+                                const Text('EQUIPPED', textAlign: TextAlign.center, style: TextStyle(color: Colors.greenAccent, fontSize: 8, fontWeight: FontWeight.bold, fontFamily: 'Orbitron'))
                               
                               else if (state == 'owned')
-                                const Text('TAP TO BIND', textAlign: TextAlign.center, style: TextStyle(color: Colors.white54, fontSize: 8))
+                                const Text('TAP TO BIND', textAlign: TextAlign.center, style: TextStyle(color: Colors.white54, fontSize: 8, fontFamily: 'Orbitron'))
                               
                               else if (state == 'bind')
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Text(isPreviewed ? 'CONFIRM ' : 'EVOLVE ', style: const TextStyle(color: Colors.amberAccent, fontSize: 8, fontWeight: FontWeight.bold)),
+                                    Text(isPreviewed ? 'CONFIRM ' : 'EVOLVE ', style: const TextStyle(color: Colors.amberAccent, fontSize: 8, fontWeight: FontWeight.bold, fontFamily: 'Orbitron')),
                                     const Icon(Icons.monetization_on, size: 10, color: Colors.amberAccent),
                                     const SizedBox(width: 2),
-                                    Text('${char['bind_cost']}', style: const TextStyle(color: Colors.amberAccent, fontSize: 9, fontWeight: FontWeight.bold)),
+                                    Text('${char['bind_cost']}', style: const TextStyle(color: Colors.amberAccent, fontSize: 9, fontWeight: FontWeight.bold, fontFamily: 'Orbitron')),
                                   ],
                                 )
                               
@@ -1289,7 +1383,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                                       Row(
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
-                                          const Text('BUY ', style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)),
+                                          const Text('BUY ', style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold, fontFamily: 'Orbitron')),
                                           Icon(
                                             char['currency'] == 'coins' ? Icons.monetization_on : Icons.dark_mode, 
                                             size: 9, 
@@ -1301,13 +1395,14 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                                             style: TextStyle(
                                               color: char['currency'] == 'coins' ? Colors.amber : Colors.redAccent, 
                                               fontSize: 8, 
-                                              fontWeight: FontWeight.bold
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Orbitron'
                                             )
                                           ),
                                         ],
                                       )
                                     else
-                                      Text('${char['current_shards']} / ${char['max_shards']}', style: const TextStyle(color: Colors.grey, fontSize: 8)),
+                                      Text('${char['current_shards']} / ${char['max_shards']}', style: const TextStyle(color: Colors.grey, fontSize: 8, fontFamily: 'Orbitron')),
                                     const SizedBox(height: 2),
                                     LinearProgressIndicator(
                                       value: (char['current_shards'] / char['max_shards']).clamp(0.0, 1.0),
@@ -1442,7 +1537,7 @@ class CircleOfTormentOverlay extends StatelessWidget {
       title: const Text(
         'THE CIRCLE OF TORMENT',
         textAlign: TextAlign.center,
-        style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, letterSpacing: 1.5),
+        style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, letterSpacing: 1.5, fontFamily: 'Orbitron'),
       ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1463,7 +1558,7 @@ class CircleOfTormentOverlay extends StatelessWidget {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('UNDERSTOOD', style: TextStyle(color: Colors.white54)),
+          child: const Text('UNDERSTOOD', style: TextStyle(color: Colors.white54, fontFamily: 'Orbitron')),
         ),
       ],
     );
@@ -1477,14 +1572,14 @@ class CircleOfTormentOverlay extends StatelessWidget {
         children: [
           Icon(icon1, color: c1, size: 20),
           const SizedBox(width: 6),
-          Text(text1, style: TextStyle(color: c1, fontWeight: FontWeight.bold, fontSize: 12)),
+          Text(text1, style: TextStyle(color: c1, fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Orbitron')),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8.0),
             child: Text(action, style: const TextStyle(color: Colors.white54, fontSize: 10, fontStyle: FontStyle.italic)),
           ),
           Icon(icon2, color: c2, size: 20),
           const SizedBox(width: 6),
-          Text(text2, style: TextStyle(color: c2, fontWeight: FontWeight.bold, fontSize: 12)),
+          Text(text2, style: TextStyle(color: c2, fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Orbitron')),
         ],
       ),
     );
@@ -1676,7 +1771,7 @@ class TacticalDossierPanel extends StatelessWidget {
                         color: Colors.cyanAccent,
                         fontSize: 15, 
                         fontWeight: FontWeight.bold,
-                        fontFamily: 'Courier',
+                        fontFamily: 'Orbitron',
                         letterSpacing: 1.0,
                       ),
                     ),
@@ -1689,6 +1784,7 @@ class TacticalDossierPanel extends StatelessWidget {
                 style: const TextStyle(
                   color: Colors.white70,
                   fontSize: 14,
+                  fontFamily: 'Orbitron',
                   height: 1.4,
                 ),
               ),
@@ -1698,12 +1794,12 @@ class TacticalDossierPanel extends StatelessWidget {
                 children: [
                   const Text(
                     'RECOMMENDED ACQUISITION: ',
-                    style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.bold),
+                    style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Orbitron'),
                   ),
                   Expanded( 
                     child: Text(
                       data['suggested_item']!.toUpperCase(),
-                      style: const TextStyle(color: Colors.amberAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: Colors.amberAccent, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Orbitron'),
                     ),
                   ),
                 ],

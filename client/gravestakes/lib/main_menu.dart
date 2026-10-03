@@ -66,6 +66,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   int _coins = 0; 
   int _unclaimedPassTiers = 0;
   int _freeMarketItems = 0;
+  int _unclaimedCryptItems = 0;
   bool _isLoading = true;
   bool _isSearchingForMatch = false;
   String? _errorMessage;
@@ -219,6 +220,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(),
           supabase.from('player_inbox').select('id').eq('recipient_id', user.id).eq('is_read', false),
           supabase.from('guild_members').select('guild_id').eq('user_id', user.id).maybeSingle(),
+          supabase.from('pending_rewards').select('id').eq('user_id', user.id).eq('is_claimed', false),
         ]);
 
         final seasonRes = await supabase.from('season_config').select('id').eq('is_active', true).maybeSingle();
@@ -328,6 +330,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             _coins = responses[1]['coins'] ?? 0; 
             _unreadMessages = (responses[2] as List).length;
             _guildId = responses[3]?['guild_id'];
+            _unclaimedCryptItems = (responses[4] as List).length;
             _unclaimedPassTiers = unclaimedTiers;
             _freeMarketItems = freeMarketItems;
             _isFrightNightActive = activeFN;
@@ -710,14 +713,18 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                   onTargetClick: () {
                                     SynthManager.instance.playMagicTap();
                                     Future.delayed(const Duration(milliseconds: 25), () {
-                                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LoadoutScreen())).then((_) => _checkTutorialPhase());
+                                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LoadoutScreen())).then((_) {
+                                        _fetchPlayerData(); // Refresh to clear the red dot
+                                        _checkTutorialPhase();
+                                      });
                                     });
                                   },
                                   child: _buildChunkyButton(
                                     icon: Icons.backpack, 
-                                    label: 'btn_crypt'.tr(), 
+                                    label: 'CRYPT', 
                                     color: Colors.cyanAccent, 
-                                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LoadoutScreen())),
+                                    badgeCount: _unclaimedCryptItems, // <-- INJECT RED DOT HERE
+                                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LoadoutScreen())).then((_) => _fetchPlayerData()), // Refresh here too
                                   ),
                                 ),
 
