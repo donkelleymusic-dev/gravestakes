@@ -10,7 +10,7 @@ import 'package:add_2_calendar/add_2_calendar.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flame/components.dart';
-import 'dart:async';
+import 'dart:async' as async;
 import 'voxel_character_component.dart';
 import 'game.dart';
 import 'store_screen.dart';
@@ -1492,7 +1492,7 @@ class _FadingLoreTextState extends State<FadingLoreText> {
 
   int _currentIndex = 0;
   bool _isVisible = false;
-  Timer? _sequenceTimer;
+  async.Timer? _sequenceTimer;
 
   @override
   void initState() {
@@ -1505,7 +1505,7 @@ class _FadingLoreTextState extends State<FadingLoreText> {
       if (mounted) setState(() => _isVisible = true);
     });
 
-    _sequenceTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+    _sequenceTimer = async.Timer.periodic(const Duration(seconds: 5), (timer) async {
       if (!mounted) return;
       setState(() => _isVisible = false);
       
