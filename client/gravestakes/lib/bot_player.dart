@@ -33,6 +33,12 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   String assignedCharacterId = 'default';
   String species = 'humanoid';
 
+  // --- NEW: PREDATOR PAUSE VARIABLES ---
+  double _tensionTimer = 0.0;
+  bool _isPreparingLunge = false;
+  double _lungeTimer = 0.0;
+  // -------------------------------------
+
   bool _canTaunt = false;
   double _idleTimer = 0.0;
   static const List<String> _idleTaunts = [
@@ -82,8 +88,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
   double acousticAggroTimer = 0.0;
   List<Vector2> _hunterPath = [];
   double _pathRecalcTimer = 0.0;
-
-  
 
   static const List<String> _fakeNames = [
     'ShadowWalker99', 'GraveDigger', 'LumenThief', 'SpookyToast', 
@@ -591,12 +595,171 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     }
   }
 
+  void _triggerBotScare() {
+    if (currentTarget == null) return;
+    
+    // 1. MASK ROULETTE
+    int rollChance = 20 - (game.myPlayerLevel).clamp(1, 14).toInt(); 
+    if (_random.nextInt(rollChance) == 0) {
+      List<String> specials = ['flying', 'vermin', 'siren', 'wendigo', 'poltergeist'];
+      currentMaskId = specials[_random.nextInt(specials.length)];
+    } else {
+      currentMaskId = 'standard';
+    }
+
+    // 2. ACCURACY WHIFF
+    bool targetIsMoving = true; 
+    if (currentTarget is Player) targetIsMoving = (currentTarget as Player).isMoving;
+    else if (currentTarget is RemotePlayer) targetIsMoving = (currentTarget as RemotePlayer).isMoving;
+    else if (currentTarget is BotPlayer) targetIsMoving = (currentTarget as BotPlayer).movementDelta.length > 0;
+    
+    double missChance = 0.25;
+    
+    if (currentTarget == game.player && currentMaskId != 'standard') {
+       missChance = 0.80 - ((game.myPlayerLevel - 1) * 0.06).clamp(0.0, 0.55);
+    }
+
+    bool whiffedAttack = targetIsMoving && (_random.nextDouble() < missChance);
+
+    if (whiffedAttack) {
+      game.camera.viewport.add(FloatingText(
+        text: 'MISSED!', 
+        worldPosition: Vector2(position.x - 20, position.y - 60),
+      ));
+      if (position.distanceTo(game.player.position) < 900.0) {
+        AudioManager.instance.playEntityFootstep(assignedCharacterId, position, isLocal: false); 
+      }
+      attackCooldown = 4.0; 
+      
+    } else {
+      AudioManager.instance.playSpatialScare(currentMaskId, position);
+      if (voxelComponent != null) voxelComponent!.triggerScareAnimation(currentMaskId);
+      
+      if (currentMaskId == 'flying') {
+        game.world.add(FlyingScareBlast(position: position.clone(), angle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
+      } else if (currentMaskId == 'vermin') {
+        for (int i = 0; i < 15; i++) {
+          game.scareManager.spawnCritter(Critter(position: position.clone(), behavior: SwarmBehavior.scatter, seed: DateTime.now().millisecondsSinceEpoch, index: i, initialAngle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
+        }
+      } else if (currentMaskId == 'wendigo') {
+        game.world.add(WendigoDecoy(position: position.clone(), angle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}', charId: assignedCharacterId));
+      } else if (currentMaskId == 'poltergeist') {
+        game.world.add(PoltergeistTrap(position: position.clone(), angle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
+      } else if (currentMaskId == 'siren') {
+        add(SirenBlast()..position = size / 2);
+      } else if (currentMaskId == 'banshee') {
+        game.world.add(BansheeBeam(position: position.clone(), angle: facingAngle)); 
+      } else {
+        game.world.add(ScareBlast(position: position.clone(), angle: facingAngle - (pi / 2))..priority = priority + 5);
+      }
+
+      game.myChannel.sendBroadcastMessage(event: 'bot_scare', payload: {
+        'bot_index': game.bots.indexOf(this),
+        'mask_id': currentMaskId,
+        'x': position.x, 'y': position.y, 'a': facingAngle
+      });
+
+      String attackWord = isHunter ? 'CRUSHED!' : 'SCARED!';
+      if (!isHunter && personality == BotPersonality.stalker) attackWord = 'STALKED!';
+      if (!isHunter && personality == BotPersonality.trapdoor) attackWord = 'AMBUSHED!';
+      game.camera.viewport.add(FloatingText(text: attackWord, worldPosition: Vector2(position.x - 30, position.y - 60)));
+
+      if (currentMaskId == 'siren') {
+        if (currentTarget == game.player) {
+          game.player.applyCharm(15.0, position, charmerId: 'bot_${game.bots.indexOf(this)}');
+          triggerPrivateHighlight();
+          simulatedScore += 100; 
+        } else if (currentTarget is RemotePlayer) {
+          String? targetId;
+          game.networkPlayers.forEach((key, val) { if (val == currentTarget) targetId = key; });
+          if (targetId != null) {
+            game.myChannel.sendBroadcastMessage(event: 'charm', payload: {
+              'id': targetId, 'duration': 15.0, 
+              'charmer_x': position.x, 'charmer_y': position.y
+            });
+          }
+          simulatedScore += 100; 
+        } else if (currentTarget is BotPlayer) {
+          (currentTarget as BotPlayer).applyCharm(15.0, this);
+          simulatedScore += 100; 
+        }
+      } else if (currentMaskId == 'standard') {
+        if (currentTarget == game.player) {
+          game.jumpScareEffect.trigger(); 
+          game.player.applyStun(2.0, attackerPos: position);   
+          triggerPrivateHighlight();
+          game.player.triggerPrivateHighlight();
+          simulatedScore += 100; 
+        } else if (currentTarget is RemotePlayer) {
+          String? targetId;
+          game.networkPlayers.forEach((key, val) { if (val == currentTarget) targetId = key; });
+          if (targetId != null) game.myChannel.sendBroadcastMessage(event: 'stun', payload: {'id': targetId, 'duration': 2.0});
+          simulatedScore += 100; 
+        } else if (currentTarget is BotPlayer) {
+          (currentTarget as BotPlayer).applyStun(2.0, attackerPos: position);
+          simulatedScore += 100; 
+        }
+      }
+      
+      double cooldownMult = game.player.score > 2000 ? 0.75 : 1.0; 
+      if (currentMaskId == 'siren') {
+        attackCooldown = 15.0; 
+      } else {
+        attackCooldown = 8.0 * cooldownMult; 
+      }
+    }
+
+    movementDelta = (position - currentTarget!.position).normalized();
+    facingAngle = movementDelta.screenAngle();
+    directionTimer = 3.0; 
+    evasionTimer = 0; 
+  }
+
+
   @override
   void update(double dt) {    
     priority = ((position.y + 16) * 10).toInt();
 
     if (!game.gameStarted) return;
     super.update(dt);    
+
+    // --- THE PREDATOR PAUSE STATE ---
+    if (_isPreparingLunge) {
+      _tensionTimer -= dt;
+      
+      if (currentTarget != null) {
+        final toPlayer = currentTarget!.position - position;
+        facingAngle = toPlayer.screenAngle();
+      }
+
+      if (_tensionTimer <= 0) {
+        _isPreparingLunge = false;
+        _lungeTimer = 0.15; // 150ms of extreme, terrifying speed
+      }
+      
+      // Update visual angle but skip ALL OTHER LOGIC
+      if (voxelComponent != null) voxelComponent!.targetAngle = facingAngle - (pi / 2);
+      return; 
+    }
+
+    // --- THE LUNGE STATE ---
+    if (_lungeTimer > 0) {
+      _lungeTimer -= dt;
+      
+      final forward = Vector2(sin(facingAngle), -cos(facingAngle));
+      position += forward * (huntSpeed * 3.0) * dt; 
+      
+      if (voxelComponent != null) {
+        voxelComponent!.targetAngle = facingAngle - (pi / 2);
+        voxelComponent!.isMoving = true;
+      }
+      
+      if (_lungeTimer <= 0) {
+        _triggerBotScare(); 
+      }
+      return; 
+    }
+    // --------------------------------
 
     if (voxelComponent != null) {
       voxelComponent!.targetAngle = facingAngle - (pi / 2); 
@@ -789,15 +952,12 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       final oldPosition = position.clone();
 
       // --- THE FAILSAFE: GHOST EXTRICATION ---
-      // If the bot is CURRENTLY inside a wall, let them ghost-walk toward their 
-      // target until they pop out into free space.
       bool currentlyStuck = game.gameMap.checkCollision(position, size);
 
       if (currentlyStuck) {
         position.x = potentialPosition.x;
         position.y = potentialPosition.y;
       } else {
-        // Standard Collision bounds
         final testX = Vector2(potentialPosition.x, position.y);
         if (!game.gameMap.checkCollision(testX, size)) { position.x = potentialPosition.x; } else { hitWall = true; }
 
@@ -819,145 +979,14 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       if (currentTarget != null && currentState == BotState.hunt) {
         final distance = position.distanceTo(currentTarget!.position);
         
-        // --- THE SCARE EXECUTION BLOCK ---
-        if (distance < 110 && attackCooldown <= 0) {
-          if (game.gameMap.hasLineOfSight(position, currentTarget!.position)) {
-            
-            // 1. MASK ROULETTE (The Teaser System)
-            // Bots can use all masks immediately. The base chance is 5% at Level 1, 
-            // scaling up to 15% at Level 10+.
-            int rollChance = 20 - (game.myPlayerLevel).clamp(1, 14).toInt(); 
-            if (_random.nextInt(rollChance) == 0) {
-              List<String> specials = ['flying', 'vermin', 'siren', 'wendigo', 'poltergeist'];
-              currentMaskId = specials[_random.nextInt(specials.length)];
-            } else {
-              currentMaskId = 'standard';
-            }
-
-            // 2. ACCURACY WHIFF (The Mercy Rule)
-            bool targetIsMoving = true; 
-            if (currentTarget is Player) targetIsMoving = (currentTarget as Player).isMoving;
-            else if (currentTarget is RemotePlayer) targetIsMoving = (currentTarget as RemotePlayer).isMoving;
-            else if (currentTarget is BotPlayer) targetIsMoving = (currentTarget as BotPlayer).movementDelta.length > 0;
-            
-            // Base miss chance is 25% for moving targets.
-            double missChance = 0.25;
-            
-            // MERCY OVERRIDE: If targeting the local player with an advanced mask
-            if (currentTarget == game.player && currentMaskId != 'standard') {
-               // Level 1: 80% chance the bot completely misses the special attack.
-               // Scales down linearly so by Level 10+, it returns to the standard 25%.
-               missChance = 0.80 - ((game.myPlayerLevel - 1) * 0.06).clamp(0.0, 0.55);
-            }
-
-            bool whiffedAttack = targetIsMoving && (_random.nextDouble() < missChance);
-
-            if (whiffedAttack) {
-              game.camera.viewport.add(FloatingText(
-                text: 'MISSED!', 
-                worldPosition: Vector2(position.x - 20, position.y - 60),
-              ));
-              //AudioManager.instance.playEntityFootstep(assignedCharacterId, position, isLocal: false);
-              // --- CULL WHIFF SOUNDS if too far ---
-              if (position.distanceTo(game.player.position) < 900.0) {
-                AudioManager.instance.playEntityFootstep(assignedCharacterId, position, isLocal: false); 
-              }
-              attackCooldown = 4.0; 
-              
-            } else {
-              // --- THE BOT HIT! FIRE VISUALS & SOUNDS ---
-              AudioManager.instance.playSpatialScare(currentMaskId, position);
-              if (voxelComponent != null) voxelComponent!.triggerScareAnimation(currentMaskId);
-              
-              if (currentMaskId == 'flying') {
-                game.world.add(FlyingScareBlast(position: position.clone(), angle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
-              } else if (currentMaskId == 'vermin') {
-                for (int i = 0; i < 15; i++) {
-                  game.scareManager.spawnCritter(Critter(position: position.clone(), behavior: SwarmBehavior.scatter, seed: DateTime.now().millisecondsSinceEpoch, index: i, initialAngle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
-                }
-              } else if (currentMaskId == 'wendigo') {
-                game.world.add(WendigoDecoy(position: position.clone(), angle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}', charId: assignedCharacterId));
-              } else if (currentMaskId == 'poltergeist') {
-                game.world.add(PoltergeistTrap(position: position.clone(), angle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));
-              } else if (currentMaskId == 'siren') {
-                add(SirenBlast()..position = size / 2);
-              } else if (currentMaskId == 'banshee') {
-                game.world.add(BansheeBeam(position: position.clone(), angle: facingAngle)); // <-- NEW BANSHEE LASER
-              } else {
-                game.world.add(ScareBlast(position: position.clone(), angle: facingAngle - (pi / 2))..priority = priority + 5);
-              }
-
-              // Tell remote clients the bot scared!
-              game.myChannel.sendBroadcastMessage(event: 'bot_scare', payload: {
-                'bot_index': game.bots.indexOf(this),
-                'mask_id': currentMaskId,
-                'x': position.x, 'y': position.y, 'a': facingAngle
-              });
-
-              String attackWord = isHunter ? 'CRUSHED!' : 'SCARED!';
-              if (!isHunter && personality == BotPersonality.stalker) attackWord = 'STALKED!';
-              if (!isHunter && personality == BotPersonality.trapdoor) attackWord = 'AMBUSHED!';
-              game.camera.viewport.add(FloatingText(text: attackWord, worldPosition: Vector2(position.x - 30, position.y - 60)));
-
-              // Apply Charms or Stuns instantly ONLY for standard and siren masks. 
-              // Flying and Vermin masks spawn physical entities that handle their own collision!
-              if (currentMaskId == 'siren') {
-                if (currentTarget == game.player) {
-                  // CHARM THE LOCAL PLAYER
-                  game.player.applyCharm(15.0, position, charmerId: 'bot_${game.bots.indexOf(this)}');
-                  triggerPrivateHighlight();
-                  simulatedScore += 100; 
-                } else if (currentTarget is RemotePlayer) {
-                  // CHARM A REMOTE PLAYER OVER THE NETWORK
-                  String? targetId;
-                  game.networkPlayers.forEach((key, val) { if (val == currentTarget) targetId = key; });
-                  if (targetId != null) {
-                    game.myChannel.sendBroadcastMessage(event: 'charm', payload: {
-                      'id': targetId, 'duration': 15.0, 
-                      'charmer_x': position.x, 'charmer_y': position.y
-                    });
-                  }
-                  simulatedScore += 100; 
-                } else if (currentTarget is BotPlayer) {
-                  // CHARM ANOTHER BOT
-                  (currentTarget as BotPlayer).applyCharm(15.0, this);
-                  simulatedScore += 100; 
-                }
-              } else if (currentMaskId == 'standard') {
-                if (currentTarget == game.player) {
-                  game.jumpScareEffect.trigger(); 
-                  game.player.applyStun(2.0, attackerPos: position);   
-                  triggerPrivateHighlight();
-                  game.player.triggerPrivateHighlight();
-                  simulatedScore += 100; 
-                } else if (currentTarget is RemotePlayer) {
-                  String? targetId;
-                  game.networkPlayers.forEach((key, val) { if (val == currentTarget) targetId = key; });
-                  if (targetId != null) game.myChannel.sendBroadcastMessage(event: 'stun', payload: {'id': targetId, 'duration': 2.0});
-                  simulatedScore += 100; 
-                } else if (currentTarget is BotPlayer) {
-                  (currentTarget as BotPlayer).applyStun(2.0, attackerPos: position);
-                  simulatedScore += 100; 
-                }
-              }
-              // If currentMaskId is 'flying', 'vermin', 'wendigo', or 'poltergeist', it safely skips this block!
-              // The spawned entities will handle their own delayed collision/detonation logic.
-              
-              double cooldownMult = game.player.score > 2000 ? 0.75 : 1.0; 
-              if (currentMaskId == 'siren') {
-                attackCooldown = 15.0; // Bots are also completely defenseless while channeling
-              } else {
-                attackCooldown = 8.0 * cooldownMult; 
-              }
-            }
-
-            movementDelta = (position - currentTarget!.position).normalized();
-            facingAngle = movementDelta.screenAngle();
-            directionTimer = 3.0; 
-            evasionTimer = 0; 
-          }
+        // --- NEW: THE PREDATOR PAUSE TRIGGER ---
+        // If they are within 110 pixels, have line of sight, and are ready to attack:
+        if (distance < 110 && attackCooldown <= 0 && game.gameMap.hasLineOfSight(position, currentTarget!.position)) {
+          _isPreparingLunge = true;
+          _tensionTimer = 0.5 + (_random.nextDouble() * 0.3); // Between 500ms and 800ms of horrifying dead-stop eye contact
+          return;
         }
-        // --- END SCARE EXECUTION BLOCK ---
+        // ----------------------------------------
       }
 
       // --- NEW: LET STAND-IN BOTS LOOT CHESTS ---
@@ -978,8 +1007,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
           _footstepTimer += dt;
           if (_footstepTimer >= dynamicInterval) {
             _footstepTimer = 0.0; 
-            //AudioManager.instance.playEntityFootstep(assignedCharacterId, position, isLocal: false);
-            // --- CULL FOOTSTEPS THAT ARE TOO FAR TO HEAR, to save cpu and also audio channels (max 16) ---
             if (position.distanceTo(game.player.position) < 900.0) {
               AudioManager.instance.playEntityFootstep(assignedCharacterId, position, isLocal: false);
             }
