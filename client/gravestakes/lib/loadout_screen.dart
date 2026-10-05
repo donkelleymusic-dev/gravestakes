@@ -1530,6 +1530,9 @@ class CircleOfTormentOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: Colors.grey[900],
+      // 1. WIDEN THE DIALOG: Reduce the default 40px margins down to 16px
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16.0),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: const BorderSide(color: Colors.purpleAccent, width: 2),
@@ -1567,20 +1570,24 @@ class CircleOfTormentOverlay extends StatelessWidget {
   Widget _buildRow(IconData icon1, String text1, String action, IconData icon2, String text2, Color c1, Color c2) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon1, color: c1, size: 20),
-          const SizedBox(width: 6),
-          Text(text1, style: TextStyle(color: c1, fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Orbitron')),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0),
-            child: Text(action, style: const TextStyle(color: Colors.white54, fontSize: 10, fontStyle: FontStyle.italic)),
-          ),
-          Icon(icon2, color: c2, size: 20),
-          const SizedBox(width: 6),
-          Text(text2, style: TextStyle(color: c2, fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Orbitron')),
-        ],
+      // 2. THE FAILSAFE: Automatically scales the text down if it's too wide for the phone
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon1, color: c1, size: 20),
+            const SizedBox(width: 6),
+            Text(text1, style: TextStyle(color: c1, fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Orbitron')),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+              child: Text(action, style: const TextStyle(color: Colors.white54, fontSize: 10, fontStyle: FontStyle.italic)),
+            ),
+            Icon(icon2, color: c2, size: 20),
+            const SizedBox(width: 6),
+            Text(text2, style: TextStyle(color: c2, fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Orbitron')),
+          ],
+        ),
       ),
     );
   }
