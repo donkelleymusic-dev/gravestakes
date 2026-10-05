@@ -1021,6 +1021,31 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
           .toList();
     }
 
+    // --- NEW: SMART SORTING HIERARCHY ---
+    allCatalogItems.sort((a, b) {
+      final idA = a['id'].toString();
+      final idB = b['id'].toString();
+
+      // 1. Tutorial Failsafe: The Standard Mask is ALWAYS position #1
+      if (targetItemType == 'mask') {
+        if (idA == 'standard' && idB != 'standard') return -1;
+        if (idB == 'standard' && idA != 'standard') return 1;
+      }
+
+      // 2. Owned items jump to the front
+      bool isOwnedA = _inventory.any((i) => i['item_id'] == idA && (i['item_type'] == targetItemType || targetItemType.startsWith('wearable')));
+      bool isOwnedB = _inventory.any((i) => i['item_id'] == idB && (i['item_type'] == targetItemType || targetItemType.startsWith('wearable')));
+      
+      if (isOwnedA && !isOwnedB) return -1;
+      if (!isOwnedA && isOwnedB) return 1;
+
+      // 3. Sort the rest by lowest price first
+      int priceA = a['price'] ?? 0;
+      int priceB = b['price'] ?? 0;
+      return priceA.compareTo(priceB);
+    });
+    // ------------------------------------
+
     if (allCatalogItems.isEmpty) {
       return const Center(child: Text('No relics cataloged.', style: TextStyle(color: Colors.white54, fontFamily: 'Orbitron')));
     }
