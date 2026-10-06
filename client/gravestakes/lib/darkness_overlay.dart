@@ -41,8 +41,10 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
         screenCenter,
         coneLength,
         [
-          Colors.white.withOpacity(0.45 * fScale), 
-          Colors.white.withOpacity(0.15 * fScale), 
+          // 1. BEAM INTENSITY: Increased from 0.45 and 0.15 to 0.85 and 0.35.
+          // This punches a massive, crystal-clear hole right down the middle of the beam.
+          Colors.white.withOpacity(0.85 * fScale), 
+          Colors.white.withOpacity(0.35 * fScale), 
           Colors.white.withOpacity(0.0),  
         ],
         [0.0, 0.4, 1.0],
@@ -55,7 +57,9 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
         screenCenter,
         glowRadius,
         [
-          Colors.white.withOpacity(0.35), 
+          // 2. PERSONAL AURA: Increased from 0.35 to 0.75.
+          // Your character sprite and immediate footsteps will now be clearly visible.
+          Colors.white.withOpacity(0.75), 
           Colors.white.withOpacity(0.0),
         ],
       );
@@ -76,7 +80,6 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
 
     final center = (viewSize / 2).toOffset();
     
-    // CHANGED: Using facingAngle instead of angle
     _drawFlashlight(canvas, center, player.facingAngle, player.flashlightScale, isLocal: true);
 
     for (var remote in game.networkPlayers.values) {
@@ -90,13 +93,14 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
       if (remoteScreenPos.dx > -600 && remoteScreenPos.dx < viewSize.x + 600 &&
           remoteScreenPos.dy > -600 && remoteScreenPos.dy < viewSize.y + 600) {
         
-        // CHANGED: Using facingAngle instead of angle
         _drawFlashlight(canvas, remoteScreenPos, remote.facingAngle, remote.flashlightScale, isLocal: false);
       }
     }
 
     final darkPaint = Paint()
-      ..color = Colors.black.withOpacity(0.96)
+      // 3. GLOBAL AMBIENT LIGHT: Dropped from 0.96 to 0.88.
+      // This slightly lifts the darkest shadows so UI elements and walls aren't entirely swallowed.
+      ..color = Colors.black.withOpacity(0.88)
       ..blendMode = BlendMode.srcOut;
 
     canvas.drawRect(rect, darkPaint);
