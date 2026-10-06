@@ -398,7 +398,7 @@ class _RewardCardState extends State<RewardCard> {
             Icon(icon, size: 40, color: baseColor),
             const SizedBox(height: 12),
             Text(
-              _isConverted ? '+500' : '+$amount', // You can read the refund amount from DB payload as well
+              '+$amount', // You can read the refund amount from DB payload as well
               style: TextStyle(color: baseColor, fontSize: 24, fontWeight: FontWeight.bold, fontFamily: 'Courier', shadows: const [Shadow(color: Colors.black, blurRadius: 4)]),
             ),
             const SizedBox(height: 8),
