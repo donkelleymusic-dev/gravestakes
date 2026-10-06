@@ -1327,13 +1327,13 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
 
     if (playerId == mySessionId) {
-      // Keep the original weighted base pool for points and powerups
+      // Keep the original weighted base pool, but drastically nerf the SOULS (Score) payouts
       List<ChestReward> rewards = [
-        ChestReward(type: ChestRewardType.points, label: '+250 SOULS', value: 250),
-        ChestReward(type: ChestRewardType.points, label: '+250 SOULS', value: 250),
-        ChestReward(type: ChestRewardType.points, label: '+250 SOULS', value: 250),
-        ChestReward(type: ChestRewardType.points, label: '+500 SOULS', value: 500),
-        ChestReward(type: ChestRewardType.points, label: '+500 SOULS', value: 500),
+        ChestReward(type: ChestRewardType.points, label: '+50 SOULS', value: 50),
+        ChestReward(type: ChestRewardType.points, label: '+50 SOULS', value: 50),
+        ChestReward(type: ChestRewardType.points, label: '+50 SOULS', value: 50),
+        ChestReward(type: ChestRewardType.points, label: '+100 SOULS', value: 100),
+        ChestReward(type: ChestRewardType.points, label: '+100 SOULS', value: 100),
         ChestReward(type: ChestRewardType.invisibility, label: 'INVISIBILITY!'),
         ChestReward(type: ChestRewardType.invisibility, label: 'INVISIBILITY!'),
         ChestReward(type: ChestRewardType.teleport, label: 'TELEPORTED!'),
@@ -1343,20 +1343,20 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         ChestReward(type: ChestRewardType.disguise, label: 'DISGUISE!'), // Stays rare!
       ];
 
-      // New players get a heavily weighted chance to pull hard currency
+      // New players get a slightly better chance to pull hard currency to hook them
       if (myPlayerLevel < 4) {
         rewards.addAll([
-          ChestReward(type: ChestRewardType.currency, label: '+25 COINS', value: 25),
-          ChestReward(type: ChestRewardType.currency, label: '+25 COINS', value: 25),
-          ChestReward(type: ChestRewardType.currency, label: '+50 COINS', value: 50),
-          ChestReward(type: ChestRewardType.currency, label: '+50 COINS', value: 50),
+          ChestReward(type: ChestRewardType.currency, label: '+3 COINS', value: 3),
+          ChestReward(type: ChestRewardType.currency, label: '+3 COINS', value: 3),
+          ChestReward(type: ChestRewardType.currency, label: '+5 COINS', value: 5),
+          ChestReward(type: ChestRewardType.currency, label: '+5 COINS', value: 5),
         ]);
       } else {
-        // Standard economy for veterans
+        // Punishing economy for veterans (1 or 2 coins MAX)
         rewards.addAll([
-          ChestReward(type: ChestRewardType.currency, label: '+10 COINS', value: 10),
-          ChestReward(type: ChestRewardType.currency, label: '+10 COINS', value: 10),
-          ChestReward(type: ChestRewardType.currency, label: '+15 COINS', value: 15),
+          ChestReward(type: ChestRewardType.currency, label: '+1 COIN', value: 1),
+          ChestReward(type: ChestRewardType.currency, label: '+1 COIN', value: 1),
+          ChestReward(type: ChestRewardType.currency, label: '+2 COINS', value: 2),
         ]);
       }
 
@@ -1366,7 +1366,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
   }
 
-  // --- NEW: Allow Competitive Bots to Loot ---
+  // --- NEW: Allow Competitive Bots to Loot (Nerfed to match player economy) ---
   void claimSpookyBoxForBot(String boxId, BotPlayer bot) {
     final boxes = world.children.whereType<SpookyBox>().where((b) => b.id == boxId).toList();
     if (boxes.isEmpty) return;
@@ -1380,8 +1380,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       SoLoud.instance.play(AudioManager.instance.powerupSource!);
     }
 
-    bot.simulatedScore += 300; 
-    camera.viewport.add(FloatingText(text: '+300 SOULS', worldPosition: Vector2(boxPos.x - 20, boxPos.y - 40)));
+    bot.simulatedScore += 75; // Nerfed from 300 to keep it balanced with players
+    camera.viewport.add(FloatingText(text: '+75 SOULS', worldPosition: Vector2(boxPos.x - 20, boxPos.y - 40)));
   }
   
   int triggerLocalScare(Vector2 attackerPos, double attackerAngle, bool isPoweredUp, {bool hasExtendedRange = false, double range = 250.0, required String maskId}) {
