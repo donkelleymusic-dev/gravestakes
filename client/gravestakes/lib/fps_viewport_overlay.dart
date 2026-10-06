@@ -338,7 +338,31 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         canvas.drawPath(path, Paint()..color = Colors.cyanAccent..style = PaintingStyle.stroke..strokeWidth = 2.0);
         // -------------------------------------------
       } else if (entity.component is Critter) {
-        canvas.drawCircle(Offset.zero, 5, Paint()..color = Colors.greenAccent);
+        final critter = entity.component as Critter;
+        // Scurry animation based on the critter's life timer
+        double wiggle = sin(critter.lifeTimer * 40) * 4.0;
+
+        final bodyPaint = Paint()..color = const Color(0xFF5A5A66);
+        final eyePaint = Paint()..color = Colors.redAccent;
+        final appendagePaint = Paint()
+          ..color = const Color(0xFF888899)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5;
+
+        // Draw a side-profile rat (billboarded)
+        canvas.drawOval(const Rect.fromLTWH(-10, -5, 20, 10), bodyPaint); // Body
+        canvas.drawCircle(const Offset(6, -2), 1.5, eyePaint); // Eye
+
+        // Wiggling tail trailing behind
+        final tailPath = Path()
+          ..moveTo(-10, 0)
+          ..quadraticBezierTo(-18, wiggle, -25, -wiggle * 0.5);
+        canvas.drawPath(tailPath, appendagePaint);
+
+        // Wiggling little legs below the body
+        canvas.drawLine(const Offset(-5, 4), Offset(-5 + wiggle, 9), appendagePaint);
+        canvas.drawLine(const Offset(5, 4), Offset(5 - wiggle, 9), appendagePaint);
+
       } else if (entity.component is ScareBlast) {
         final blastPaint = Paint()..color = Colors.white.withOpacity(0.7);
         canvas.drawArc(const Rect.fromLTWH(-120, -120, 240, 240), -pi / 2, pi, true, blastPaint);
