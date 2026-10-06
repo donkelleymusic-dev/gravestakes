@@ -164,13 +164,12 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
   // --- NEW: Procedural Render Method ---
   @override
   void render(Canvas canvas) {
-    // We do NOT call super.render(canvas) to hide the default green circle
-
-    final paintBody = Paint()..color = const Color(0xFF151515); 
+    // Brightened the colors significantly so they don't blend into the pitch-black floor!
+    final paintBody = Paint()..color = const Color(0xFF5A5A66); // Sickly pale grey
     final paintEye = Paint()..color = Colors.redAccent; 
     final paintMouth = Paint()..color = Colors.black..strokeWidth = 1.0;
     final paintAppendage = Paint()
-      ..color = Colors.grey.shade900
+      ..color = const Color(0xFF888899) // Lighter grey for legs/tail
       ..strokeWidth = 1.5
       ..style = PaintingStyle.stroke;
 
@@ -192,15 +191,15 @@ class Critter extends CircleComponent with HasGameReference<GraveStakesGame> {
     canvas.drawLine(const Offset(8, -1), const Offset(8, 1), paintMouth);
 
     // Scuttling Legs
-    double legWiggle = cos(_scuttleTimer) * 3.0;
+    double legWiggle = cos(_scuttleTimer) * 4.0; // Increased leg sweep
 
     // Left/Top side legs
-    canvas.drawLine(const Offset(-4, -5), Offset(-4 + legWiggle, -9), paintAppendage);
-    canvas.drawLine(const Offset(4, -5), Offset(4 - legWiggle, -9), paintAppendage);
+    canvas.drawLine(const Offset(-4, -4), Offset(-4 + legWiggle, -8), paintAppendage);
+    canvas.drawLine(const Offset(4, -4), Offset(4 - legWiggle, -8), paintAppendage);
 
     // Right/Bottom side legs
-    canvas.drawLine(const Offset(-4, 5), Offset(-4 - legWiggle, 9), paintAppendage);
-    canvas.drawLine(const Offset(4, 5), Offset(4 + legWiggle, 9), paintAppendage);
+    canvas.drawLine(const Offset(-4, 4), Offset(-4 - legWiggle, 8), paintAppendage);
+    canvas.drawLine(const Offset(4, 4), Offset(4 + legWiggle, 8), paintAppendage);
   }
 
   @override
