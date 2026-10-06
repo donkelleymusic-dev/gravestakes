@@ -100,7 +100,7 @@ class DarknessOverlay extends Component with HasGameReference<GraveStakesGame> {
     final darkPaint = Paint()
       // 3. GLOBAL AMBIENT LIGHT: Dropped from 0.96 to 0.88.
       // This slightly lifts the darkest shadows so UI elements and walls aren't entirely swallowed.
-      ..color = Colors.black.withOpacity(0.88)
+      ..color = Colors.black.withOpacity(0.96)
       ..blendMode = BlendMode.srcOut;
 
     canvas.drawRect(rect, darkPaint);
