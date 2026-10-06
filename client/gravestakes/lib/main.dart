@@ -17,6 +17,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 // --------------------------------
 
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
+
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'game.dart';
@@ -40,7 +42,18 @@ Future<void> main() async {
       await EasyLocalization.ensureInitialized();
 
       if (!kIsWeb) {
-        await MobileAds.instance.initialize(); // ads
+        // 1. Apple App Tracking Transparency (iOS Only)
+        if (Platform.isIOS) {
+          final status = await AppTrackingTransparency.trackingAuthorizationStatus;
+          if (status == TrackingStatus.notDetermined) {
+            // Short delay ensures the Flutter engine is fully attached before drawing the native pop-up
+            await Future.delayed(const Duration(milliseconds: 500));
+            await AppTrackingTransparency.requestTrackingAuthorization();
+          }
+        }
+
+        // 2. Initialize AdMob ONLY after the ATT prompt has been answered (or skipped on Android)
+        await MobileAds.instance.initialize();
       }
 
       await Supabase.initialize(
