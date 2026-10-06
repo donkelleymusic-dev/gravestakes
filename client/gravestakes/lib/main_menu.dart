@@ -428,7 +428,12 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         targetPlayers: targetPlayers,
       );
 
-      // 3. Supabase RPC handles matchmaking
+      Sentry.configureScope((scope) {
+        scope.setTag('match_mode', _selectedMatchMode);
+        scope.setTag('map_name', _selectedMapName);
+      });
+
+      // FIXED: Removed the rogue 'p_entry_fee' parameter that crashed Postgres
       final response = await supabase.rpc(
         'find_or_create_match',
         params: {
@@ -437,7 +442,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           'p_target_players': targetPlayers,
           'p_guild_id': _guildId,
           'p_player_level': _level,
-          'p_entry_fee': fee, // Pass to DB ledger
         }, 
       );
       
@@ -453,8 +457,27 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           builder: (context) => Scaffold(
             body: GameWidget<GraveStakesGame>(
               game: gameInstance,
-              loadingBuilder: (context) => const Center(
-                child: CircularProgressIndicator(color: Colors.redAccent),
+              loadingBuilder: (context) => Container(
+                color: Colors.black,
+                child: const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(color: Colors.redAccent),
+                      SizedBox(height: 20),
+                      Text(
+                        'LOADING MAP...',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 2.0,
+                          fontFamily: 'Orbitron',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
               overlayBuilderMap: {
                 'summary': (BuildContext context, GraveStakesGame game) => MatchSummaryOverlay(game: game),
@@ -465,16 +488,30 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           ),
         ),
       );
-
+      
+    // FIXED: Restored your proper catch blocks so errors actually show up!
+    } on PostgrestException catch (e) {
+      if (e.code == 'PGRST301' || e.code == '401' || e.code == 'PGRST116' || e.code == '42501') {
+          _logout();
+          return;
+        }
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Database error. Try again!')));
+      }
     } catch (e) {
-      debugPrint('Matchmaking cancelled or failed: $e');
+      if (e is AuthException) {
+        _logout();
+        return; 
+      }
+      Sentry.captureMessage('Matchmaking failed: $e', level: SentryLevel.warning);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to find a match. Try again!')));
+      }
     } finally {
       if (mounted) {
         setState(() => _isSearchingForMatch = false);
 
-        // 4. REFUND FAILSAFE:
-        // If the player hit "CANCEL MATCHMAKING" before the match loaded,
-        // or if connection dropped, immediately reverse the deduction.
+        // 4. REFUND FAILSAFE
         if (!matchStartedCleanly && fee > 0) {
           FlyingCurrencyOverlay.fly(
             context: context,
