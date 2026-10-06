@@ -339,6 +339,14 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         // -------------------------------------------
       } else if (entity.component is Critter) {
         final critter = entity.component as Critter;
+        
+        // --- NEW: Dynamic Billboarding ---
+        // If the critter is moving left relative to our camera, flip it horizontally!
+        double dotRight = critter.velocity.dot(rightDir);
+        if (dotRight < 0) {
+          canvas.scale(-1.0, 1.0); 
+        }
+
         // Scurry animation based on the critter's life timer
         double wiggle = sin(critter.lifeTimer * 40) * 4.0;
 
@@ -351,7 +359,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
 
         // Draw a side-profile rat (billboarded)
         canvas.drawOval(const Rect.fromLTWH(-10, -5, 20, 10), bodyPaint); // Body
-        canvas.drawCircle(const Offset(6, -2), 1.5, eyePaint); // Eye
+        canvas.drawCircle(const Offset(6, -2), 1.5, eyePaint); // Eye (Faces Right by default)
 
         // Wiggling tail trailing behind
         final tailPath = Path()
