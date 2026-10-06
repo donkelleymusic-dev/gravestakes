@@ -1134,14 +1134,22 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     if (!isGuildScrimmage) {
       int xpEarned = (player.score * 0.1).toInt();
       int shadowsEarned = (player.score * 0.05).toInt();
+      
+      // NEW: THE LOSER TAX
+      // If you lose Lumen (a defeat), your coin payout is wiped out completely.
+      // We grant a tiny pity payout of 10 Shadows.
       int finalCoins = player.coinsEarned;
+      if (matchLumenDelta < 0) {
+         finalCoins = 0;
+         shadowsEarned = 10;
+      }
 
       // --- THE ROOKIE BOOST ---
       // Guarantees massive progression for brand new players to hook them immediately
       if (myPlayerLevel < 3) {
-        xpEarned *= 3; // Fast-track them out of Level 1
-        shadowsEarned += 2500; // Flat injection to buy their first character
-        finalCoins += 50; // Enough for a basic cosmetic or Spooky Box skip
+        xpEarned *= 3; 
+        shadowsEarned += 2500; 
+        finalCoins += 50; 
         
         camera.viewport.add(FloatingText(
           text: 'ROOKIE BONUS APPLIED!', 
@@ -1427,7 +1435,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
              final proj = rawVector.dot(forward); // Distance along the laser
              if (proj > 0) { 
                final perpDist = (rawVector - (forward * proj)).length; // Distance from center of laser
-               if (perpDist < 64.0) isHit = true; // 128px wide total corridor
+               if (perpDist < 128.0) isHit = true; // 256px wide total corridor
              }
           } else {
              // Standard masks use expanding vision cones and check for walls
@@ -1511,8 +1519,22 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           }
         } else {
           // --- MASK-SPECIFIC RAYCAST RULES ---
-          final coneThreshold = (maskId == 'banshee') ? 0.85 : (isPoweredUp ? -0.2 : 0.1);
-          bool hasLOS = (maskId == 'banshee') ? true : gameMap.hasLineOfSight(remotePlayer.position, attackerPos);
+          bool isHit = false;
+          
+          if (maskId == 'banshee') {
+             // Banshee fires a fixed-width laser cylinder, ignoring walls
+             final rawVector = remotePlayer.position - attackerPos;
+             final proj = rawVector.dot(forward); // Distance along the laser
+             if (proj > 0) { 
+               final perpDist = (rawVector - (forward * proj)).length; // Distance from center of laser
+               if (perpDist < 128.0) isHit = true; // <-- DOUBLED: 256px wide total corridor
+             }
+          } else {
+             // Standard masks use expanding vision cones and check for walls
+             final coneThreshold = isPoweredUp ? -0.2 : 0.1;
+             bool hasLOS = gameMap.hasLineOfSight(remotePlayer.position, attackerPos);
+             if (dot > coneThreshold && hasLOS) isHit = true;
+          }
           
           bool isLookingAtAttacker = true;
           if (maskId == 'gorgon') {
@@ -1521,7 +1543,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
              isLookingAtAttacker = rpForward.dot(rpToAttacker) > 0.2; 
           }
 
-          if (dot > coneThreshold && hasLOS && isLookingAtAttacker) {
+          // FIX: Now we just check the isHit boolean!
+          if (isHit && isLookingAtAttacker) {
             hitCount++;
             player.scaresLanded++;
             remotePlayer.localImmunityToMe = 5.0; 

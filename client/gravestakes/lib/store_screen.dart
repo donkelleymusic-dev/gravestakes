@@ -603,8 +603,10 @@ class _StoreScreenState extends State<StoreScreen> {
                     // 3. CURRENCY EXCHANGE & ADS
                     _buildSectionHeader('CURRENCY EXCHANGE', Icons.swap_horiz),
                     _buildAdCard(), // <--- NEW: Inserted here!
-                    _buildExchangeCard('Smuggler\'s Purse', 50, 1000),
-                    _buildExchangeCard('Shadow Syndicate Vault', 250, 6000),
+                    // NEW: 1000 Shadows yields 50 Coins
+                    _buildExchangeCard('Smuggler\'s Purse', 1000, 50),
+                    // NEW: 6000 Shadows yields 250 Coins (Slight bulk discount)
+                    _buildExchangeCard('Shadow Syndicate Vault', 6000, 250),
 
                     // 4. ACCOUNT PERKS
                     _buildSectionHeader('GLOBAL PERKS', Icons.bolt),

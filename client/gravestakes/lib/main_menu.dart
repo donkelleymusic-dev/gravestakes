@@ -36,6 +36,7 @@ import 'lumen_tier_system.dart';
 import 'synth_manager.dart';
 import 'vanity_screen.dart';
 import 'about_screen.dart';
+import 'flying_currency_overlay.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -81,6 +82,14 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   
   final String _selectedMapName = 'L1T1V1.0.0';
   String _selectedMatchMode = '1v1'; 
+
+  int _getMatchEntryFee() {
+    switch (_selectedMatchMode) {
+      case '1v1': return 50;
+      case '2v2': return 100;
+      default: return 0; // Casual FFA is free
+    }
+  }
 
   Future<void> _checkTutorialPhase() async {
     final prefs = await SharedPreferences.getInstance();
@@ -371,7 +380,42 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
   Future<void> _findMatchAndStart(BuildContext context) async {
     if (_isSearchingForMatch) return;
+
+    final fee = _getMatchEntryFee();
+    if (_shadows < fee) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Not enough Shadows to cover the stake! Play Casual to harvest more.', style: TextStyle(fontFamily: 'Orbitron')),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    // 1. Coordinates for the wallet badge (top right) and match button (bottom center)
+    final screenSize = MediaQuery.of(context).size;
+    final startOffset = Offset(screenSize.width - 60, 40);
+    final endOffset = Offset(screenSize.width / 2, screenSize.height - 70);
+
+    // 2. Optimistic Deduction + Flight Animation
+    if (fee > 0) {
+      FlyingCurrencyOverlay.fly(
+        context: context,
+        start: startOffset,
+        end: endOffset,
+        icon: Icons.dark_mode,
+        color: Colors.redAccent,
+        onComplete: () {
+          SynthManager.instance.playMagicTap();
+        },
+      );
+      setState(() {
+        _shadows -= fee;
+      });
+    }
+
     setState(() => _isSearchingForMatch = true);
+    bool matchStartedCleanly = false;
 
     try {
       int targetPlayers = 8;
@@ -384,11 +428,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         targetPlayers: targetPlayers,
       );
 
-      Sentry.configureScope((scope) {
-        scope.setTag('match_mode', _selectedMatchMode);
-        scope.setTag('map_name', _selectedMapName);
-      });
-
+      // 3. Supabase RPC handles matchmaking
       final response = await supabase.rpc(
         'find_or_create_match',
         params: {
@@ -397,6 +437,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           'p_target_players': targetPlayers,
           'p_guild_id': _guildId,
           'p_player_level': _level,
+          'p_entry_fee': fee, // Pass to DB ledger
         }, 
       );
       
@@ -405,32 +446,15 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
       if (!context.mounted) return;
 
-      Navigator.of(context).push(
+      matchStartedCleanly = true;
+
+      await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => Scaffold(
             body: GameWidget<GraveStakesGame>(
               game: gameInstance,
-              loadingBuilder: (context) => Container(
-                color: Colors.black,
-                child: const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(color: Colors.redAccent),
-                      SizedBox(height: 20),
-                      Text(
-                        'LOADING MAP...',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 2.0,
-                          fontFamily: 'Orbitron',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              loadingBuilder: (context) => const Center(
+                child: CircularProgressIndicator(color: Colors.redAccent),
               ),
               overlayBuilderMap: {
                 'summary': (BuildContext context, GraveStakesGame game) => MatchSummaryOverlay(game: game),
@@ -440,30 +464,40 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             ),
           ),
         ),
-      ).then((_) {
-        _fetchPlayerData();
-        _checkPendingGuildWarRewards(); 
-      });
-      
-    } on PostgrestException catch (e) {
-      if (e.code == 'PGRST301' || e.code == '401' || e.code == 'PGRST116' || e.code == '42501') {
-          _logout();
-          return;
-        }
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Database error. Try again!')));
-      }
+      );
+
     } catch (e) {
-      if (e is AuthException) {
-        _logout();
-        return; 
-      }
-      Sentry.captureMessage('Matchmaking failed: $e', level: SentryLevel.warning);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to find a match. Try again!')));
-      }
+      debugPrint('Matchmaking cancelled or failed: $e');
     } finally {
-      if (mounted) setState(() => _isSearchingForMatch = false);
+      if (mounted) {
+        setState(() => _isSearchingForMatch = false);
+
+        // 4. REFUND FAILSAFE:
+        // If the player hit "CANCEL MATCHMAKING" before the match loaded,
+        // or if connection dropped, immediately reverse the deduction.
+        if (!matchStartedCleanly && fee > 0) {
+          FlyingCurrencyOverlay.fly(
+            context: context,
+            start: endOffset,
+            end: startOffset,
+            icon: Icons.dark_mode,
+            color: Colors.greenAccent,
+          );
+          setState(() {
+            _shadows += fee;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Matchmaking cancelled. Stake refunded!', style: TextStyle(fontFamily: 'Orbitron')),
+              backgroundColor: Colors.grey,
+            ),
+          );
+        } else {
+          // Sync ground truth wallet balance from the server
+          _fetchPlayerData();
+          _checkPendingGuildWarRewards(); 
+        }
+      }
     }
   }
 
@@ -805,18 +839,37 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                                 boxShadow: [BoxShadow(color: Colors.redAccent.withOpacity(0.5), blurRadius: 15)],
                                               ),
                                               child: Center(
-                                                child: Text(
-                                                  _isSearchingForMatch ? 'btn_searching'.tr() : 'btn_find_match'.tr(),
-                                                  textAlign: TextAlign.center, 
-                                                  style: const TextStyle(
-                                                    color: Colors.white, 
-                                                    fontSize: 18, 
-                                                    fontWeight: FontWeight.bold, 
-                                                    letterSpacing: 2, 
-                                                    fontFamily: 'Orbitron', 
-                                                    shadows: [Shadow(color: Colors.black, blurRadius: 4)]
-                                                  ),
+                                                // --- THE NEW MATCH STAKE UI ---
+                                                child: Column(
+                                                  mainAxisAlignment: MainAxisAlignment.center,
+                                                  children: [
+                                                    Text(
+                                                      _isSearchingForMatch ? 'btn_searching'.tr() : 'btn_find_match'.tr(),
+                                                      textAlign: TextAlign.center, 
+                                                      style: const TextStyle(
+                                                        color: Colors.white, 
+                                                        fontSize: 18, 
+                                                        fontWeight: FontWeight.bold, 
+                                                        letterSpacing: 2, 
+                                                        fontFamily: 'Orbitron', 
+                                                        shadows: [Shadow(color: Colors.black, blurRadius: 4)]
+                                                      ),
+                                                    ),
+                                                    if (_getMatchEntryFee() > 0 && !_isSearchingForMatch) ...[
+                                                      const SizedBox(height: 2),
+                                                      Row(
+                                                        mainAxisSize: MainAxisSize.min,
+                                                        children: [
+                                                          const Text('STAKE: ', style: TextStyle(color: Colors.white54, fontSize: 10, fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
+                                                          Text('${_getMatchEntryFee()}', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Orbitron', shadows: [Shadow(color: Colors.black, blurRadius: 2)])),
+                                                          const SizedBox(width: 4),
+                                                          const Icon(Icons.dark_mode, color: Colors.white, size: 12, shadows: [Shadow(color: Colors.black, blurRadius: 2)]),
+                                                        ],
+                                                      ),
+                                                    ],
+                                                  ],
                                                 ),
+                                                // -------------------------------
                                               ),
                                             ),
                                           ),

@@ -622,7 +622,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     } else if (currentMask.id == 'banshee') {
       if (!game.isFpsMode) game.world.add(BansheeBeam(position: position.clone(), angle: facingAngle));
     } else {
-      if (!isGunner && currentMask.id != 'siren') {
+      /* if (!isGunner && currentMask.id != 'siren') {
         final forward = Vector2(sin(facingAngle), -cos(facingAngle));
         double distanceToMove = 45.0; 
         while (distanceToMove > 0) {
@@ -631,7 +631,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           if (!game.gameMap.checkCollision(testPos, size)) { position = testPos; distanceToMove -= step;
           } else { break; }
         }
-      }
+      } */
       
       if (currentMask.id == 'siren') {
         if (!game.isFpsMode) add(SirenBlast()..position = size / 2);
@@ -645,7 +645,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         
         if (!isGunner) {
           // Standard Solo / Driver Recoil
-          double distanceToMove = 45.0; 
+          double distanceToMove = 15.0; 
           while (distanceToMove > 0) {
             double step = min(5.0, distanceToMove);
             final testPos = position + (forward * step); // Adding pushes you FORWARD
@@ -657,7 +657,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           // SANDBOX TESTING: Force the dummy to lunge forward
           RemotePlayer? dummy = game.networkPlayers['dummy_driver_123'] ?? game.world.children.whereType<RemotePlayer>().firstOrNull;
           if (dummy != null) {
-            dummy.position += forward * 45.0; 
+            dummy.position += forward * 15.0; 
           }
         }
         // -----------------------------
