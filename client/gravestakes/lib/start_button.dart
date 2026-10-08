@@ -6,34 +6,41 @@ import 'game.dart';
 
 class StartButton extends RectangleComponent with TapCallbacks, HasGameReference<GraveStakesGame> {
   StartButton() : super(
-    size: Vector2(120, 50),
-    paint: BasicPalette.green.paint(),
-    priority: 200, // Put it above everything
+    size: Vector2(240, 70),
+    paint: Paint()..color = Colors.greenAccent.withOpacity(0.85),
+    anchor: Anchor.center,
+    priority: 200, 
   );
 
   @override
   Future<void> onLoad() async {
-    // Position it safely near the top center or top right
-    position = Vector2(game.camera.viewport.size.x - 140, 20);
+    // Lock it to the dead center of the screen
+    position = Vector2(game.camera.viewport.size.x / 2, game.camera.viewport.size.y / 2);
     
-    // Add text label
     add(TextComponent(
       text: 'START GAME', 
-      position: Vector2(15, 15),
-      textRenderer: TextPaint(style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      anchor: Anchor.center,
+      position: size / 2, 
+      textRenderer: TextPaint(
+        style: const TextStyle(
+          color: Colors.black, 
+          fontSize: 26, 
+          fontWeight: FontWeight.bold, 
+          fontFamily: 'Orbitron', // Standardized font
+          shadows: [Shadow(color: Colors.white54, blurRadius: 2)]
+        )
+      ),
     ));
   }
 
-  // Fallback in case viewport size was 0 on onLoad
   @override
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
-    position = Vector2(size.x - 140, 20);
+    position = Vector2(size.x / 2, size.y / 2);
   }
 
   @override
   void onTapDown(TapDownEvent event) {
-    // Tells the network to start the game for EVERYONE
     game.broadcastStartGame(); 
     removeFromParent(); 
   }

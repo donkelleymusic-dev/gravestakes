@@ -3,18 +3,18 @@ import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import 'game.dart';
 
-class FlashlightHud extends PositionComponent with HasGameReference<GraveStakesGame>, TapCallbacks {//DragCallbacks {
+class FlashlightHud extends PositionComponent with HasGameReference<GraveStakesGame>, TapCallbacks {
   FlashlightHud() {
-    // Taller, chunky battery proportions for clean tapping
-    size = Vector2(80, 22);
+    // MASSIVELY increased the physical hit area. Tapping anywhere in this box triggers the charge.
+    size = Vector2(120, 38);
     priority = 200;
   }
 
   @override
   void onGameResize(Vector2 gameSize) {
     super.onGameResize(gameSize);
-    // Align directly under the Attack Button (Y adjusted slightly to account for the extra height)
-    position = Vector2(gameSize.x - 110 - (size.x / 2), gameSize.y - 32);
+    // Adjusted Y coordinate so it doesn't overlap the attack button with its new taller height
+    position = Vector2(gameSize.x - 120 - (size.x / 2), gameSize.y - 45);
   }
 
   @override

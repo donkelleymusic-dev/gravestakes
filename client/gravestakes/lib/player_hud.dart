@@ -5,13 +5,32 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'game.dart';
 
-class ExitButton extends TextComponent with TapCallbacks, HasGameReference<GraveStakesGame> { 
+class ExitButton extends PositionComponent with TapCallbacks, HasGameReference<GraveStakesGame> { 
   ExitButton() : super( 
-    text: '[ EXIT MATCH ]', 
-    textRenderer: TextPaint(style: const TextStyle(color: Colors.grey, fontSize: 14)), 
-    position: Vector2(0, 72), // Moved down to clear space!
-    anchor: Anchor.topRight,  // <-- Align to the right edge
+    size: Vector2(40, 40), 
+    position: Vector2(0, 75), 
+    anchor: Anchor.topRight,  
   ); 
+
+  @override
+  void render(Canvas canvas) {
+    final bgPaint = Paint()..color = Colors.black54;
+    final borderPaint = Paint()..color = Colors.redAccent..style = PaintingStyle.stroke..strokeWidth = 2.5;
+    final rect = RRect.fromRectAndRadius(size.toRect(), const Radius.circular(8));
+    
+    canvas.drawRRect(rect, bgPaint);
+    canvas.drawRRect(rect, borderPaint);
+    
+    final textPainter = TextPaint(
+      style: const TextStyle(
+        color: Colors.redAccent, 
+        fontSize: 26, 
+        fontWeight: FontWeight.bold, 
+        fontFamily: 'Orbitron'
+      )
+    );
+    textPainter.render(canvas, 'X', Vector2(11, 4)); 
+  }
 
   @override 
   void onTapDown(TapDownEvent event) { 
@@ -30,46 +49,44 @@ class PlayerHud extends PositionComponent with HasGameReference<GraveStakesGame>
 
   PlayerHud() : super(priority: 200);
 
-  // ==========================================
-  // NEW: Dynamic Resizing for Portrait Screens!
-  // ==========================================
   @override
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
-    position = Vector2(size.x - 10, 40); // Tighter to the edge
+    position = Vector2(size.x - 10, 40);
     anchor = Anchor.topRight;
     scale = Vector2.all(size.x < 600 ? 0.65 : 1.0);
   }
 
   @override
   Future<void> onLoad() async {
+    // Standardizing the entire local HUD to Orbitron
     final regularStyle = TextPaint(
-      style: const TextStyle(color: Colors.white70, fontSize: 14, fontFamily: 'Courier'), // Slightly smaller font for mobile
+      style: const TextStyle(color: Colors.white70, fontSize: 14, fontFamily: 'Orbitron'), 
     );
     final economyStyle = TextPaint(
-      style: const TextStyle(color: Colors.redAccent, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Courier'),
+      style: const TextStyle(color: Colors.redAccent, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Orbitron'),
     );
     final statsStyle = TextPaint(
-      style: const TextStyle(color: Colors.cyanAccent, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Courier'),
+      style: const TextStyle(color: Colors.cyanAccent, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Orbitron'),
     );
 
     _profileText = TextComponent(
       text: 'Syncing profile...', 
       textRenderer: regularStyle, 
       position: Vector2(0, 0),
-      anchor: Anchor.topRight, // <-- Align to the right edge
+      anchor: Anchor.topRight, 
     );
     _walletText = TextComponent(
       text: 'Shadows: --', 
       textRenderer: economyStyle, 
-      position: Vector2(0, 22), 
-      anchor: Anchor.topRight, // <-- Align to the right edge
+      position: Vector2(22, 22), // Adjusted slightly to keep it clean
+      anchor: Anchor.topRight, 
     );
     _matchStatsText = TextComponent(
       text: '', 
       textRenderer: statsStyle, 
       position: Vector2(0, 44), 
-      anchor: Anchor.topRight, // <-- Align to the right edge
+      anchor: Anchor.topRight, 
     );
 
     add(_profileText);
@@ -79,6 +96,8 @@ class PlayerHud extends PositionComponent with HasGameReference<GraveStakesGame>
 
     await fetchPlayerData();
   }
+  
+  // ... [keep update() and fetchPlayerData() exactly as they were]
 
   @override
   void update(double dt) {
