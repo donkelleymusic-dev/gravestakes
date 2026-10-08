@@ -1690,7 +1690,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               bot.position.y = payload['y'] as double;
               bot.facingAngle = payload['a'] as double;
               
-              if (bot.voxelComponent != null) bot.voxelComponent!.triggerScareAnimation(bot.currentMaskId);
+              // FIXED: Prevent giant stuck animations from off-screen bots
+              if (bot.position.distanceTo(player.position) < 1000.0) {
+                if (bot.voxelComponent != null) bot.voxelComponent!.triggerScareAnimation(bot.currentMaskId);
+              }
+
               AudioManager.instance.playSpatialScare(bot.currentMaskId, bot.position);
               
               if (bot.currentMaskId == 'flying') {
@@ -1820,9 +1824,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
             remote.currentMaskId = maskId;
 
-            // Fire the visual animation instead of the old variable!
-            if (remote.voxelComponent != null) remote.voxelComponent!.triggerScareAnimation(maskId);
-            //remote.visualAttackCooldown = 0.6;
+            // FIXED: Prevent giant stuck animations from off-screen remote players
+            if (remote.position.distanceTo(player.position) < 1000.0) {
+              if (remote.voxelComponent != null) remote.voxelComponent!.triggerScareAnimation(maskId);
+            }
 
             AudioManager.instance.playSpatialScare(maskId, remote.position);
 

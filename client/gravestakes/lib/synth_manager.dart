@@ -53,12 +53,12 @@ class SynthManager {
     List<dynamic> activeHandles = []; 
 
     for (double pitch in diminishedTriad) {
-      // Spawn at an audible 0.1, fade up to MAXIMUM (1.0)
       final handle = SoLoud.instance.play(_synthWave!, volume: 0.1, paused: true, looping: true); 
       SoLoud.instance.setRelativePlaySpeed(handle, pitch);
       SoLoud.instance.setPause(handle, false);
       
-      SoLoud.instance.fadeVolume(handle, 0.8, Duration(milliseconds: durationMs));
+      // FIXED: Fade to 0.3 max volume to prevent master bus clipping
+      SoLoud.instance.fadeVolume(handle, 0.3, Duration(milliseconds: durationMs));
       activeHandles.add(handle);
     }
     return activeHandles;
@@ -81,8 +81,8 @@ class SynthManager {
     List<double> majorTriad = [root, root * pow(2, 4 / 12), root * pow(2, 7 / 12)];
 
     for (double pitch in majorTriad) {
-      // Strike the chord at MAXIMUM volume (1.0)
-      final handle = SoLoud.instance.play(_synthWave!, volume: 0.8, paused: true, looping: true);
+      // FIXED: Strike the chord at 0.33 volume
+      final handle = SoLoud.instance.play(_synthWave!, volume: 0.33, paused: true, looping: true);
       SoLoud.instance.setRelativePlaySpeed(handle, pitch);
       SoLoud.instance.setPause(handle, false); 
       
@@ -93,7 +93,7 @@ class SynthManager {
 
   // --- DART-SIDE ALGORITHMIC SYNTHESIZER ---
   Uint8List _generateSineWaveWav({required double frequency, required double duration}) {
-    const int sampleRate = 44100;
+    const int sampleRate = 48000;
     final int samples = (sampleRate * duration).toInt();
     const int bytesPerSample = 2; // 16-bit audio
     final int dataSize = samples * bytesPerSample;
@@ -149,12 +149,13 @@ class SynthManager {
 
   // --- DART-SIDE STEREO ALGORITHMIC SYNTHESIZER ---
   Uint8List _generateSynthWav({required double frequency, required double duration}) {
-    const int sampleRate = 44100;
+    // FIXED: Match the mobile native 48kHz sample rate to bypass CPU resampling
+    const int sampleRate = 48000; 
     final int samples = (sampleRate * duration).toInt();
     
     // UPGRADE: 2 Channels (Stereo)
     const int channels = 2; 
-    const int bytesPerSample = 2; 
+    const int bytesPerSample = 2;
     const int frameSize = channels * bytesPerSample; // 4 bytes per frame (L+R)
     
     final int dataSize = samples * frameSize;

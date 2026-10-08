@@ -633,7 +633,11 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       
     } else {
       AudioManager.instance.playSpatialScare(currentMaskId, position);
-      if (voxelComponent != null) voxelComponent!.triggerScareAnimation(currentMaskId);
+
+      // FIXED: Only trigger the heavy visual animation if they are actually near your screen
+      if (position.distanceTo(game.player.position) < 1000.0) {
+        if (voxelComponent != null) voxelComponent!.triggerScareAnimation(currentMaskId);
+      }
       
       if (currentMaskId == 'flying') {
         game.world.add(FlyingScareBlast(position: position.clone(), angle: facingAngle, ownerId: 'bot_${game.bots.indexOf(this)}'));

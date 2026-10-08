@@ -893,10 +893,11 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         }
       }
 
-      if (breathExertionLevel > 0.4 && _breathingHandle == null && AudioManager.instance.heavyBreathingSource != null) {
+      // FIXED: Strictly forbid starting a new breath if the match is ending or not actively 'playing'
+      if (game.gameStarted && game.matchPhase == 'playing' && breathExertionLevel > 0.4 && _breathingHandle == null && AudioManager.instance.heavyBreathingSource != null) {
         _breathingHandle = SoLoud.instance.play(AudioManager.instance.heavyBreathingSource!, volume: breathExertionLevel * 0.6, looping: true);
       } else if (_breathingHandle != null) {
-        if (breathExertionLevel <= 0.1) {
+        if (breathExertionLevel <= 0.1 || !game.gameStarted || game.matchPhase != 'playing') { // FIXED: Force-kill if we leave the playing phase
           SoLoud.instance.stop(_breathingHandle!);
           _breathingHandle = null;
         } else {

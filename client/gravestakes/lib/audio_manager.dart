@@ -62,15 +62,22 @@ class AudioManager {
     try {
       if (!SoLoud.instance.isInitialized) {
         try {
-          await SoLoud.instance.init();
+          // Lock to 48kHz native mobile rate and increase buffer to survive UI animations
+          await SoLoud.instance.init(
+            sampleRate: 48000, 
+            bufferSize: 2048, 
+          );
           SoLoud.instance.setMaxActiveVoiceCount(64);
         } catch (e) {
-          // Catch the native C++ hot-restart desync
           debugPrint('Native audio engine desync detected. Forcing reset...');
           SoLoud.instance.deinit();
           await Future.delayed(const Duration(milliseconds: 100));
-          await SoLoud.instance.init();
-          SoLoud.instance.setMaxActiveVoiceCount(64); // <-- ADD THIS HERE
+          
+          await SoLoud.instance.init(
+            sampleRate: 48000,
+            bufferSize: 2048,
+          );
+          SoLoud.instance.setMaxActiveVoiceCount(64);
         }
       }
 

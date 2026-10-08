@@ -47,6 +47,17 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
   static const double _audioScale = 50.0;
   final Random _random = Random();
 
+  // --- NEW: Track the audio handle ---
+  SoundHandle? _breathHandle;
+
+  // --- NEW: The kill-switch called by game.dart ---
+  void stopAudio() {
+    if (_breathHandle != null && SoLoud.instance.isInitialized) {
+      SoLoud.instance.stop(_breathHandle!);
+      _breathHandle = null;
+    }
+  }
+
   bool isDisguised = false;
   bool isMoving = false;
   bool isInvisible = false;
@@ -184,21 +195,25 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
       }
     }
 
-    //double _breathTick = 0.0;
-    _breathTick += dt;
-    if (_breathTick >= 3.5 && !isInvisible && !isDisguised) {
-      _breathTick = 0.0;
-      if (AudioManager.instance.heavyBreathingSource != null) {
-        const double audioScale = 50.0;
-        final handle = SoLoud.instance.play3d(
-          AudioManager.instance.heavyBreathingSource!,
-          position.x / audioScale,
-          position.y / audioScale,
-          0.0,
-          volume: 0.7,
-        );
-        SoLoud.instance.set3dSourceMinMaxDistance(handle, 1.0, 12.0); 
-        SoLoud.instance.set3dSourceAttenuation(handle, 1, 2.0);
+    // --- FIXED: Only breathe if the match is actually running! ---
+    if (game.gameStarted) {
+      _breathTick += dt;
+      if (_breathTick >= 3.5 && !isInvisible && !isDisguised) {
+        _breathTick = 0.0;
+        if (AudioManager.instance.heavyBreathingSource != null) {
+          const double audioScale = 50.0;
+          
+          // Save the handle so stopAudio() can kill it instantly
+          _breathHandle = SoLoud.instance.play3d(
+            AudioManager.instance.heavyBreathingSource!,
+            position.x / audioScale,
+            position.y / audioScale,
+            0.0,
+            volume: 0.7,
+          );
+          SoLoud.instance.set3dSourceMinMaxDistance(_breathHandle!, 1.0, 12.0); 
+          SoLoud.instance.set3dSourceAttenuation(_breathHandle!, 1, 2.0);
+        }
       }
     }
 
