@@ -68,8 +68,9 @@ class AudioManager {
           // Catch the native C++ hot-restart desync
           debugPrint('Native audio engine desync detected. Forcing reset...');
           SoLoud.instance.deinit();
-          await Future.delayed(const Duration(milliseconds: 100)); // Give C++ memory a beat to clear
+          await Future.delayed(const Duration(milliseconds: 100));
           await SoLoud.instance.init();
+          SoLoud.instance.setMaxActiveVoiceCount(64); // <-- ADD THIS HERE
         }
       }
 
@@ -209,22 +210,24 @@ class AudioManager {
     if (source == null) return;
 
     const double audioScale = 50.0;
-    
-    // --- BANSHEE Z-AXIS OVERRIDE ---
-    // Ground level is 0.0. The Banshee shrieks from 80.0 units in the air.
     final double zAxis = (maskId == 'banshee') ? 80.0 : 0.0;
 
+    // 1. Play the sound PAUSED so it doesn't blip at full volume
     final handle = SoLoud.instance.play3d(
       source,
       worldPos.x / audioScale,
       worldPos.y / audioScale,
       zAxis,
       volume: 0.95,
+      paused: true, 
     );
     
-    // Banshee sounds travel much further
+    // 2. Set the strict distance limitations
     final maxDist = (maskId == 'banshee') ? 50.0 : 30.0;
     SoLoud.instance.set3dSourceMinMaxDistance(handle, 2.0, maxDist);
     SoLoud.instance.set3dSourceAttenuation(handle, 1, 1.2);
+
+    // 3. Unpause it now that the math is perfectly calculated
+    SoLoud.instance.setPause(handle, false);
   }
 }

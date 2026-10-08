@@ -43,6 +43,7 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
   Vector2 _targetPosition = Vector2.zero();
 
   double _distanceAccumulator = 0.0;
+  double _breathTick = 0.0;
   static const double _audioScale = 50.0;
   final Random _random = Random();
 
@@ -183,7 +184,7 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
       }
     }
 
-    double _breathTick = 0.0;
+    //double _breathTick = 0.0;
     _breathTick += dt;
     if (_breathTick >= 3.5 && !isInvisible && !isDisguised) {
       _breathTick = 0.0;
