@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 class ProgressionScreen extends StatelessWidget {
+  final int currentLevel; 
   final int oldXp;
   final int newXp;
   final int xpRequired;
@@ -9,6 +10,7 @@ class ProgressionScreen extends StatelessWidget {
 
   const ProgressionScreen({
     super.key, 
+    required this.currentLevel, 
     required this.oldXp, 
     required this.newXp, 
     required this.xpRequired, 
@@ -30,9 +32,9 @@ class ProgressionScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('ACCOUNT LEVEL', style: TextStyle(color: Colors.cyanAccent, fontSize: 28, letterSpacing: 4, fontFamily: 'Courier')),
+            const Text('ACCOUNT LEVEL', style: TextStyle(color: Colors.cyanAccent, fontSize: 28, letterSpacing: 4, fontFamily: 'Orbitron')),
             const SizedBox(height: 10),
-            Text('XP EARNED THIS MATCH: +${newXp - oldXp}', style: const TextStyle(color: Colors.white70, fontSize: 14, fontFamily: 'Courier')),
+            Text('XP EARNED THIS MATCH: +${newXp - oldXp}', style: const TextStyle(color: Colors.white70, fontSize: 14, fontFamily: 'Orbitron')),
             const SizedBox(height: 30),
             
             // The Resonance Chamber (XP Bar)
@@ -71,6 +73,26 @@ class ProgressionScreen extends StatelessWidget {
                       );
                     },
                   ),
+                  
+                  // Mathematical "Difference" Blend Mode Text
+                  Align(
+                    alignment: Alignment.topCenter,
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 12.0),
+                      child: Text(
+                        'NEXT\nLVL ${currentLevel + 1}', // Explicitly states this is the goal
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12, // Dropped to 12 to fit Orbitron's width inside the 60px tube
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Orbitron',
+                          foreground: Paint()
+                            ..color = Colors.cyanAccent
+                            ..blendMode = BlendMode.difference, 
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -82,14 +104,31 @@ class ProgressionScreen extends StatelessWidget {
               width: 260,
               child: Column(
                 children: [
+                  // Static Current Level display
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('CURRENT LEVEL', style: TextStyle(color: Colors.white70, fontFamily: 'Orbitron', fontSize: 11)),
+                      Text(
+                        '$currentLevel',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Orbitron',
+                          color: Colors.greenAccent,
+                          shadows: [Shadow(color: Colors.greenAccent, blurRadius: 8)],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
                   AnimatedStatTicker(label: 'SHADOWS EXTRACTED', beginVal: 0, endVal: shadowsEarned, color: Colors.redAccent),
-const SizedBox(height: 12),
-AnimatedStatTicker(label: 'COINS SALVAGED', beginVal: 0, endVal: coinsEarned, color: Colors.yellowAccent),
-const SizedBox(height: 12),
-AnimatedStatTicker(label: 'ACCOUNT LEVEL XP', beginVal: oldXp, endVal: newXp, color: Colors.cyanAccent),
-const SizedBox(height: 12),
-// Add feedback for season pass progress:
-AnimatedStatTicker(label: 'CRYPT PASS XP GAINED', beginVal: 0, endVal: newXp - oldXp, color: Colors.purpleAccent),
+                  const SizedBox(height: 12),
+                  AnimatedStatTicker(label: 'COINS SALVAGED', beginVal: 0, endVal: coinsEarned, color: Colors.yellowAccent),
+                  const SizedBox(height: 12),
+                  AnimatedStatTicker(label: 'ACCOUNT LEVEL XP', beginVal: oldXp, endVal: newXp, color: Colors.cyanAccent),
+                  const SizedBox(height: 12),
+                  AnimatedStatTicker(label: 'CRYPT PASS XP GAINED', beginVal: 0, endVal: newXp - oldXp, color: Colors.purpleAccent),
                 ],
               ),
             ),
@@ -98,10 +137,9 @@ AnimatedStatTicker(label: 'CRYPT PASS XP GAINED', beginVal: 0, endVal: newXp - o
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[900], side: const BorderSide(color: Colors.white)),
               onPressed: () {
-                // Returns the player cleanly back to the Main Menu
                 Navigator.of(context).popUntil((route) => route.isFirst);
               },
-              child: const Text('RETURN TO BASE', style: TextStyle(color: Colors.white, fontFamily: 'Courier')),
+              child: const Text('RETURN TO BASE', style: TextStyle(color: Colors.white, fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
             )
           ],
         ),
@@ -143,13 +181,13 @@ class _AnimatedStatTickerState extends State<AnimatedStatTicker> {
         return Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(widget.label, style: const TextStyle(color: Colors.white70, fontFamily: 'Courier', fontSize: 12)),
+            Text(widget.label, style: const TextStyle(color: Colors.white70, fontFamily: 'Orbitron', fontSize: 11)),
             Text(
               '$currentVal',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                fontFamily: 'Courier',
+                fontFamily: 'Orbitron',
                 color: widget.color,
                 shadows: [Shadow(color: widget.color, blurRadius: 8)],
               ),

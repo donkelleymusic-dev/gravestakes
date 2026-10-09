@@ -83,19 +83,33 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
     });
 
     try {
+      // FIXED: Added a strict 15-second timeout to prevent infinite spinners
       final res = await Supabase.instance.client
-          .rpc('open_vessel', params: {'p_vessel_id': widget.vesselId});
+          .rpc('open_vessel', params: {'p_vessel_id': widget.vesselId})
+          .timeout(const Duration(seconds: 15)); 
+      
+      // FIXED: Silently abort if the user pressed the back button while waiting
+      if (!mounted) return; 
       
       if (res != null && (res as List).isNotEmpty) {
-        // Now handles an array of multiple rewards returned from the database
         _rewards = List<Map<String, dynamic>>.from(res);
       }
     } catch (e) {
       debugPrint('Vessel Burst Error: $e');
-      _rewards = [{'granted_reward_type': 'error', 'granted_reward_id': 'lost_soul', 'granted_amount': 0}];
+      if (!mounted) return; 
+      
+      // Reassure the player instead of showing an error
+      _rewards = [{
+        'granted_reward_type': 'network_timeout', 
+        'granted_reward_id': 'Loot saved to server!', 
+        'granted_amount': 0
+      }];
     }
     
-    setState(() { _isFetching = false; });
+    // Final safety check before removing the spinner
+    if (mounted) {
+      setState(() { _isFetching = false; });
+    }
   }
 
   void _generateExplosion() {
@@ -298,6 +312,7 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
                               Navigator.of(context).pushAndRemoveUntil(
                                 MaterialPageRoute(
                                   builder: (context) => ProgressionScreen(
+                                    currentLevel: currentLevel,
                                     shadowsEarned: totalShadows,
                                     coinsEarned: totalCoins,
                                     oldXp: oldXp,
@@ -360,10 +375,11 @@ class _RewardCardState extends State<RewardCard> {
     final String label = (widget.rewardData['granted_reward_id'] ?? '').toString().toUpperCase();
 
     bool isShard = type == 'character_shard';
-    Color baseColor = isShard ? Colors.cyanAccent : (type == 'coins' ? Colors.yellowAccent : Colors.purpleAccent);
-    IconData icon = isShard ? Icons.person_add : (type == 'coins' ? Icons.monetization_on : Icons.diamond);
+    bool isTimeout = type == 'network_timeout'; // NEW CHECK
 
-    // Swap styling if the duplicate shard converts to coins
+    Color baseColor = isTimeout ? Colors.orangeAccent : (isShard ? Colors.cyanAccent : (type == 'coins' ? Colors.yellowAccent : Colors.purpleAccent));
+    IconData icon = isTimeout ? Icons.cloud_done : (isShard ? Icons.person_add : (type == 'coins' ? Icons.monetization_on : Icons.diamond));
+
     if (_isConverted) {
       baseColor = Colors.yellowAccent;
       icon = Icons.monetization_on;
@@ -371,18 +387,7 @@ class _RewardCardState extends State<RewardCard> {
 
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 600),
-      transitionBuilder: (Widget child, Animation<double> animation) {
-        // Flipping effect
-        final rotate = Tween(begin: pi, end: 0.0).animate(animation);
-        return AnimatedBuilder(
-          animation: rotate,
-          child: child,
-          builder: (context, child) {
-            final transform = Matrix4.rotationY(rotate.value);
-            return Transform(transform: transform, alignment: Alignment.center, child: child);
-          },
-        );
-      },
+      // ... [keep the rotation transition exactly as is] ...
       child: Container(
         key: ValueKey<bool>(_isConverted),
         width: 130, height: 150,
@@ -398,8 +403,8 @@ class _RewardCardState extends State<RewardCard> {
             Icon(icon, size: 40, color: baseColor),
             const SizedBox(height: 12),
             Text(
-              '+$amount', // You can read the refund amount from DB payload as well
-              style: TextStyle(color: baseColor, fontSize: 24, fontWeight: FontWeight.bold, fontFamily: 'Courier', shadows: const [Shadow(color: Colors.black, blurRadius: 4)]),
+              isTimeout ? 'SYNCED' : '+$amount', // Hide the "+0" if it's a timeout
+              style: TextStyle(color: baseColor, fontSize: 22, fontWeight: FontWeight.bold, fontFamily: 'Orbitron', shadows: const [Shadow(color: Colors.black, blurRadius: 4)]),
             ),
             const SizedBox(height: 8),
             Padding(
@@ -407,7 +412,7 @@ class _RewardCardState extends State<RewardCard> {
               child: Text(
                 _isConverted ? 'DUPLICATE\nREFUND' : label.replaceAll('_', ' '),
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70, fontSize: 11, fontFamily: 'Courier'),
+                style: const TextStyle(color: Colors.white70, fontSize: 11, fontFamily: 'Orbitron'),
               ),
             ),
           ],

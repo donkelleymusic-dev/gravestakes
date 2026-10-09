@@ -15,7 +15,7 @@ class LevelManager {
   static LevelConfig getConfigForLevel(int level) {
     if (level <= 2) {
       // Levels 1-2: Easy Tutorial Phase
-      // Only 3 slow bot. Very easy to outrun.
+      // Only 3 slow bots. Very easy to outrun.
       return LevelConfig(botCount: 3, wanderSpeed: 60.0, huntSpeed: 100.0);
     } 
     else if (level <= 5) {
@@ -36,7 +36,8 @@ class LevelManager {
     else {
       // Levels 21+: Nightmare Mode
       // 5+ bots that wander fast and hunt even faster.
-      return LevelConfig(botCount: 5, wanderSpeed: 100.0, huntSpeed: 1);
+      // FIXED: Increased huntSpeed from 1.0 to 160.0
+      return LevelConfig(botCount: 5, wanderSpeed: 100.0, huntSpeed: 160.0);
     }
   }
 }

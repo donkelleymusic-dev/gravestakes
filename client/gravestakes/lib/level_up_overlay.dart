@@ -60,7 +60,7 @@ class _LevelUpOverlayState extends State<LevelUpOverlay> with SingleTickerProvid
                   fontSize: 26,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 4,
-                  fontFamily: 'Courier',
+                  fontFamily: 'Orbitron',
                 ),
               ),
               const SizedBox(height: 24),
@@ -91,7 +91,7 @@ class _LevelUpOverlayState extends State<LevelUpOverlay> with SingleTickerProvid
                             color: Colors.white,
                             fontSize: 28,
                             fontWeight: FontWeight.bold,
-                            fontFamily: 'Courier',
+                            fontFamily: 'Orbitron',
                           ),
                         ),
                       ),
@@ -103,7 +103,7 @@ class _LevelUpOverlayState extends State<LevelUpOverlay> with SingleTickerProvid
               Text(
                 'You have attained Level ${widget.newLevel}!\nYour acoustic power grows.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70, fontSize: 14, fontFamily: 'Courier'),
+                style: const TextStyle(color: Colors.white70, fontSize: 14, fontFamily: 'Orbitron'),
               ),
               const SizedBox(height: 28),
               ElevatedButton(
@@ -115,7 +115,7 @@ class _LevelUpOverlayState extends State<LevelUpOverlay> with SingleTickerProvid
                 onPressed: () => Navigator.of(context).pop(),
                 child: const Text(
                   'AWESOME!', 
-                  style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, letterSpacing: 1.5, fontFamily: 'Courier'),
+                  style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, letterSpacing: 1.5, fontFamily: 'Orbitron'),
                 ),
               ),
             ],

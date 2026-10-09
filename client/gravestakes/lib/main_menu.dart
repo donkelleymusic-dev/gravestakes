@@ -201,7 +201,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           'event_id': pendingEventId,
           'user_id': user.id,
           'status': 'guest_pass',
-        });
+        }).timeout(const Duration(seconds: 10)); // Added strict timeout limit
         await prefs.remove('pending_guest_pass'); // Clear it so it only fires once
         debugPrint('Pending guest pass redeemed upon login!');
       } catch (e) {
@@ -224,15 +224,16 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     int maxRetries = 3;
     for (int i = 0; i < maxRetries; i++) {
       try {
+        // FIXED: Added timeout limits to these critical UI-blocking queries
         final responses = await Future.wait<dynamic>([
-          supabase.from('profiles').select('username, level, lumen, completed_tutorial').eq('id', user.id).single(),
-          supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(),
-          supabase.from('player_inbox').select('id').eq('recipient_id', user.id).eq('is_read', false),
-          supabase.from('guild_members').select('guild_id').eq('user_id', user.id).maybeSingle(),
-          supabase.from('pending_rewards').select('id').eq('user_id', user.id).eq('is_claimed', false),
+          supabase.from('profiles').select('username, level, lumen, completed_tutorial').eq('id', user.id).single().timeout(const Duration(seconds: 15)),
+          supabase.from('wallets').select('shadows, coins').eq('id', user.id).single().timeout(const Duration(seconds: 15)),
+          supabase.from('player_inbox').select('id').eq('recipient_id', user.id).eq('is_read', false).timeout(const Duration(seconds: 15)),
+          supabase.from('guild_members').select('guild_id').eq('user_id', user.id).maybeSingle().timeout(const Duration(seconds: 15)),
+          supabase.from('pending_rewards').select('id').eq('user_id', user.id).eq('is_claimed', false).timeout(const Duration(seconds: 15)),
         ]);
 
-        final seasonRes = await supabase.from('season_config').select('id').eq('is_active', true).maybeSingle();
+        final seasonRes = await supabase.from('season_config').select('id').eq('is_active', true).maybeSingle().timeout(const Duration(seconds: 10));
         int unclaimedTiers = 0;
         if (seasonRes != null) {
           final progressRes = await supabase
@@ -240,7 +241,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
               .select('current_tier, highest_claimed_tier')
               .eq('user_id', user.id)
               .eq('season_id', seasonRes['id'])
-              .maybeSingle();
+              .maybeSingle()
+              .timeout(const Duration(seconds: 10));
 
           if (progressRes != null) {
             int currentTier = progressRes['current_tier'] ?? 0;
@@ -252,7 +254,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         }
 
         final serverLevel = responses[0]['level'] ?? 1;
-        final prefs = await SharedPreferences.getInstance();
         int lastSeenLevel = prefs.getInt('last_seen_level') ?? serverLevel;
 
         int freeMarketItems = 0;
@@ -269,8 +270,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         }
 
         // ONLY update memory and show the overlay if we strictly moved UP. 
-        // We also check _highestLevelFired to prevent the overlay from popping twice 
-        // if two background processes fetch data at the exact same time.
         if (serverLevel > lastSeenLevel && serverLevel > _highestLevelFired) {
           _highestLevelFired = serverLevel;
           await prefs.setInt('last_seen_level', serverLevel);
@@ -284,24 +283,22 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         if (responses[3]?['guild_id'] != null) {
           final gId = responses[3]['guild_id'];
           try {
-            // 1. Calculate the strict cutoff time (3 hours ago in UTC)
             final String threeHoursAgo = DateTime.now().toUtc().subtract(const Duration(hours: 3)).toIso8601String();
 
-            // 2. Filter out zombie events directly in the database query
             final eventRes = await supabase.from('guild_fright_nights')
                 .select('*')
                 .eq('guild_id', gId)
                 .neq('event_status', 'completed')
-                .gte('scheduled_time', threeHoursAgo) // <-- Ignores anything older than 3 hours!
+                .gte('scheduled_time', threeHoursAgo) 
                 .order('scheduled_time', ascending: true)
                 .limit(1)
-                .maybeSingle();
+                .maybeSingle()
+                .timeout(const Duration(seconds: 10)); // Safety limit
 
             if (eventRes != null) {
               final DateTime eventTime = DateTime.parse(eventRes['scheduled_time']).toLocal();
               final DateTime now = DateTime.now();
 
-              // 3. Ensure the event isn't too far in the future (within 24 hours)
               if (eventTime.isBefore(now.add(const Duration(hours: 24)))) {
                 activeFN = true;
 
@@ -309,7 +306,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                     .select('status')
                     .eq('event_id', eventRes['id'])
                     .eq('user_id', user.id)
-                    .maybeSingle();
+                    .maybeSingle()
+                    .timeout(const Duration(seconds: 10));
 
                 if (rsvpRes == null) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -433,7 +431,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         scope.setTag('map_name', _selectedMapName);
       });
 
-      // FIXED: Removed the rogue 'p_entry_fee' parameter that crashed Postgres
+      // FIXED: Added timeout to prevent infinite searching spinner if network hangs
       final response = await supabase.rpc(
         'find_or_create_match',
         params: {
@@ -443,7 +441,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           'p_guild_id': _guildId,
           'p_player_level': _level,
         }, 
-      );
+      ).timeout(const Duration(seconds: 15));
       
       gameInstance.roomId = response as String;
       AudioManager.instance.stopMusic();
@@ -489,14 +487,13 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         ),
       );
       
-    // FIXED: Restored your proper catch blocks so errors actually show up!
     } on PostgrestException catch (e) {
       if (e.code == 'PGRST301' || e.code == '401' || e.code == 'PGRST116' || e.code == '42501') {
           _logout();
           return;
         }
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Database error. Try again!')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Database error. Try again!', style: TextStyle(fontFamily: 'Orbitron'))));
       }
     } catch (e) {
       if (e is AuthException) {
@@ -505,7 +502,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       }
       Sentry.captureMessage('Matchmaking failed: $e', level: SentryLevel.warning);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to find a match. Try again!')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to find a match. Try again!', style: TextStyle(fontFamily: 'Orbitron'))));
       }
     } finally {
       if (mounted) {
@@ -543,16 +540,16 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.grey[900],
-        title: const Text('Confirm Logout', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        content: const Text('Are you sure you want to log out? You will need your email and password to return.', style: TextStyle(color: Colors.grey)),
+        title: const Text('Confirm Logout', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Orbitron')),
+        content: const Text('Are you sure you want to log out? You will need your email and password to return.', style: TextStyle(color: Colors.grey, fontFamily: 'Orbitron')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('CANCEL', style: TextStyle(color: Colors.grey)),
+            child: const Text('CANCEL', style: TextStyle(color: Colors.grey, fontFamily: 'Orbitron')),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('LOGOUT', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+            child: const Text('LOGOUT', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontFamily: 'Orbitron')),
           ),
         ],
       ),
@@ -582,18 +579,18 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       children: [
                         const Icon(Icons.wifi_off, color: Colors.redAccent, size: 48),
                         const SizedBox(height: 16),
-                        Text(_errorMessage!, style: const TextStyle(color: Colors.white, fontSize: 16)),
+                        Text(_errorMessage!, style: const TextStyle(color: Colors.white, fontSize: 16, fontFamily: 'Orbitron')),
                         const SizedBox(height: 24),
                         ElevatedButton.icon(
                           onPressed: _fetchPlayerData,
                           icon: const Icon(Icons.refresh, color: Colors.white),
-                          label: const Text('RETRY CONNECTION', style: TextStyle(color: Colors.white)),
+                          label: const Text('RETRY CONNECTION', style: TextStyle(color: Colors.white, fontFamily: 'Orbitron')),
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800]),
                         ),
                         const SizedBox(height: 24),
                         TextButton(
                           onPressed: _promptLogout,
-                          child: const Text('LOGOUT', style: TextStyle(color: Colors.grey)),
+                          child: const Text('LOGOUT', style: TextStyle(color: Colors.grey, fontFamily: 'Orbitron')),
                         ),
                       ],
                     ),
@@ -758,7 +755,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                     Navigator.of(context).push(MaterialPageRoute(builder: (_) => MatchSummaryScreen(photos: GraveStakesGame.lastMatchPhotos)));
                                   } else {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('No polaroids from your last match!'), backgroundColor: Colors.grey),
+                                      const SnackBar(content: Text('No polaroids from your last match!', style: TextStyle(fontFamily: 'Orbitron')), backgroundColor: Colors.grey),
                                     );
                                   }
                                 },
@@ -821,9 +818,9 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                               icon: const Icon(Icons.arrow_drop_down, color: Colors.purpleAccent),
                                               style: const TextStyle(color: Colors.purpleAccent, fontFamily: 'Orbitron', fontWeight: FontWeight.bold, fontSize: 12),
                                               items: const [
-                                                DropdownMenuItem(value: 'casual', child: Text('CASUAL FFA')),
-                                                DropdownMenuItem(value: '1v1', child: Text('1v1 RANKED')),
-                                                DropdownMenuItem(value: '2v2', child: Text('2v2 SQUAD')),
+                                                DropdownMenuItem(value: 'casual', child: Text('CASUAL FFA', style: TextStyle(fontFamily: 'Orbitron'))),
+                                                DropdownMenuItem(value: '1v1', child: Text('1v1 RANKED', style: TextStyle(fontFamily: 'Orbitron'))),
+                                                DropdownMenuItem(value: '2v2', child: Text('2v2 SQUAD', style: TextStyle(fontFamily: 'Orbitron'))),
                                               ],
                                               onChanged: (String? newValue) async {
                                                 if (newValue != null) {
@@ -979,7 +976,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                 child: Container(
                   padding: const EdgeInsets.all(4),
                   decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
-                  child: Text('$badgeCount', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                  child: Text('$badgeCount', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'Orbitron')),
                 ),
               ),
           ],
@@ -1028,7 +1025,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
               child: Container(
                 padding: const EdgeInsets.all(6),
                 decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
-                child: Text('$badgeCount', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                child: Text('$badgeCount', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Orbitron')),
               ),
             ),
         ],
@@ -1050,19 +1047,19 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           Container(
             width: 32, height: 32,
             decoration: BoxDecoration(color: Colors.grey[800], shape: BoxShape.circle, border: Border.all(color: Colors.cyanAccent)),
-            child: Center(child: Text('$_level', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+            child: Center(child: Text('$_level', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Orbitron'))),
           ),
           const SizedBox(width: 8),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(_username, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+              Text(_username, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Orbitron')),
               Row(
                 children: [
                   Icon(LumenSystem.getTier(_lumen).icon, color: LumenSystem.getTier(_lumen).color, size: 10),
                   const SizedBox(width: 4),
-                  Text('${LumenSystem.getTier(_lumen).name} ($_lumen)', style: TextStyle(color: LumenSystem.getTier(_lumen).color, fontSize: 10, fontWeight: FontWeight.bold)),
+                  Text('${LumenSystem.getTier(_lumen).name} ($_lumen)', style: TextStyle(color: LumenSystem.getTier(_lumen).color, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'Orbitron')),
                 ],
               ),
             ],
@@ -1087,7 +1084,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('$_shadows', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+              Text('$_shadows', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Orbitron')),
               const SizedBox(width: 4),
               const Icon(Icons.dark_mode, color: Colors.redAccent, size: 14),
             ],
@@ -1096,7 +1093,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('$_coins', style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+              Text('$_coins', style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Orbitron')),
               const SizedBox(width: 4),
               const Icon(Icons.monetization_on, color: Colors.amberAccent, size: 14),
             ],
@@ -1124,7 +1121,7 @@ class SearchingOverlay extends StatelessWidget {
             Text(
               'SEARCHING FOR OPPONENTS...\n(${game.matchMode.toUpperCase()})',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 2),
+              style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 2, fontFamily: 'Orbitron'),
             ),
             const SizedBox(height: 32),
             OutlinedButton.icon(
@@ -1134,7 +1131,7 @@ class SearchingOverlay extends StatelessWidget {
               ),
               onPressed: () => Navigator.of(context).pop(), 
               icon: const Icon(Icons.close, color: Colors.redAccent),
-              label: const Text('CANCEL MATCHMAKING', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+              label: const Text('CANCEL MATCHMAKING', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontFamily: 'Orbitron')),
             ),
           ],
         ),
@@ -1158,6 +1155,7 @@ class CountdownOverlay extends StatelessWidget {
             color: Colors.redAccent, 
             fontSize: 120, 
             fontWeight: FontWeight.bold,
+            fontFamily: 'Orbitron',
             shadows: [Shadow(color: Colors.black, blurRadius: 10)]
           ),
         ),
@@ -1443,23 +1441,23 @@ class FrightNightLoginAlert extends StatelessWidget {
         children: [
           Icon(isPast ? Icons.history : Icons.warning_amber_rounded, color: Colors.redAccent),
           const SizedBox(width: 8),
-          Text(isPast ? 'MISSED SUMMONS' : 'GUILD SUMMONS', style: const TextStyle(color: Colors.white, letterSpacing: 2.0)),
+          Text(isPast ? 'MISSED SUMMONS' : 'GUILD SUMMONS', style: const TextStyle(color: Colors.white, letterSpacing: 2.0, fontFamily: 'Orbitron')),
         ],
       ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(eventData['title'].toString().toUpperCase(), style: const TextStyle(color: Colors.redAccent, fontSize: 18, fontWeight: FontWeight.bold)),
+          Text(eventData['title'].toString().toUpperCase(), style: const TextStyle(color: Colors.redAccent, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Orbitron')),
           const SizedBox(height: 8),
-          Text('DATE: ${eventTime.toString().split('.')[0]}', style: const TextStyle(color: Colors.white70)),
-          Text('MODIFIER: ${eventData['chaos_modifier'].toString().toUpperCase()}', style: const TextStyle(color: Colors.amberAccent)),
+          Text('DATE: ${eventTime.toString().split('.')[0]}', style: const TextStyle(color: Colors.white70, fontFamily: 'Orbitron')),
+          Text('MODIFIER: ${eventData['chaos_modifier'].toString().toUpperCase()}', style: const TextStyle(color: Colors.amberAccent, fontFamily: 'Orbitron')),
           const SizedBox(height: 16),
           Text(
             isPast 
               ? 'This Fright Night has already concluded. You missed the bloodbath!' 
               : 'Will you answer the call?', 
-            style: const TextStyle(color: Colors.white54, fontStyle: FontStyle.italic),
+            style: const TextStyle(color: Colors.white54, fontStyle: FontStyle.italic, fontFamily: 'Orbitron'),
           ),
         ],
       ),
@@ -1471,7 +1469,7 @@ class FrightNightLoginAlert extends StatelessWidget {
             await _submitRSVP(eventData['id'], 'missed');
             if (context.mounted) Navigator.pop(context);
           },
-          child: const Text('ACKNOWLEDGE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          child: const Text('ACKNOWLEDGE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Orbitron')),
         ),
       ] : [
         TextButton(
@@ -1479,7 +1477,7 @@ class FrightNightLoginAlert extends StatelessWidget {
             await _submitRSVP(eventData['id'], 'declined');
             if (context.mounted) Navigator.pop(context);
           },
-          child: const Text('DECLINE', style: TextStyle(color: Colors.grey)),
+          child: const Text('DECLINE', style: TextStyle(color: Colors.grey, fontFamily: 'Orbitron')),
         ),
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800]),
@@ -1488,7 +1486,7 @@ class FrightNightLoginAlert extends StatelessWidget {
             FrightNightScheduler.addToPhoneCalendar(eventData['title'], eventTime);
             if (context.mounted) Navigator.pop(context);
           },
-          child: const Text('ACCEPT & SYNC', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          child: const Text('ACCEPT & SYNC', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Orbitron')),
         ),
       ],
     );
