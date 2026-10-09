@@ -48,6 +48,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   double wallStunTimer = 0.0;
   double starAnimTimer = 0.0;
 
+  // --- NEW: Audio Taunt properties ---
   String equippedTaunt = 'default';
   double tauntCooldown = 0.0;
 
@@ -253,7 +254,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           'charmer_y': position.y,
         },
       );
-      //timesCharmedSiren++; here??
       return;
     }
 
@@ -284,7 +284,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       timesStunnedStandard++;
     }
 
-    // --- DYNAMIC LEAP RECOIL FOR LOCAL PLAYER ---
     if (attackerPos != null) {
       Vector2 awayDir = (position - attackerPos).normalized();
       
@@ -293,9 +292,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         position += awayDir * 50.0;
       }
       
-      facingAngle = awayDir.screenAngle(); // Both players still pivot in terror
+      facingAngle = awayDir.screenAngle(); 
     }
-    // --------------------------------------------
 
     double finalDuration = duration;
     if (!isVermin && activeCounters.contains('standard') && duration > 0.5) {
@@ -394,8 +392,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     try {
       await game.images.load('mask_placeholder.png');
-      // --- FIX: PRELOAD ALL MASKS ---
-      // This ensures fromCache() never fails during combat animations
       for (var mask in MaskRegistry.allMasks.values) {
         await game.images.load('${mask.id}_mask.png');
       }
@@ -490,7 +486,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
               case 'purple': _baseColor = Colors.purpleAccent; break;
               case 'red': default: _baseColor = Colors.redAccent; break;
             }
-          } else if (slot == 'audio_taunt') equippedTaunt = val;
+          } 
+          // --- FIXED: Check both 'audio_taunt' and 'taunt' to ensure database compatibility
+          else if (slot == 'audio_taunt' || slot == 'taunt') equippedTaunt = val;
           else if (slot == 'mask_1') mask1Id = val;
           else if (slot == 'mask_2') mask2Id = val;
           else if (slot == 'mask_3') mask3Id = val;
@@ -645,17 +643,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           }
         }
         // -----------------------------
-
-        int victimsHit = game.triggerLocalScare(
-          position, 
-          trueAttackAngle,
-          isPoweredUp, 
-          hasExtendedRange: hasExtendedRange, 
-          range: currentMask.range, 
-          maskId: currentMask.id
-        );
       }
 
+      // FIXED: I removed the duplicate 'trueAttackAngle' triggerLocalScare call that was mechanically nullifying hit checks
       int victimsHit = game.triggerLocalScare(position, facingAngle, isPoweredUp, hasExtendedRange: hasExtendedRange, range: currentMask.range, maskId: currentMask.id);
 
       if (victimsHit > 0) {
@@ -1280,7 +1270,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     if (isMoving && !isStunned) {
       // Approximate the movement speed based on standard game values (e.g. 250 sprint, 120 sneak)
-      // Alternatively, if your Player class has a global 'speed' variable, you can use 'speed * dt'
       double distMoved = (isHoldingBreath ? 120.0 : 250.0) * dt;
       
       if (isHoldingBreath) {
@@ -1346,8 +1335,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     stopAudio();
     super.onRemove();
   }
-
-  
 }
 
 class CosmeticTrailParticle extends SpriteComponent with HasGameReference<GraveStakesGame> {
@@ -1356,7 +1343,6 @@ class CosmeticTrailParticle extends SpriteComponent with HasGameReference<GraveS
 
   CosmeticTrailParticle({required this.spritePath, required Vector2 position})
       : super(size: Vector2.all(16), position: position, anchor: Anchor.center) {
-    // Priority ensures it draws ON TOP of the floor, but BEHIND the player model
     priority = (position.y * 10).toInt() - 1;
   }
 
@@ -1364,7 +1350,6 @@ class CosmeticTrailParticle extends SpriteComponent with HasGameReference<GraveS
   Future<void> onLoad() async {
     super.onLoad();
     try { 
-      // game.images.load() fetches from assets, caches it, and returns the image safely
       final image = await game.images.load(spritePath);
       sprite = Sprite(image);
     } catch (e) {

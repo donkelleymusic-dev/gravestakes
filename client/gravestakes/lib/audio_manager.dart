@@ -104,7 +104,7 @@ class AudioManager {
       powerupSource = await SoLoud.instance.loadAsset('assets/audio/ElevenLabs_Scary_stinger.mp3');
       impactSource = await SoLoud.instance.loadAsset('assets/audio/Footsteps_Type_12.mp3');
 
-      // --- NEW: Load Audio Taunts precisely as mapped in the database ---
+      // --- NEW: Load Audio Taunts precisely as mapped in your database ---
       audioTaunts['taunt_train'] = await SoLoud.instance.loadAsset('assets/audio/train.mp3');
       audioTaunts['taunt_scrape'] = await SoLoud.instance.loadAsset('assets/audio/violin_scrape.mp3');
 
@@ -136,7 +136,7 @@ class AudioManager {
       paused: true, 
     );
     
-    // Taunts should echo across the entire map
+    // Taunts should echo across the entire map to intimidate everyone!
     SoLoud.instance.set3dSourceMinMaxDistance(handle, 4.0, 80.0);
     SoLoud.instance.set3dSourceAttenuation(handle, 1, 1.0);
     SoLoud.instance.setPause(handle, false);

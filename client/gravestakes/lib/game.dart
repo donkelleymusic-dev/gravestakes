@@ -1897,17 +1897,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         event: 'taunt',
         callback: (payload) {
           final id = payload['id'] as String?;
-          if (id == null || id == mySessionId) return; // Don't play your own taunt twice!
+          if (id == null || id == mySessionId) return; // Don't echo your own taunt
           
           final tauntId = payload['taunt_id'] as String;
           final tauntPos = Vector2((payload['x'] as num).toDouble(), (payload['y'] as num).toDouble());
 
-          // Play it strictly through the 3D spatializer engine!
           AudioManager.instance.playSpatialTaunt(tauntId, tauntPos);
 
           if (networkPlayers.containsKey(id)) {
             camera.viewport.add(FloatingText(
-              text: '*TAUNTS*', 
+              text: '*TAUNT*', 
               worldPosition: Vector2(tauntPos.x - 30, tauntPos.y - 60)
             ));
           }
