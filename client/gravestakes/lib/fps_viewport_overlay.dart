@@ -85,6 +85,14 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     // -------------------------------------------------------------
     // 2. RAYCAST WALLS & LIMITED VISIBILITY
     // -------------------------------------------------------------
+    
+    // Check equipped skin once per frame
+    String currentSkin = 'default';
+    try {
+      currentSkin = player.equippedWallSkin;
+    } catch (_) {}
+    bool isVoidSkin = currentSkin == 'wall_void';
+
     int stripWidth = 2; 
     for (int x = 0; x < screenWidth; x += stripWidth) {
       double rayAngle = (totalViewAngle - halfFov) + (x / screenWidth) * fov;
@@ -106,7 +114,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         if (gridX < 0 || gridX >= gameMap.gridWidth || gridY < 0 || gridY >= gameMap.gridHeight) {
           hitWall = true;
           impactPos = checkPos;
-        } else if (gameMap.mapGrid[gridY][gridX] > 0) { // CHANGED FROM == 1
+        } else if (gameMap.mapGrid[gridY][gridX] > 0) { 
           hitWall = true;
           impactPos = checkPos;
           hitGridValue = gameMap.mapGrid[gridY][gridX]; // STORE WHAT WE HIT
@@ -133,8 +141,12 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
                         (hitY < 3.0 || hitY > gameMap.tileSize - 3.0);
 
       Color wallColor;
-      if (hitGridValue == 4) {
-        // NEW: Bright activated gold flash!
+      if (isVoidSkin) {
+        // --- NEW: THE VANTABLACK VOID (3D) ---
+        // Pure black walls regardless of proximity
+        wallColor = Colors.black;
+      } else if (hitGridValue == 4) {
+        // Bright activated gold flash!
         wallColor = Colors.amberAccent;
       } else if (hitGridValue == 3) {
         // Dark Wooden Door
@@ -153,27 +165,29 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
           : Color.fromARGB(255, (brightness * 0.45).toInt(), (brightness * 0.2).toInt(), brightness);
       }
 
-      // --- CORNER SHADOWS ---
-      bool isNearCorner = (hitX < 4.0 || hitX > gameMap.tileSize - 4.0) &&
-                          (hitY < 4.0 || hitY > gameMap.tileSize - 4.0);
-      if (isNearCorner) {
-        wallColor = Color.fromARGB(
-          wallColor.alpha,
-          (wallColor.red * 0.6).toInt(),
-          (wallColor.green * 0.6).toInt(),
-          (wallColor.blue * 0.6).toInt(),
-        );
-      }
+      // --- CORNER SHADOWS (Ignored in Void mode) ---
+      if (!isVoidSkin) {
+        bool isNearCorner = (hitX < 4.0 || hitX > gameMap.tileSize - 4.0) &&
+                            (hitY < 4.0 || hitY > gameMap.tileSize - 4.0);
+        if (isNearCorner) {
+          wallColor = Color.fromARGB(
+            wallColor.alpha,
+            (wallColor.red * 0.6).toInt(),
+            (wallColor.green * 0.6).toInt(),
+            (wallColor.blue * 0.6).toInt(),
+          );
+        }
 
-      // --- NEAR-PLANE FOG (PROXIMITY DARKENING) ---
-      if (correctedDist < 32.0) {
-        double proxFactor = (correctedDist / 32.0).clamp(0.4, 1.0);
-        wallColor = Color.fromARGB(
-          wallColor.alpha,
-          (wallColor.red * proxFactor).toInt(),
-          (wallColor.green * proxFactor).toInt(),
-          (wallColor.blue * proxFactor).toInt(),
-        );
+        // --- NEAR-PLANE FOG (PROXIMITY DARKENING) ---
+        if (correctedDist < 32.0) {
+          double proxFactor = (correctedDist / 32.0).clamp(0.4, 1.0);
+          wallColor = Color.fromARGB(
+            wallColor.alpha,
+            (wallColor.red * proxFactor).toInt(),
+            (wallColor.green * proxFactor).toInt(),
+            (wallColor.blue * proxFactor).toInt(),
+          );
+        }
       }
 
       // Draw Wall Strip
@@ -182,22 +196,34 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         Paint()..color = wallColor,
       );
 
-      // --- HORIZONTAL BRICK COURSES ---
-      double brickHeight = wallHeight / 6.0;
-      for (int b = 1; b < 6; b++) {
-        double lineY = wallTop + (b * brickHeight);
+      // --- BRICKS VS VOID DECORATIONS ---
+      if (isVoidSkin) {
+        // Render the pulsing purple "Event Horizon" at the base of the wall
+        double glowHeight = 4.0;
+        double glowY = wallTop + wallHeight - glowHeight;
+        
         canvas.drawRect(
-          Rect.fromLTWH(x.toDouble(), lineY, stripWidth.toDouble(), 1.5),
-          Paint()..color = Colors.black45,
+          Rect.fromLTWH(x.toDouble(), glowY, stripWidth.toDouble(), glowHeight),
+          Paint()..color = Colors.purpleAccent.withOpacity(0.5 * fadeFactor), // Fades out in the distance!
+        );
+      } else {
+        // --- HORIZONTAL BRICK COURSES ---
+        double brickHeight = wallHeight / 6.0;
+        for (int b = 1; b < 6; b++) {
+          double lineY = wallTop + (b * brickHeight);
+          canvas.drawRect(
+            Rect.fromLTWH(x.toDouble(), lineY, stripWidth.toDouble(), 1.5),
+            Paint()..color = Colors.black45,
+          );
+        }
+
+        // Original Mortar Center Line
+        double mortarY = wallTop + (wallHeight * 0.5);
+        canvas.drawRect(
+          Rect.fromLTWH(x.toDouble(), mortarY, stripWidth.toDouble(), 2.0),
+          Paint()..color = Colors.black38,
         );
       }
-
-      // Original Mortar Center Line
-      double mortarY = wallTop + (wallHeight * 0.5);
-      canvas.drawRect(
-        Rect.fromLTWH(x.toDouble(), mortarY, stripWidth.toDouble(), 2.0),
-        Paint()..color = Colors.black38,
-      );
     }
 
     // -------------------------------------------------------------

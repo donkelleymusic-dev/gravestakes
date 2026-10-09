@@ -200,14 +200,14 @@ class GameMap extends Component with HasGameReference<GraveStakesGame> {
           // Keep normal spawns away from the secret hallway
           if (x < 40) allOpenTiles.add(Vector2(worldX + (tileSize / 2), worldY + (tileSize / 2)));
         } else if (mapGrid[y][x] == 1) { // Normal Purple Wall
-          // REMOVE the equippedSkin parameter here!
+          // STRIPPED parameter so it doesn't crash during map load
           game.world.add(WallComponent(
             position: Vector2(worldX, worldY), 
             tileSize: tileSize
           ));
           obstacles.add(Rect.fromLTWH(worldX, worldY, tileSize, tileSize));
         } else if (mapGrid[y][x] == 2) { // Secret Red Wall
-          // REMOVE the equippedSkin parameter here too!
+          // STRIPPED parameter so it doesn't crash during map load
           game.world.add(WallComponent(
             position: Vector2(worldX, worldY), tileSize: tileSize,
             wallColor: Colors.red[900]!, borderColor: Colors.black87,
@@ -403,7 +403,7 @@ class GameMap extends Component with HasGameReference<GraveStakesGame> {
       return false;
     }
     double o1 = orientation(p1, q1, p2); double o2 = orientation(p1, q1, q2);
-    double o3 = orientation(p2, q2, p1); double o4 = orientation(p2, q2, q1);
+    double o3 = orientation(p2, q2, p1); double o4 = orientation(p2, q2, p1);
     if (o1 != o2 && o3 != o4) return true;
     if (o1 == 0 && onSegment(p1, p2, q1)) return true;
     if (o2 == 0 && onSegment(p1, q2, q1)) return true;
@@ -444,12 +444,14 @@ class WallComponent extends PositionComponent with HasGameReference<GraveStakesG
   final double tileSize;
   final Color wallColor; 
   final Color borderColor; 
+  final String equippedSkin; // Tracks the vanity domain
 
   WallComponent({
     required Vector2 position, 
     required this.tileSize,
     this.wallColor = Colors.deepPurpleAccent, 
     this.borderColor = Colors.purpleAccent,
+    this.equippedSkin = 'default',
   }) : super(
           position: position, 
           size: Vector2.all(tileSize),
@@ -460,14 +462,14 @@ class WallComponent extends PositionComponent with HasGameReference<GraveStakesG
   void render(Canvas canvas) {
     final rect = Rect.fromLTWH(0, 0, tileSize, tileSize);
     
-    // Safely check the player's skin during the render loop, not during onLoad!
+    // RESTORED: Safely check the player's skin during the render loop!
     String currentSkin = 'default';
     try {
       currentSkin = game.player.equippedWallSkin;
     } catch (_) {}
 
     if (currentSkin == 'wall_void') {
-      // --- THE VANTABLACK VOID ---
+      // --- THE VANTABLACK VOID (2D) ---
       final voidPaint = Paint()..color = const Color(0xFF000000)..style = PaintingStyle.fill;
       canvas.drawRect(rect, voidPaint);
 
