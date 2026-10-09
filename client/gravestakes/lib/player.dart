@@ -48,6 +48,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   double wallStunTimer = 0.0;
   double starAnimTimer = 0.0;
 
+  String equippedTaunt = 'default';
+  double tauntCooldown = 0.0;
+
   double maxSpeed = 200.0;
   int score = 0;
 
@@ -282,12 +285,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     }
 
     // --- DYNAMIC LEAP RECOIL FOR LOCAL PLAYER ---
-    /* if (attackerPos != null) {
-      Vector2 awayDir = (position - attackerPos).normalized();
-      position += awayDir * 50.0;
-      facingAngle = awayDir.screenAngle();
-    } */
-    // --- DYNAMIC LEAP RECOIL FOR LOCAL PLAYER ---
     if (attackerPos != null) {
       Vector2 awayDir = (position - attackerPos).normalized();
       
@@ -298,7 +295,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       
       facingAngle = awayDir.screenAngle(); // Both players still pivot in terror
     }
-    // --------------------------------------------
     // --------------------------------------------
 
     double finalDuration = duration;
@@ -477,18 +473,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   }
 
   Future<void> _fetchEquippedCosmetics() async {
-    // Temporary hardcode for testing cosmetics without buying them yet
-    //equippedTrail = 'trail_soul';//trail_soul,trail_ash,wall_void,taunt_train,taunt_scrape
-
-    /*
-      INSERT INTO public.cosmetics_catalog (id, name, category, rarity, price, currency, asset_path) VALUES
-        ('trail_ash', 'Ashen Footprints', 'particle_trail', 'common', 8000, 'shadows', 'assets/particles/ash.png'),
-        ('trail_soul', 'Soul Leech Wisps', 'particle_trail', 'rare', 300, 'coins', 'assets/particles/soul.png'),
-        ('taunt_train', 'Distant Train', 'audio_taunt', 'common', 5000, 'shadows', 'assets/audio/taunts/train.wav'),
-        ('taunt_scrape', 'Violin Scrape', 'audio_taunt', 'rare', 12000, 'shadows', 'assets/audio/taunts/violin_scrape.wav'),
-        ('wall_void', 'Vantablack Void', 'wall_skin', 'legendary', 500, 'coins', 'assets/images/walls/void.png');
-    */
-
     final user = Supabase.instance.client.auth.currentUser;
     String? mask1Id; String? mask2Id; String? mask3Id; String? mask4Id;
     
@@ -506,7 +490,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
               case 'purple': _baseColor = Colors.purpleAccent; break;
               case 'red': default: _baseColor = Colors.redAccent; break;
             }
-          } else if (slot == 'mask_1') mask1Id = val;
+          } else if (slot == 'audio_taunt') equippedTaunt = val;
+          else if (slot == 'mask_1') mask1Id = val;
           else if (slot == 'mask_2') mask2Id = val;
           else if (slot == 'mask_3') mask3Id = val;
           else if (slot == 'mask_4') mask4Id = val;
@@ -541,6 +526,23 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     if (mask2Id != null && mask2Id.isNotEmpty) equippedMasks[1] = MaskRegistry.getMask(mask2Id);
     if (mask3Id != null && mask3Id.isNotEmpty) equippedMasks[2] = MaskRegistry.getMask(mask3Id);
     if (mask4Id != null && mask4Id.isNotEmpty) equippedMasks[3] = MaskRegistry.getMask(mask4Id);
+  }
+
+  // --- NEW METHOD: Trigger the taunt locally and broadcast it! ---
+  void triggerTaunt() {
+    if (tauntCooldown > 0 || equippedTaunt == 'default') return;
+    tauntCooldown = 15.0; // 15-second cooldown
+
+    if (AudioManager.instance.isInitialized) {
+      AudioManager.instance.playLocalTaunt(equippedTaunt);
+    }
+    
+    channel.sendBroadcastMessage(event: 'taunt', payload: {
+      'id': game.mySessionId, 
+      'taunt_id': equippedTaunt, 
+      'x': position.x, 
+      'y': position.y
+    });
   }
 
   void triggerAttack({int? forceMaskIndex}) {
@@ -594,14 +596,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     }
     // ----------------------------------------------------
 
-    /* if (AudioManager.instance.isInitialized) {
-      if (currentMask.id == 'standard' && AudioManager.instance.impactSource != null) {
-        SoLoud.instance.play(AudioManager.instance.impactSource!);
-      } else if (currentMask.id == 'flying' && AudioManager.instance.maskScareSounds['flying'] != null) {
-        SoLoud.instance.play(AudioManager.instance.maskScareSounds['flying']!);
-      }
-    } */
-
    if (AudioManager.instance.isInitialized) {
       // This will automatically pull all mask mp3s
       AudioManager.instance.playMaskScare(currentMask.id);
@@ -622,16 +616,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     } else if (currentMask.id == 'banshee') {
       if (!game.isFpsMode) game.world.add(BansheeBeam(position: position.clone(), angle: facingAngle));
     } else {
-      /* if (!isGunner && currentMask.id != 'siren') {
-        final forward = Vector2(sin(facingAngle), -cos(facingAngle));
-        double distanceToMove = 45.0; 
-        while (distanceToMove > 0) {
-          double step = min(5.0, distanceToMove);
-          final testPos = position + (forward * step);
-          if (!game.gameMap.checkCollision(testPos, size)) { position = testPos; distanceToMove -= step;
-          } else { break; }
-        }
-      } */
       
       if (currentMask.id == 'siren') {
         if (!game.isFpsMode) add(SirenBlast()..position = size / 2);
@@ -680,6 +664,11 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         score += (baseScore + comboBonus);
         String popupText = victimsHit > 1 ? '+${baseScore + comboBonus} COMBO x$victimsHit!' : '+${baseScore + comboBonus}';
         game.world.add(FloatingText(text: popupText, worldPosition: Vector2(position.x - 20, position.y - 50)));
+
+        // --- NEW: Echo your taunt through the map automatically! ---
+        if (equippedTaunt != 'default') {
+          triggerTaunt();
+        }
       }
     }
 
@@ -745,9 +734,14 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     if (keysPressed.contains(LogicalKeyboardKey.keyF) || keysPressed.contains(LogicalKeyboardKey.keyR)) {
       rechargeFlashlight();
     }
-  if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.keyM) {
-    game.mapOverlay.toggle();
-  }
+    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.keyM) {
+      game.mapOverlay.toggle();
+    }
+    // (Optional PC Testing: Bind taunt to the "T" key)
+    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.keyT) {
+      triggerTaunt();
+    }
+    
     return true; 
   }
 
@@ -775,6 +769,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     }
     if (maskSwapAnimationTimer > 0) maskSwapAnimationTimer -= dt;
     if (activeDefenseCooldown > 0) activeDefenseCooldown -= dt;
+    if (tauntCooldown > 0) tauntCooldown -= dt; // Tick the taunt timer down!
     // ----------------------------
 
     // --- THE AUTO-RAILS SYSTEM ---
@@ -931,12 +926,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         voxelComponent!.activeMaskImage = game.images.fromCache('${currentMaskId}_mask.png');
       } catch (e) {}
     }
-
-    /* moved these to start of update(...
-    
-    if (attackCooldown > 0) attackCooldown -= dt;
-    if (maskSwapAnimationTimer > 0) maskSwapAnimationTimer -= dt;
-    if (activeDefenseCooldown > 0) activeDefenseCooldown -= dt; */
     
     bool isBuffActive = false;
     double lowestTimer = 999.0;
@@ -971,11 +960,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       }
     }
 
-    /* if (isDisguised) {
-      if (_disguiseWall != null) _disguiseWall!.position = Vector2(-16, -16);
-    } else {
-      if (_disdisguiseWall != null) _disguiseWall!.position = Vector2(-9999, -9999);
-    } */
    if (isDisguised) {
       if (_disguiseWall != null) {
         // Counteract the massive scale of characters like the Goliath
@@ -1065,12 +1049,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     if (isStunned) {
       stunTimer -= dt;
-      /* if (wallStunTimer > 0) {
-        wallStunTimer -= dt;
-      }
-      if (starAnimTimer > 0) {
-        starAnimTimer -= dt;
-      } */
       if (voxelComponent != null) {
         voxelComponent!.isStunned = true;
         voxelComponent!.stunTimer = stunTimer;
@@ -1091,8 +1069,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     }
 
     if (!isStunned && !rightJoystick.delta.isZero()) facingAngle = rightJoystick.delta.screenAngle();
-
-    //if (!rightJoystick.delta.isZero()) facingAngle = rightJoystick.delta.screenAngle();
 
     if (isCharmed && !isStunned) {
       charmTimer -= dt;

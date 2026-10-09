@@ -865,7 +865,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                               });
                                             },
                                             child: Container(
-                                              height: 70,
+                                              // FIXED: Bumped from 70 to 76 to stop vertical clipping
+                                              height: 76,
                                               decoration: BoxDecoration(
                                                 gradient: LinearGradient(colors: [Colors.red.shade900, Colors.redAccent]),
                                                 borderRadius: BorderRadius.circular(12),
@@ -886,6 +887,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                                         fontWeight: FontWeight.bold, 
                                                         letterSpacing: 2, 
                                                         fontFamily: 'Orbitron', 
+                                                        height: 1.1, // FIXED: Reduced line spacing to perfectly stack wide fonts
                                                         shadows: [Shadow(color: Colors.black, blurRadius: 4)]
                                                       ),
                                                     ),

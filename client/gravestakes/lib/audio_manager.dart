@@ -21,12 +21,12 @@ class AudioManager {
   AudioSource? chaseMusic;
   final List<AudioSource> inGameTracks = [];
 
-  // Mask Scare SFX Map (Key: maskId -> 'standard', 'siren', 'flying', 'vermin', etc.)
+  // Mask Scare SFX Map
   final Map<String, AudioSource> maskScareSounds = {};
 
-  // Character Footstep & Mechanical Sound Profiles (Key: characterId)
+  // Character Footstep & Mechanical Sound Profiles
   final Map<String, List<AudioSource>> characterFootsteps = {};
-  final Map<String, AudioSource> characterIdleLoops = {}; // e.g. Steampunk hiss/gears
+  final Map<String, AudioSource> characterIdleLoops = {}; 
 
   // Player Physiology SFX
   AudioSource? heavyBreathingSource;
@@ -39,8 +39,11 @@ class AudioManager {
   AudioSource? powerupSource;
   AudioSource? impactSource;
 
+  // --- NEW: Audio Taunt Catalog ---
+  final Map<String, AudioSource> audioTaunts = {};
+
   double _userGlobalVolume = 1.0;
-  bool _isMuted = false; // Add a tracking flag
+  bool _isMuted = false;
 
   void mute() {
     if (SoLoud.instance.isInitialized && !_isMuted) {
@@ -62,73 +65,83 @@ class AudioManager {
     try {
       if (!SoLoud.instance.isInitialized) {
         try {
-          // Lock to 48kHz native mobile rate and increase buffer to survive UI animations
           await SoLoud.instance.init(
             sampleRate: 48000, 
             bufferSize: 2048, 
           );
           SoLoud.instance.setMaxActiveVoiceCount(64);
         } catch (e) {
-          debugPrint('Native audio engine desync detected. Forcing reset...');
           SoLoud.instance.deinit();
           await Future.delayed(const Duration(milliseconds: 100));
-          
-          await SoLoud.instance.init(
-            sampleRate: 48000,
-            bufferSize: 2048,
-          );
+          await SoLoud.instance.init(sampleRate: 48000, bufferSize: 2048);
           SoLoud.instance.setMaxActiveVoiceCount(64);
         }
       }
 
-      // 1. Preload Music
       menuMusic = await SoLoud.instance.loadAsset('assets/audio/music/menu_theme.mp3');
       chaseMusic = await SoLoud.instance.loadAsset('assets/audio/music/The_Chase.mp3');
       inGameTracks.add(await SoLoud.instance.loadAsset('assets/audio/music/map_theme.mp3'));
-      // inGameTracks.add(await SoLoud.instance.loadAsset('assets/audio/music/crypt_ambience_2.mp3'));
 
-      // 2. Preload Mask SFX
       maskScareSounds['standard'] = await SoLoud.instance.loadAsset('assets/audio/Scare_Type_2.mp3');
       maskScareSounds['flying']   = await SoLoud.instance.loadAsset('assets/audio/bat.mp3');
       maskScareSounds['vermin']   = await SoLoud.instance.loadAsset('assets/audio/bugs.mp3');
       maskScareSounds['siren']    = await SoLoud.instance.loadAsset('assets/audio/Siren_Mask_Lure.mp3');
-
-      // --- NEW TACTICAL MASKS ---
       maskScareSounds['gorgon']      = await SoLoud.instance.loadAsset('assets/audio/Gorgon.mp3');
       maskScareSounds['poltergeist'] = await SoLoud.instance.loadAsset('assets/audio/Poltergeist.mp3');
       maskScareSounds['banshee']     = await SoLoud.instance.loadAsset('assets/audio/Banshee.mp3');
       maskScareSounds['wendigo']     = await SoLoud.instance.loadAsset('assets/audio/Wendigo.mp3');
       maskScareSounds['parasite']    = await SoLoud.instance.loadAsset('assets/audio/Parasite.mp3');
 
-      // 3. Preload Character-Specific Footsteps (Human vs Steampunk Robot)
       characterFootsteps['default'] = [
         await SoLoud.instance.loadAsset('assets/audio/Footsteps_Type_12.mp3'),
       ];
-      // characterFootsteps['steampunk_automaton'] = [
-      //   await SoLoud.instance.loadAsset('assets/audio/robot/servo_step_1.mp3'),
-      //   await SoLoud.instance.loadAsset('assets/audio/robot/servo_step_2.mp3'),
-      //   await SoLoud.instance.loadAsset('assets/audio/robot/clank_step.mp3'),
-      // ];
-      // characterIdleLoops['steampunk_automaton'] = await SoLoud.instance.loadAsset('assets/audio/robot/steam_vent_loop.mp3');
 
-      // 4. Preload Physiology / Breathing
       heavyBreathingSource = await SoLoud.instance.loadAsset('assets/audio/Breathing_Type_1.mp3');
       heartBeatSource = await SoLoud.instance.loadAsset('assets/audio/Heartbeat.mp3');
       gaspBreathSource = await SoLoud.instance.loadAsset('assets/audio/gasp.mp3');
 
-      // 5. Shared SFX
       tickSource = await SoLoud.instance.loadAsset('assets/audio/tick.mp3');
       powerupSource = await SoLoud.instance.loadAsset('assets/audio/ElevenLabs_Scary_stinger.mp3');
       impactSource = await SoLoud.instance.loadAsset('assets/audio/Footsteps_Type_12.mp3');
 
+      // --- NEW: Load Audio Taunts precisely as mapped in the database ---
+      audioTaunts['taunt_train'] = await SoLoud.instance.loadAsset('assets/audio/train.mp3');
+      audioTaunts['taunt_scrape'] = await SoLoud.instance.loadAsset('assets/audio/violin_scrape.mp3');
+
       isInitialized = true;
-      debugPrint('AudioManager initialized successfully.');
     } catch (e) {
       debugPrint('AUDIO MANAGER INIT ERROR: $e');
     }
   }
 
-  // --- MUSIC PLAYBACK & CROSSFADE ---
+  // --- NEW: Audio Taunt Playback ---
+  void playLocalTaunt(String tauntId) {
+    if (!isInitialized) return;
+    final sound = audioTaunts[tauntId];
+    if (sound != null) SoLoud.instance.play(sound, volume: 1.0);
+  }
+
+  void playSpatialTaunt(String tauntId, Vector2 worldPos) {
+    if (!isInitialized) return;
+    final source = audioTaunts[tauntId];
+    if (source == null) return;
+
+    const double audioScale = 50.0;
+    final handle = SoLoud.instance.play3d(
+      source,
+      worldPos.x / audioScale,
+      worldPos.y / audioScale,
+      0.0,
+      volume: 1.0,
+      paused: true, 
+    );
+    
+    // Taunts should echo across the entire map
+    SoLoud.instance.set3dSourceMinMaxDistance(handle, 4.0, 80.0);
+    SoLoud.instance.set3dSourceAttenuation(handle, 1, 1.0);
+    SoLoud.instance.setPause(handle, false);
+  }
+
   Future<void> playMenuMusic() async {
     if (menuMusic == null) return;
     await _playBgm(menuMusic!, volume: 0.5);
@@ -152,25 +165,21 @@ class AudioManager {
       SoLoud.instance.stop(_localBreathingHandle!);
       _localBreathingHandle = null;
     }
-    // Add heartBeatSource handles here later if you make the heartbeat loop too!
   }
 
   Future<void> playChaseMusic() async {
     if (chaseMusic == null || isChaseMusicPlaying) return;
     isChaseMusicPlaying = true;
-    await _playBgm(chaseMusic!, volume: 0.6); // Slightly louder for intensity
+    await _playBgm(chaseMusic!, volume: 0.6); 
   }
 
   Future<void> _playBgm(AudioSource source, {double volume = 0.5}) async {
-    // Prevent restarting the track if it's already playing
     if (_currentMusicSource == source && _currentMusicHandle != null) return;
-    
     stopMusic();
     _currentMusicSource = source;
     _currentMusicHandle = SoLoud.instance.play(source, volume: volume, looping: true);
   }
 
-  // --- MASK SCARE TRIGGER ---
   void playMaskScare(String maskId) {
     final sound = maskScareSounds[maskId] ?? impactSource;
     if (sound != null) {
@@ -179,16 +188,10 @@ class AudioManager {
   }
 
   void playEntityFootstep(String characterId, Vector2 worldPos, {bool isLocal = false}) {
-    if (!isInitialized) {
-      debugPrint('Cannot play footstep: AudioManager is not initialized!');
-      return;
-    }
+    if (!isInitialized) return;
 
     final footstepBank = characterFootsteps[characterId] ?? characterFootsteps['default'];
-    if (footstepBank == null || footstepBank.isEmpty) {
-      debugPrint('No footstep sounds registered for character: $characterId');
-      return;
-    }
+    if (footstepBank == null || footstepBank.isEmpty) return;
 
     final source = footstepBank[Random().nextInt(footstepBank.length)];
     final randomPitch = 0.90 + (Random().nextDouble() * 0.20);
@@ -219,7 +222,6 @@ class AudioManager {
     const double audioScale = 50.0;
     final double zAxis = (maskId == 'banshee') ? 80.0 : 0.0;
 
-    // 1. Play the sound PAUSED so it doesn't blip at full volume
     final handle = SoLoud.instance.play3d(
       source,
       worldPos.x / audioScale,
@@ -229,12 +231,10 @@ class AudioManager {
       paused: true, 
     );
     
-    // 2. Set the strict distance limitations
     final maxDist = (maskId == 'banshee') ? 50.0 : 30.0;
     SoLoud.instance.set3dSourceMinMaxDistance(handle, 2.0, maxDist);
     SoLoud.instance.set3dSourceAttenuation(handle, 1, 1.2);
 
-    // 3. Unpause it now that the math is perfectly calculated
     SoLoud.instance.setPause(handle, false);
   }
 }
