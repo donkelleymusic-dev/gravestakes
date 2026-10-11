@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart'; // NEW: Required for opening browser links
+import 'package:url_launcher/url_launcher.dart';
+import 'package:purchases_flutter/purchases_flutter.dart'; // NEW: Required for RevenueCat cache clearing
 
 class AboutScreen extends StatefulWidget {
   const AboutScreen({super.key});
@@ -36,7 +37,6 @@ class _AboutScreenState extends State<AboutScreen> {
     }
   }
 
-  // --- NEW: URL Launcher Helper ---
   Future<void> _launchURL(String urlString) async {
     final Uri url = Uri.parse(urlString);
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
@@ -44,7 +44,105 @@ class _AboutScreenState extends State<AboutScreen> {
     }
   }
 
-  // --- NEW: Reusable Button Builder ---
+  // --- NATIVE ACCOUNT DELETION FLOW (Apple 5.1.1(v) Compliant) ---
+  Future<void> _initiateAccountDeletion() async {
+    // 1. First Warning & Subscription Notice
+    final bool? proceedToFinal = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: Colors.grey[900],
+          title: const Text('Delete Account', style: TextStyle(color: Colors.redAccent)),
+          content: const Text(
+            'Are you sure you want to delete your Lumen Breach account? '
+            'This will permanently destroy your Crypt Pass progress, masks, and currency.\n\n'
+            'Apple Subscription Notice: Deleting your account does not cancel active App Store or Google Play subscriptions. '
+            'You must manage those in your device settings.',
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Continue', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (proceedToFinal != true || !mounted) return;
+
+    // 2. Final Confirmation
+    final bool? confirmDeletion = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: Colors.grey[900],
+          title: const Text('Final Confirmation', style: TextStyle(color: Colors.redAccent)),
+          content: const Text(
+            'This action is irreversible. All data will be wiped immediately.',
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red[900]),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Permanently Delete', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmDeletion != true || !mounted) return;
+
+    // 3. Execution Phase
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator(color: Colors.redAccent)),
+      );
+
+      // Call custom secure RPC function in Supabase
+      await Supabase.instance.client.rpc('delete_user_account');
+
+      // NEW FIX: Only attempt to log out if RevenueCat is actually configured
+      final isConfigured = await Purchases.isConfigured;
+      if (isConfigured) {
+        await Purchases.logOut();
+      }
+
+      // Sign out locally
+      await Supabase.instance.client.auth.signOut();
+
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Remove loading dialog
+      
+      // Route back to the root/login screen, clearing the stack
+      Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false); 
+
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Remove loading dialog
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete account: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
   Widget _buildLinkButton({required IconData icon, required String label, required Color color, required VoidCallback onTap}) {
     return OutlinedButton.icon(
       style: OutlinedButton.styleFrom(
@@ -77,7 +175,7 @@ class _AboutScreenState extends State<AboutScreen> {
           : SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch, // Changed to stretch so buttons fill the width
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // ==========================================
                   // 1. APP STORE COMPLIANCE LINKS (STATIC)
@@ -86,7 +184,7 @@ class _AboutScreenState extends State<AboutScreen> {
                     icon: Icons.privacy_tip,
                     label: 'PRIVACY POLICY',
                     color: Colors.cyanAccent,
-                    onTap: () => _launchURL('http://lumenbreach.com/privacypolicy_lumenbreach.html'), // Update to actual URL
+                    onTap: () => _launchURL('http://lumenbreach.com/privacypolicy_lumenbreach.html'),
                   ),
                   const SizedBox(height: 16),
                   
@@ -94,15 +192,24 @@ class _AboutScreenState extends State<AboutScreen> {
                     icon: Icons.gavel,
                     label: 'TERMS OF SERVICE',
                     color: Colors.orangeAccent,
-                    onTap: () => _launchURL('http://lumenbreach.com/termsandconditions_lumenbreach.html'), // Update to actual URL
+                    onTap: () => _launchURL('http://lumenbreach.com/termsandconditions_lumenbreach.html'),
                   ),
                   const SizedBox(height: 16),
 
                   _buildLinkButton(
                     icon: Icons.help_outline,
-                    label: 'SUPPORT & ACCOUNT DELETION',
+                    label: 'SUPPORT',
+                    color: Colors.blueAccent,
+                    onTap: () => _launchURL('https://lumenbreach.com/support.php'),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // THE NATIVE DELETE BUTTON
+                  _buildLinkButton(
+                    icon: Icons.delete_forever,
+                    label: 'DELETE ACCOUNT',
                     color: Colors.redAccent,
-                    onTap: () => _launchURL('https://lumenbreach.com/support.php'), // Update to actual URL
+                    onTap: _initiateAccountDeletion,
                   ),
                   
                   const SizedBox(height: 40),

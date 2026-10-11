@@ -41,7 +41,7 @@ dependencies:
   flutter_soloud: ^4.1.7
   archive: ^4.0.2 # NEW: For extracting the custom character_assets.zip
   shared_preferences: ^2.5.5
-  purchases_flutter: ^10.11.0
+  purchases_flutter: ^10.15.2
   showcaseview: ^5.1.0
   flutter_cache_manager: ^3.3.2
   #sentry_flutter: ^8.14.2
