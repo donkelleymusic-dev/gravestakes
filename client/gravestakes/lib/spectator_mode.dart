@@ -133,7 +133,7 @@ class SpectatorGame extends FlameGame with PanDetector {
   SpectatorGame({required this.roomId, this.mapName = 'L1T1V1.0.0'});
 
   late final GameMap gameMap;
-  late final RealtimeChannel ghostChannel;
+  RealtimeChannel? ghostChannel;
 
   Map<String, SpectatorDot> humanPlayers = {};
   Map<int, SpectatorDot> botPlayers = {};
@@ -151,7 +151,7 @@ class SpectatorGame extends FlameGame with PanDetector {
 
     ghostChannel = Supabase.instance.client.channel('room_$roomId');
 
-    ghostChannel
+    ghostChannel!
       .onBroadcast(
         event: 'move',
         callback: (payload) {
@@ -278,7 +278,7 @@ class SpectatorGame extends FlameGame with PanDetector {
 
   @override
   void onRemove() {
-    ghostChannel.unsubscribe();
+    ghostChannel?.unsubscribe();
     super.onRemove();
   }
 }
