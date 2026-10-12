@@ -13,7 +13,8 @@ class AdManager {
   final String _adUnitId = kIsWeb
       ? 'web_placeholder' // Never actually loaded on web
       : (defaultTargetPlatform == TargetPlatform.android
-          ? 'ca-app-pub-3940256099942544/5224354917' // Android Test ID
+          ? 'ca-app-pub-9129185338955527/4473854550' // Android Real Ads ID
+          //? 'ca-app-pub-3940256099942544/5224354917' // Android Test ID
           : 'ca-app-pub-3940256099942544/1712485313'); // iOS Test ID
 
   void loadRewardedAd() {
