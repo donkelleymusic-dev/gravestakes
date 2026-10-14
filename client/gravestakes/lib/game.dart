@@ -15,6 +15,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:flame/effects.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'player.dart';
 import 'remote_player.dart';
@@ -115,6 +116,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   bool matchHasHunter = false;
   bool hunterHasSpawned = false;
 
+  String? activeCursedRelicBoxId;
+
   String matchPhase = 'searching'; 
   double lobbyTimer = 10.0;
   double countdownTimer = 3.0;
@@ -155,6 +158,18 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       targetSpecies = 'humanoid';
     }
     return targetSpecies == guildActiveDoctrine;
+  }
+
+  void dropCursedRelic(Vector2 dropPos) {
+    activeCursedRelicBoxId = 'relic_${DateTime.now().millisecondsSinceEpoch}';
+    
+    // Spawn locally
+    world.add(SpookyBox(id: activeCursedRelicBoxId!, position: dropPos));
+    
+    // Broadcast to remote players
+    myChannel.sendBroadcastMessage(event: 'spawn_boxes', payload: {
+      'boxes': [{'id': activeCursedRelicBoxId, 'x': dropPos.x, 'y': dropPos.y}]
+    });
   }
 
   int getEntityTeam(dynamic entity) {
@@ -454,6 +469,19 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     // Initialize the timer in memory so Player.update doesn't crash
     gameTimer = GameTimer();
+
+    // ==========================================
+    // NEW: 2D/3D ALTERNATOR
+    // ==========================================
+    final prefs = await SharedPreferences.getInstance();
+    bool lastWasFps = prefs.getBool('last_match_was_fps') ?? false;
+
+    // Only alternate perspective on standard Casual matches
+    if (matchMode == 'casual') {
+      isFpsMode = !lastWasFps;
+      await prefs.setBool('last_match_was_fps', isFpsMode);
+    }
+    // ==========================================
 
     if (matchMode == 'cinematic') {
       matchPhase = 'cinematic';
@@ -1327,6 +1355,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
 
     if (playerId == mySessionId) {
+      // 1. Check if this specific box is a dropped relic
+      if (boxId == activeCursedRelicBoxId) {
+        player.applyChestReward(ChestReward(type: ChestRewardType.cursedRelic, label: 'THE CURSED RELIC!'));
+        activeCursedRelicBoxId = null;
+        return;
+      }
       // Keep the original weighted base pool, but drastically nerf the SOULS (Score) payouts
       List<ChestReward> rewards = [
         ChestReward(type: ChestRewardType.points, label: '+50 SOULS', value: 50),
@@ -1341,6 +1375,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         ChestReward(type: ChestRewardType.rangeIncrease, label: 'RANGE EXTENDED!'),
         ChestReward(type: ChestRewardType.rangeIncrease, label: 'RANGE EXTENDED!'),
         ChestReward(type: ChestRewardType.disguise, label: 'DISGUISE!'), // Stays rare!
+        ChestReward(type: ChestRewardType.cursedRelic, label: 'THE CURSED RELIC!'),
       ];
 
       // New players get a slightly better chance to pull hard currency to hook them

@@ -5,6 +5,7 @@ enum ChestRewardType {
   disguise,
   rangeIncrease,
   teleport,
+  cursedRelic,
 }
 
 class ChestReward {

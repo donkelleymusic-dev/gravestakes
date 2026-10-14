@@ -35,6 +35,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
   double _railCooldown = 0.0;
 
+  bool hasCursedRelic = false;
+  double _relicTickTimer = 0.0;
+
   int selectedMaskIndex = 0; 
   List<MaskData?> equippedMasks = List.filled(4, null);
 
@@ -302,6 +305,17 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     isStunned = true;
     stunTimer = finalDuration;
+
+    if (hasCursedRelic) {
+      hasCursedRelic = false;
+      game.camera.viewport.add(FloatingText(
+        text: 'RELIC DROPPED!', 
+        worldPosition: Vector2(position.x - 30, position.y - 80)
+      ));
+      
+      // Command the engine to spawn a new box at our feet
+      game.dropCursedRelic(position.clone());
+    }
   }
 
   void rechargeFlashlight() {
@@ -337,6 +351,13 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         }
         game.camera.viewport.add(FloatingText(text: 'POOF!', worldPosition: Vector2(position.x - 20, position.y - 40)));
         networkTick = networkRate; 
+        break;
+      case ChestRewardType.cursedRelic:
+        hasCursedRelic = true;
+        game.camera.viewport.add(FloatingText(
+          text: 'CURSED RELIC ACQUIRED!', 
+          worldPosition: Vector2(position.x - 40, position.y - 60)
+        ));
         break;
     }
   }
@@ -750,6 +771,26 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     }
     
     super.update(dt);
+
+    if (hasCursedRelic) {
+      flashlightBattery = 0.0;
+      isFlashlightDead = true;
+      energy = 0.0; // Drain energy so they cannot use masks
+
+      _relicTickTimer += dt;
+      if (_relicTickTimer >= 1.0) {
+        _relicTickTimer -= 1.0;
+        score += 50; // +50 Souls per second
+        
+        // Make the player pulse red so they are highly visible
+        if (_fallbackSprite != null) {
+          _fallbackSprite!.paint.color = Colors.redAccent.withOpacity(0.8);
+        }
+        if (voxelComponent != null) {
+          voxelComponent!.isHighlighted = true;
+        }
+      }
+    }
     
     // --- SAFE TIMER DECREMENTS ---
     // Moved to the top so they are guaranteed to tick down even if 
