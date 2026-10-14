@@ -154,9 +154,7 @@ class QuickChatWheel extends PositionComponent with DragCallbacks, HasGameRefere
     // --- NEW: INTERCEPT THE SOS MESSAGE ---
     if (message == "SOS / I'm Stuck") {
       game.camera.viewport.add(FloatingText(
-        // Use \n to break the text into 3 short, readable lines
-        text: '"The walls lie.\nFollow the color\nof the blood."', 
-        // Adjusted the X offset from -120 to -60 so it centers nicely
+        text: '"Blood is a trap.\nStep into the\ngreen light."', 
         worldPosition: Vector2(game.player.position.x - 60, game.player.position.y - 90),
       ));
 
