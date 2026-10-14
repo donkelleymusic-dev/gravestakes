@@ -2,8 +2,13 @@ import 'dart:math';
 import 'package:flame/components.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_soloud/flutter_soloud.dart';
 import 'game.dart';
 import 'chat_bubble_component.dart';
+import 'floating_text.dart';
+import 'audio_manager.dart';
+import 'hallway_triggers.dart';
+import 'puzzle_door.dart';
 
 class QuickChatWheel extends PositionComponent with DragCallbacks, HasGameReference<GraveStakesGame> {
   bool _isActive = false;
@@ -87,6 +92,17 @@ class QuickChatWheel extends PositionComponent with DragCallbacks, HasGameRefere
     bool isDuel = game.matchMode == '1v1';
     bool isSquad = game.isGunner || game.hasGunner || game.matchMode == '2v2';
 
+    // --- NEW: THE PUZZLE ROOM OVERRIDE ---
+    if (game.player.isInPuzzleRoom) {
+      return {
+        'UP': { 'LABEL': 'HELP', 'UP': "SOS / I'm Stuck", 'RIGHT': "SOS / I'm Stuck", 'DOWN': "SOS / I'm Stuck", 'LEFT': "SOS / I'm Stuck" },
+        'RIGHT': { 'LABEL': 'HELP', 'UP': "SOS / I'm Stuck", 'RIGHT': "SOS / I'm Stuck", 'DOWN': "SOS / I'm Stuck", 'LEFT': "SOS / I'm Stuck" },
+        'DOWN': { 'LABEL': 'HELP', 'UP': "SOS / I'm Stuck", 'RIGHT': "SOS / I'm Stuck", 'DOWN': "SOS / I'm Stuck", 'LEFT': "SOS / I'm Stuck" },
+        'LEFT': { 'LABEL': 'HELP', 'UP': "SOS / I'm Stuck", 'RIGHT': "SOS / I'm Stuck", 'DOWN': "SOS / I'm Stuck", 'LEFT': "SOS / I'm Stuck" }
+      };
+    }
+    // -------------------------------------
+
     return {
       'UP': { // STATUS (Red)
         'LABEL': 'STATUS',
@@ -134,8 +150,38 @@ class QuickChatWheel extends PositionComponent with DragCallbacks, HasGameRefere
     if (categoryQuad == 'LEFT') color = Colors.purpleAccent;
 
     String message = _loadout[categoryQuad]![specificQuad]!;
-    bool isPrivate = message.startsWith('TEAM:');
 
+    // --- NEW: INTERCEPT THE SOS MESSAGE ---
+    if (message == "SOS / I'm Stuck") {
+      game.camera.viewport.add(FloatingText(
+        // Use \n to break the text into 3 short, readable lines
+        text: '"The walls lie.\nFollow the color\nof the blood."', 
+        // Adjusted the X offset from -120 to -60 so it centers nicely
+        worldPosition: Vector2(game.player.position.x - 60, game.player.position.y - 90),
+      ));
+
+      if (AudioManager.instance.isInitialized && AudioManager.instance.powerupSource != null) {
+        SoLoud.instance.play(AudioManager.instance.powerupSource!);
+      }
+
+      // 1. Paint the InfiniteLoopTriggers red
+      for (var trigger in game.world.children.whereType<InfiniteLoopTrigger>()) {
+        trigger.showOracleWarning = true;
+      }
+      
+      // 2. Tint the Doors based on the sequence 
+      for (var door in game.world.children.whereType<PuzzleDoor>()) {
+        if (!door.isDummy) {
+          door.applyOracleTint(Colors.greenAccent); // Real doors glow green
+        } else {
+          door.applyOracleTint(Colors.redAccent); // Fake doors glow red
+        }
+      }
+      return; 
+    }
+    // ---------------------------------------
+
+    bool isPrivate = message.startsWith('TEAM:');
     game.player.add(ChatBubbleComponent(text: message, borderColor: color));
 
     game.myChannel.sendBroadcastMessage(

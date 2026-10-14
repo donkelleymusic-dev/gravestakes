@@ -41,6 +41,9 @@ class Trapdoor extends PositionComponent with HasGameReference<GraveStakesGame> 
 class InfiniteLoopTrigger extends PositionComponent with HasGameReference<GraveStakesGame> {
   final double tileOffsetCount; 
   
+  // --- NEW: Tracker for the SOS Hint ---
+  bool showOracleWarning = false;
+  
   InfiniteLoopTrigger({
     required super.position, 
     required this.tileOffsetCount,
@@ -54,6 +57,26 @@ class InfiniteLoopTrigger extends PositionComponent with HasGameReference<GraveS
     // The loop ONLY triggers if the hallway is NOT solved yet!
     if (player.isInPuzzleRoom && !game.isHallwaySolved && position.distanceTo(player.position) < 40.0) {
       player.position.y -= (tileOffsetCount * 64.0);
+    }
+  }
+
+  // --- NEW: Render the warning glow ---
+  @override
+  void render(Canvas canvas) {
+    super.render(canvas);
+    if (showOracleWarning) {
+      final glowPaint = Paint()
+        ..color = Colors.redAccent.withOpacity(0.35)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12.0);
+      
+      final borderPaint = Paint()
+        ..color = Colors.redAccent
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0;
+
+      final rect = Rect.fromLTWH(0, 0, size.x, size.y);
+      canvas.drawRect(rect, glowPaint);
+      canvas.drawRect(rect, borderPaint);
     }
   }
 }
