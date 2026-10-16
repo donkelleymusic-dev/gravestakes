@@ -1881,11 +1881,20 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             } else if (maskId == 'banshee') {
                world.add(BansheeBeam(position: remote.position.clone(), angle: remote.facingAngle));
             } else if (maskId == 'wendigo') {
-               // NEW: Sync the Wendigo clone for remote players!
-               world.add(WendigoDecoy(position: remote.position.clone(), angle: remote.facingAngle, ownerId: id, charId: remote.equippedCharacterId));
+               // FIXED: Added null-coalescing fallback and force-cast for the IDs
+               world.add(WendigoDecoy(
+                 position: remote.position.clone(), 
+                 angle: remote.facingAngle, 
+                 ownerId: id!, 
+                 charId: remote.equippedCharacterId ?? 'default'
+               ));
             } else if (maskId == 'poltergeist') {
-               // NEW: Sync the Poltergeist trap for remote players!
-               world.add(PoltergeistTrap(position: remote.position.clone(), angle: remote.facingAngle, ownerId: id));
+               // FIXED: Added force-cast for the ID
+               world.add(PoltergeistTrap(
+                 position: remote.position.clone(), 
+                 angle: remote.facingAngle, 
+                 ownerId: id!
+               ));
             } else {
               world.add(ScareBlast(position: remote.position.clone(), angle: remote.facingAngle - (pi / 2))..priority = remote.priority + 5);
             }

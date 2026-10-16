@@ -12,6 +12,7 @@ import 'critter.dart';
 import 'scare_blast.dart';
 import 'siren_blast.dart';
 import 'player.dart';
+import 'tactical_entities.dart';
 
 class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveStakesGame> {
   FpsViewportOverlay() : super(priority: 10); 
@@ -231,6 +232,12 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     // -------------------------------------------------------------
     List<_RenderableEntity> entities = [];
 
+    for (var decoy in game.world.children.whereType<WendigoDecoy>()) {
+      entities.add(_RenderableEntity(pos: decoy.position, component: decoy));
+    }
+    for (var trap in game.world.children.whereType<PoltergeistTrap>()) {
+      entities.add(_RenderableEntity(pos: trap.position, component: trap));
+    }
     for (var bot in game.bots) {
       entities.add(_RenderableEntity(pos: bot.position, component: bot));
     }
@@ -329,8 +336,17 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
 
       if (entity.component is BotPlayer) {
         (entity.component as BotPlayer).voxelComponent?.render(canvas);
-      } else if (entity.component is RemotePlayer) {
+      }
+       else if (entity.component is RemotePlayer) {
         (entity.component as RemotePlayer).voxelComponent?.render(canvas);
+      } else if (entity.component is WendigoDecoy) {
+        (entity.component as WendigoDecoy).voxel?.render(canvas); // Pulls the 3D model
+      } else if (entity.component is PoltergeistTrap) {
+        final trap = entity.component as PoltergeistTrap;
+        if (trap.sprite != null) {
+          // Billboards the flat trap sprite into the 3D world
+          trap.sprite!.render(canvas, size: Vector2(48, 48), position: Vector2(-24, -24));
+        }
       } else if (entity.component is SpookyBox) {
         final boxPaint = Paint()..color = const Color(0xFF8B4513); 
         final lidPaint = Paint()..color = const Color(0xFFA0522D); 

@@ -91,9 +91,9 @@ class BansheeBeam extends PositionComponent with HasGameReference<GraveStakesGam
   }
 }
 
-class FpsBansheeBeam extends PositionComponent with HasGameReference<GraveStakesGame> {
+class FpsBansheeBeam_old extends PositionComponent with HasGameReference<GraveStakesGame> {
   double _lifeTimer = 0.6;
-  FpsBansheeBeam() : super(priority: 200000);
+  FpsBansheeBeam_old() : super(priority: 200000);
 
   @override
   void onGameResize(Vector2 size) {
@@ -134,9 +134,9 @@ class FpsBansheeBeam extends PositionComponent with HasGameReference<GraveStakes
   }
 }
 
-class FpsScareBlast extends PositionComponent with HasGameReference<GraveStakesGame> {
+class FpsScareBlast_old extends PositionComponent with HasGameReference<GraveStakesGame> {
   double _lifeTimer = 0.25;
-  FpsScareBlast() : super(priority: 200000);
+  FpsScareBlast_old() : super(priority: 200000);
 
   @override
   void onGameResize(Vector2 size) {
@@ -163,5 +163,97 @@ class FpsScareBlast extends PositionComponent with HasGameReference<GraveStakesG
     
     // Expands a shockwave outward from the center of the screen
     canvas.drawCircle(Offset(size.x / 2, size.y / 2), progress * (size.x * 0.8), paint);
+  }
+}
+
+class FpsBansheeBeam extends PositionComponent with HasGameReference<GraveStakesGame> {
+  double _lifeTimer = 0.6;
+  FpsBansheeBeam() : super(priority: 200000);
+
+  @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
+    this.size = size;
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    _lifeTimer -= dt;
+    if (_lifeTimer <= 0) removeFromParent();
+  }
+
+  @override
+  void render(Canvas canvas) {
+    double progress = (_lifeTimer / 0.6).clamp(0.0, 1.0);
+    final corePaint = Paint()..color = Colors.cyanAccent.withOpacity(progress)..style = PaintingStyle.stroke..strokeWidth = 30.0 * progress..strokeCap = StrokeCap.round;
+    final outerPaint = Paint()..color = Colors.blue.withOpacity(progress * 0.5)..style = PaintingStyle.stroke..strokeWidth = 80.0 * progress..maskFilter = const MaskFilter.blur(BlurStyle.normal, 20.0)..strokeCap = StrokeCap.round;
+
+    final start = Offset(size.x / 2, size.y); 
+    final end = Offset(size.x / 2, size.y / 2 - 100); 
+    canvas.drawLine(start, end, outerPaint);
+    canvas.drawLine(start, end, corePaint);
+  }
+}
+
+class FpsScareBlast extends PositionComponent with HasGameReference<GraveStakesGame> {
+  double _lifeTimer = 0.25;
+  FpsScareBlast() : super(priority: 200000);
+
+  @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
+    this.size = size;
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    _lifeTimer -= dt;
+    if (_lifeTimer <= 0) removeFromParent();
+  }
+
+  @override
+  void render(Canvas canvas) {
+    double progress = 1.0 - (_lifeTimer / 0.25).clamp(0.0, 1.0); 
+    int alpha = ((1.0 - progress) * 150).toInt().clamp(0, 255);
+    final paint = Paint()..color = Colors.white.withAlpha(alpha)..style = PaintingStyle.stroke..strokeWidth = 40.0 * (1.0 - progress);
+    
+    canvas.drawCircle(Offset(size.x / 2, size.y / 2), progress * (size.x * 0.8), paint);
+  }
+}
+
+class FpsParasiteDrain extends PositionComponent with HasGameReference<GraveStakesGame> {
+  double _lifeTimer = 0.5;
+  FpsParasiteDrain() : super(priority: 200000);
+
+  @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
+    this.size = size;
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    _lifeTimer -= dt;
+    if (_lifeTimer <= 0) removeFromParent();
+  }
+
+  @override
+  void render(Canvas canvas) {
+    double progress = (_lifeTimer / 0.5).clamp(0.0, 1.0);
+    
+    // Red screen wash
+    canvas.drawRect(size.toRect(), Paint()..color = Colors.red.withOpacity(progress * 0.4));
+    
+    // Creepy purple drain lines pulling toward the center
+    final paint = Paint()..color = Colors.purpleAccent.withOpacity(progress)..style = PaintingStyle.stroke..strokeWidth = 6.0;
+    for(int i = 0; i < 8; i++) {
+       double a = i * (pi / 4);
+       Offset start = Offset(size.x / 2 + cos(a) * (size.y * 0.8), size.y / 2 + sin(a) * (size.y * 0.8));
+       Offset end = Offset(size.x / 2 + cos(a) * (size.y * 0.2 * progress), size.y / 2 + sin(a) * (size.y * 0.2 * progress));
+       canvas.drawLine(start, end, paint);
+    }
   }
 }

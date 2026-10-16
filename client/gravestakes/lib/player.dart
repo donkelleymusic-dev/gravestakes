@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:flame/collisions.dart';
+import 'package:flame/effects.dart';
 import 'dart:math';
 
 import 'game.dart';
@@ -24,6 +25,7 @@ import 'puzzle_door.dart';
 import 'vanity_screen.dart';
 import 'remote_player.dart';
 import 'tactical_entities.dart';
+import 'bot_player.dart';
 
 class Player extends PositionComponent with KeyboardHandler, HasGameReference<GraveStakesGame> {
   final JoystickComponent leftJoystick;
@@ -632,13 +634,34 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     } else if (currentMask.swarmBehavior != SwarmBehavior.none) {
       // ... (Swarm logic stays exactly the same)
     } else if (currentMask.id == 'wendigo') {
-      game.world.add(WendigoDecoy(position: safeSpawnPos, angle: facingAngle, ownerId: game.mySessionId, charId: equippedCharacterId));
+      if (game.isFpsMode) {
+        // The raycaster ignores WendigoDecoy, so we use a lobotomized BotPlayer!
+        BotPlayer decoy = BotPlayer(isHunter: false)
+          ..position = safeSpawnPos.clone()
+          ..facingAngle = facingAngle
+          ..assignedCharacterId = equippedCharacterId
+          ..wanderSpeed = 0.0
+          ..huntSpeed = 0.0;
+          
+        game.bots.add(decoy);
+        game.world.add(decoy);
+        
+        // Force the bot to sprint forward, then kill it
+        final sprintDest = safeSpawnPos + (Vector2(sin(facingAngle), -cos(facingAngle)) * 700.0);
+        decoy.add(MoveToEffect(sprintDest, EffectController(duration: 2.5)));
+        
+        decoy.add(TimerComponent(period: 2.5, onTick: () {
+          game.bots.remove(decoy);
+          decoy.removeFromParent();
+        }));
+      } else {
+        game.world.add(WendigoDecoy(position: safeSpawnPos, angle: facingAngle, ownerId: game.mySessionId, charId: equippedCharacterId));
+      }
     } else if (currentMask.id == 'poltergeist') {
       game.world.add(PoltergeistTrap(position: position.clone(), angle: facingAngle, ownerId: game.mySessionId));
     } else if (currentMask.id == 'banshee') {
-      // NEW: Check perspective for Banshee
       if (game.isFpsMode) {
-        game.camera.viewport.add(FpsBansheeBeam());
+        game.camera.viewport.add(FpsBansheeBeam()); // HUD Laser
       } else {
         game.world.add(BansheeBeam(position: safeSpawnPos, angle: facingAngle));
       }
@@ -646,9 +669,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       if (currentMask.id == 'siren') {
         add(SirenBlast()..position = size / 2);
       } else {
-        // NEW: Check perspective for Standard & Gorgon blasts
+        // Standard, Parasite, and Gorgon all fall in here
         if (game.isFpsMode) {
-            game.camera.viewport.add(FpsScareBlast());
+            game.camera.viewport.add(FpsScareBlast()); // HUD Flash
         } else {
             double trueAttackAngle = facingAngle - (pi / 2);
             game.world.add(ScareBlast(position: safeSpawnPos, angle: trueAttackAngle)..priority = priority + 5);
