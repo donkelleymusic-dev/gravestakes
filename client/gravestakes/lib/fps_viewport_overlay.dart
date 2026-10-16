@@ -232,12 +232,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     // -------------------------------------------------------------
     List<_RenderableEntity> entities = [];
 
-    for (var decoy in game.world.children.whereType<WendigoDecoy>()) {
-      entities.add(_RenderableEntity(pos: decoy.position, component: decoy));
-    }
-    for (var trap in game.world.children.whereType<PoltergeistTrap>()) {
-      entities.add(_RenderableEntity(pos: trap.position, component: trap));
-    }
     for (var bot in game.bots) {
       entities.add(_RenderableEntity(pos: bot.position, component: bot));
     }
@@ -268,6 +262,12 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     }
     for (var siren in game.world.children.whereType<SirenBlast>()) {
       entities.add(_RenderableEntity(pos: siren.position, component: siren));
+    }
+    for (var decoy in game.world.children.whereType<WendigoDecoy>()) {
+      entities.add(_RenderableEntity(pos: decoy.position, component: decoy));
+    }
+    for (var trap in game.world.children.whereType<PoltergeistTrap>()) {
+      entities.add(_RenderableEntity(pos: trap.position, component: trap));
     }
     for (var playerComp in game.children.whereType<Player>()) {
       for (var siren in playerComp.children.whereType<SirenBlast>()) {
@@ -314,6 +314,9 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         renderY -= (wallHeightAtDist * 0.75);
       } else if (entity.component is Critter) {
         renderY += (wallHeightAtDist * 0.38);
+      } else if (entity.component is PoltergeistTrap) {
+        // NEW: Push the trap down onto the floor!
+        renderY += (wallHeightAtDist * 0.45); 
       }
 
       canvas.save();

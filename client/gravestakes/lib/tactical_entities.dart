@@ -17,6 +17,7 @@ class WendigoDecoy extends PositionComponent with HasGameReference<GraveStakesGa
   double _lifeTimer = 2.5; 
   double _footstepTimer = 0.0;
   
+  // MUST NOT HAVE AN UNDERSCORE so fps_viewport_overlay can see it!
   VoxelCharacterComponent? voxel; 
   final Random _random = Random();
 
@@ -41,11 +42,12 @@ class WendigoDecoy extends PositionComponent with HasGameReference<GraveStakesGa
         hitboxSize: size,
       )
         ..anchor = Anchor.bottomCenter
-        ..position = size / 2 // FIXED: Lock to local center, not world coordinates!
+        ..position = size / 2 // Lock strictly to local center
         ..isMoving = true
+        ..isVisible = true // Failsafe to ensure it draws
         ..targetAngle = angle - (pi / 2);
       
-      add(voxel!); // FIXED: Add as a child, not to the world!
+      add(voxel!); 
     }
   }
 
@@ -61,18 +63,11 @@ class WendigoDecoy extends PositionComponent with HasGameReference<GraveStakesGa
       return;
     }
 
+    // GHOST MODE: Sprint dead straight, ignoring all map collision!
     Vector2 velocity = Vector2(sin(angle), -cos(angle)) * 280.0; 
-    final potentialPosition = position + (velocity * dt);
-
-    if (!game.gameMap.checkCollision(potentialPosition, size)) {
-      position = potentialPosition;
-    } else {
-      double turn = _random.nextBool() ? (pi / 2) : -(pi / 2);
-      angle += turn;
-    }
+    position += velocity * dt;
     
     if (voxel != null) {
-      // FIXED: Removed the position.clone() double-translation bug!
       voxel!.targetAngle = angle - (pi / 2); 
     }
 

@@ -634,36 +634,23 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     } else if (currentMask.swarmBehavior != SwarmBehavior.none) {
       // ... (Swarm logic stays exactly the same)
     } else if (currentMask.id == 'wendigo') {
-      if (game.isFpsMode) {
-        // The raycaster ignores WendigoDecoy, so we use a lobotomized BotPlayer!
-        BotPlayer decoy = BotPlayer(isHunter: false)
-          ..position = safeSpawnPos.clone()
-          ..facingAngle = facingAngle
-          ..assignedCharacterId = equippedCharacterId
-          ..wanderSpeed = 0.0
-          ..huntSpeed = 0.0;
-          
-        game.bots.add(decoy);
-        game.world.add(decoy);
-        
-        // Force the bot to sprint forward, then kill it
-        final sprintDest = safeSpawnPos + (Vector2(sin(facingAngle), -cos(facingAngle)) * 700.0);
-        decoy.add(MoveToEffect(sprintDest, EffectController(duration: 2.5)));
-        
-        decoy.add(TimerComponent(period: 2.5, onTick: () {
-          game.bots.remove(decoy);
-          decoy.removeFromParent();
-        }));
-      } else {
-        game.world.add(WendigoDecoy(position: safeSpawnPos, angle: facingAngle, ownerId: game.mySessionId, charId: equippedCharacterId));
-      }
+      game.world.add(WendigoDecoy(position: safeSpawnPos, angle: facingAngle, ownerId: game.mySessionId, charId: equippedCharacterId));
     } else if (currentMask.id == 'poltergeist') {
-      game.world.add(PoltergeistTrap(position: position.clone(), angle: facingAngle, ownerId: game.mySessionId));
+      // FIXED: Drop it at safeSpawnPos so it doesn't get culled by the camera's near-plane!
+      game.world.add(PoltergeistTrap(position: safeSpawnPos, angle: facingAngle, ownerId: game.mySessionId));
     } else if (currentMask.id == 'banshee') {
       if (game.isFpsMode) {
-        game.camera.viewport.add(FpsBansheeBeam()); // HUD Laser
+        game.camera.viewport.add(FpsBansheeBeam()); 
       } else {
         game.world.add(BansheeBeam(position: safeSpawnPos, angle: facingAngle));
+      }
+    } else if (currentMask.id == 'parasite') {
+      // NEW: Blood drain HUD for the Parasite!
+      if (game.isFpsMode) {
+        game.camera.viewport.add(FpsParasiteDrain()); 
+      } else {
+        double trueAttackAngle = facingAngle - (pi / 2);
+        game.world.add(ScareBlast(position: safeSpawnPos, angle: trueAttackAngle)..priority = priority + 5);
       }
     } else {
       if (currentMask.id == 'siren') {
