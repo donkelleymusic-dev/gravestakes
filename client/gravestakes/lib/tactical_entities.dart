@@ -14,7 +14,7 @@ class WendigoDecoy extends PositionComponent with HasGameReference<GraveStakesGa
   final String charId;
   double angle;
   
-  double _lifeTimer = 2.5; // Sprints for exactly 2.5 seconds
+  double _lifeTimer = 2.5; 
   double _footstepTimer = 0.0;
   
   VoxelCharacterComponent? _voxel;
@@ -31,7 +31,6 @@ class WendigoDecoy extends PositionComponent with HasGameReference<GraveStakesGa
   Future<void> onLoad() async {
     priority = ((position.y + 16) * 10).toInt();
 
-    // Pull the exact 3D rig the attacker is wearing
     final rig = GraveStakesGame.characterRigCache[charId] ?? game.loadedRigData;
     final images = GraveStakesGame.characterImagesCache[charId] ?? game.loadedAssetImages;
 
@@ -42,11 +41,12 @@ class WendigoDecoy extends PositionComponent with HasGameReference<GraveStakesGa
         hitboxSize: size,
       )
         ..anchor = Anchor.bottomCenter
-        ..position = Vector2(size.x / 2, size.y)
+        ..position = position.clone() // Start at world position
         ..isMoving = true
         ..targetAngle = angle - (pi / 2);
       
-      add(_voxel!);
+      // FIX: Add the voxel directly to the WORLD so the 3D Raycaster finds it!
+      game.world.add(_voxel!); 
     }
   }
 
@@ -62,21 +62,22 @@ class WendigoDecoy extends PositionComponent with HasGameReference<GraveStakesGa
       return;
     }
 
-    // 1. Move Forward Fast
     Vector2 velocity = Vector2(sin(angle), -cos(angle)) * 280.0; 
     final potentialPosition = position + (velocity * dt);
 
-    // 2. Wall Deflection Logic
     if (!game.gameMap.checkCollision(potentialPosition, size)) {
       position = potentialPosition;
     } else {
-      // Panic turn: Pick left or right 90 degrees to slide down the hallway
       double turn = _random.nextBool() ? (pi / 2) : -(pi / 2);
       angle += turn;
-      if (_voxel != null) _voxel!.targetAngle = angle - (pi / 2);
+    }
+    
+    // Keep the world voxel strictly synced with our logic wrapper
+    if (_voxel != null) {
+      _voxel!.position = position.clone();
+      _voxel!.targetAngle = angle - (pi / 2);
     }
 
-    // 3. Audio Trickery
     _footstepTimer += dt;
     if (_footstepTimer >= 0.25) {
       _footstepTimer = 0.0;
@@ -84,22 +85,13 @@ class WendigoDecoy extends PositionComponent with HasGameReference<GraveStakesGa
         AudioManager.instance.playEntityFootstep(charId, position, isLocal: false);
       }
     }
-    
-    // Update rendering priority as it moves
-    priority = ((position.y + 16) * 10).toInt();
   }
 
   @override
-  void render(Canvas canvas) {
-    // Wrap the entire child voxel tree in a ghostly, scanlined cyan filter
-    canvas.saveLayer(
-      Rect.fromLTWH(-100, -100, 200, 200),
-      Paint()
-        ..colorFilter = const ColorFilter.mode(Colors.cyanAccent, BlendMode.modulate)
-        ..color = Colors.white.withOpacity(0.65), 
-    );
-    super.render(canvas);
-    canvas.restore();
+  void onRemove() {
+    // Clean up the world voxel when the decoy wrapper dies
+    _voxel?.removeFromParent();
+    super.onRemove();
   }
 }
 

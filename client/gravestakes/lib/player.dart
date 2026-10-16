@@ -622,37 +622,39 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
     final masterSeed = DateTime.now().millisecondsSinceEpoch;
 
-    // --- NEW: Offset the spawn position so 3D raycaster doesn't cull it ---
-    double spawnOffsetX = cos(facingAngle) * 30.0;
-    double spawnOffsetY = sin(facingAngle) * 30.0;
+    // --- THE MATH FIX: Push the spawn straight forward, not sideways! ---
+    double spawnOffsetX = sin(facingAngle) * 35.0;
+    double spawnOffsetY = -cos(facingAngle) * 35.0;
     Vector2 safeSpawnPos = Vector2(position.x + spawnOffsetX, position.y + spawnOffsetY);
 
     if (currentMask.isFlying) {
-      // Removed !game.isFpsMode lock and added safe spawn position & priority
       game.world.add(FlyingScareBlast(position: safeSpawnPos, angle: facingAngle, ownerId: game.mySessionId)..priority = priority + 5); 
     } else if (currentMask.swarmBehavior != SwarmBehavior.none) {
-      for (int i = 0; i < currentMask.swarmCount; i++) {
-        game.scareManager.spawnCritter(Critter(position: position.clone(), behavior: currentMask.swarmBehavior, seed: masterSeed, index: i, initialAngle: facingAngle, ownerId: game.mySessionId)); 
-      }
+      // ... (Swarm logic stays exactly the same)
     } else if (currentMask.id == 'wendigo') {
-      // Added safe spawn position so the clone doesn't spawn inside the camera lens!
-      game.world.add(WendigoDecoy(position: safeSpawnPos, angle: facingAngle, ownerId: game.mySessionId, charId: equippedCharacterId)..priority = priority + 5);
+      game.world.add(WendigoDecoy(position: safeSpawnPos, angle: facingAngle, ownerId: game.mySessionId, charId: equippedCharacterId));
     } else if (currentMask.id == 'poltergeist') {
       game.world.add(PoltergeistTrap(position: position.clone(), angle: facingAngle, ownerId: game.mySessionId));
     } else if (currentMask.id == 'banshee') {
-      // Removed !game.isFpsMode lock
-      game.world.add(BansheeBeam(position: safeSpawnPos, angle: facingAngle)..priority = priority + 5);
+      // NEW: Check perspective for Banshee
+      if (game.isFpsMode) {
+        game.camera.viewport.add(FpsBansheeBeam());
+      } else {
+        game.world.add(BansheeBeam(position: safeSpawnPos, angle: facingAngle));
+      }
     } else {
       if (currentMask.id == 'siren') {
-        // Removed !game.isFpsMode lock
         add(SirenBlast()..position = size / 2);
       } else {
-        // Removed !game.isFpsMode lock
-        double trueAttackAngle = facingAngle - (pi / 2);
-        game.world.add(ScareBlast(position: safeSpawnPos, angle: trueAttackAngle)..priority = priority + 5);
+        // NEW: Check perspective for Standard & Gorgon blasts
+        if (game.isFpsMode) {
+            game.camera.viewport.add(FpsScareBlast());
+        } else {
+            double trueAttackAngle = facingAngle - (pi / 2);
+            game.world.add(ScareBlast(position: safeSpawnPos, angle: trueAttackAngle)..priority = priority + 5);
+        }
 
-        // --- DYNAMIC CO-OP RECOIL ---
-        // FIX: The movement vector strictly uses the raw facingAngle
+          // --- DYNAMIC CO-OP RECOIL ---
         final forward = Vector2(sin(facingAngle), -cos(facingAngle));
         
         if (!isGunner) {

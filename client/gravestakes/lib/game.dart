@@ -56,6 +56,7 @@ import 'hallway_triggers.dart';
 import 'puzzle_manager.dart';
 import 'chat_bubble_component.dart';
 import 'quick_chat_wheel.dart';
+import 'tactical_entities.dart';
 
 class ScareSnapshot {
   final String attackerName;
@@ -1867,7 +1868,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             AudioManager.instance.playSpatialScare(maskId, remote.position);
 
             if (maskId == 'flying') {
-              // --- Add directly to the world ---
               world.add(FlyingScareBlast(position: remote.position.clone(), angle: remote.facingAngle, ownerId: payload['id']));
             } else if (maskId == 'vermin') {
               for (int i = 0; i < 15; i++) { 
@@ -1879,8 +1879,14 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             } else if (maskId == 'siren') {
               remote.add(SirenBlast()..position = remote.size / 2);
             } else if (maskId == 'banshee') {
-                world.add(BansheeBeam(position: remote.position.clone(), angle: remote.facingAngle));
-             } else {
+               world.add(BansheeBeam(position: remote.position.clone(), angle: remote.facingAngle));
+            } else if (maskId == 'wendigo') {
+               // NEW: Sync the Wendigo clone for remote players!
+               world.add(WendigoDecoy(position: remote.position.clone(), angle: remote.facingAngle, ownerId: id, charId: remote.equippedCharacterId));
+            } else if (maskId == 'poltergeist') {
+               // NEW: Sync the Poltergeist trap for remote players!
+               world.add(PoltergeistTrap(position: remote.position.clone(), angle: remote.facingAngle, ownerId: id));
+            } else {
               world.add(ScareBlast(position: remote.position.clone(), angle: remote.facingAngle - (pi / 2))..priority = remote.priority + 5);
             }
 
