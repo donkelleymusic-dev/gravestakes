@@ -636,58 +636,54 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     } else if (currentMask.id == 'wendigo') {
       game.world.add(WendigoDecoy(position: safeSpawnPos, angle: facingAngle, ownerId: game.mySessionId, charId: equippedCharacterId));
     } else if (currentMask.id == 'poltergeist') {
-      // FIXED: Drop it at safeSpawnPos so it doesn't get culled by the camera's near-plane!
       game.world.add(PoltergeistTrap(position: safeSpawnPos, angle: facingAngle, ownerId: game.mySessionId));
-    } else if (currentMask.id == 'banshee') {
-      if (game.isFpsMode) {
-        game.camera.viewport.add(FpsBansheeBeam()); 
-      } else {
-        game.world.add(BansheeBeam(position: safeSpawnPos, angle: facingAngle));
-      }
-    } else if (currentMask.id == 'parasite') {
-      // NEW: Blood drain HUD for the Parasite!
-      if (game.isFpsMode) {
-        game.camera.viewport.add(FpsParasiteDrain()); 
-      } else {
-        double trueAttackAngle = facingAngle - (pi / 2);
-        game.world.add(ScareBlast(position: safeSpawnPos, angle: trueAttackAngle)..priority = priority + 5);
-      }
     } else {
-      if (currentMask.id == 'siren') {
+      // --- ALL INSTANT-HIT MASKS PROCESS HERE ---
+      
+      // 1. Draw the correct visual effect
+      if (currentMask.id == 'banshee') {
+        if (game.isFpsMode) {
+          game.camera.viewport.add(FpsBansheeBeam()); 
+        } else {
+          game.world.add(BansheeBeam(position: safeSpawnPos, angle: facingAngle));
+        }
+      } else if (currentMask.id == 'parasite') {
+        if (game.isFpsMode) {
+          game.camera.viewport.add(FpsParasiteDrain()); 
+        } else {
+          double trueAttackAngle = facingAngle - (pi / 2);
+          game.world.add(ScareBlast(position: safeSpawnPos, angle: trueAttackAngle)..priority = priority + 5);
+        }
+      } else if (currentMask.id == 'siren') {
         add(SirenBlast()..position = size / 2);
       } else {
-        // Standard, Parasite, and Gorgon all fall in here
         if (game.isFpsMode) {
-            game.camera.viewport.add(FpsScareBlast()); // HUD Flash
+            game.camera.viewport.add(FpsScareBlast()); 
         } else {
             double trueAttackAngle = facingAngle - (pi / 2);
             game.world.add(ScareBlast(position: safeSpawnPos, angle: trueAttackAngle)..priority = priority + 5);
         }
 
-          // --- DYNAMIC CO-OP RECOIL ---
+        // --- DYNAMIC CO-OP RECOIL ---
         final forward = Vector2(sin(facingAngle), -cos(facingAngle));
-        
         if (!isGunner) {
-          // Standard Solo / Driver Recoil
           double distanceToMove = 15.0; 
           while (distanceToMove > 0) {
             double step = min(5.0, distanceToMove);
-            final testPos = position + (forward * step); // Adding pushes you FORWARD
+            final testPos = position + (forward * step); 
             if (!game.gameMap.checkCollision(testPos, size)) { 
               position = testPos; distanceToMove -= step;
             } else { break; }
           }
         } else if (game.driverId == 'dummy_driver_123') {
-          // SANDBOX TESTING: Force the dummy to lunge forward
           RemotePlayer? dummy = game.networkPlayers['dummy_driver_123'] ?? game.world.children.whereType<RemotePlayer>().firstOrNull;
           if (dummy != null) {
             dummy.position += forward * 15.0; 
           }
         }
-        // -----------------------------
       }
 
-      // FIXED: I removed the duplicate 'trueAttackAngle' triggerLocalScare call that was mechanically nullifying hit checks
+      // 2. Fire the actual hit detection for all of them!
       int victimsHit = game.triggerLocalScare(position, facingAngle, isPoweredUp, hasExtendedRange: hasExtendedRange, range: currentMask.range, maskId: currentMask.id);
 
       if (victimsHit > 0) {
@@ -697,7 +693,6 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
         String popupText = victimsHit > 1 ? '+${baseScore + comboBonus} COMBO x$victimsHit!' : '+${baseScore + comboBonus}';
         game.world.add(FloatingText(text: popupText, worldPosition: Vector2(position.x - 20, position.y - 50)));
 
-        // --- NEW: Echo your taunt through the map automatically! ---
         if (equippedTaunt != 'default') {
           triggerTaunt();
         }
