@@ -632,7 +632,17 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     if (currentMask.isFlying) {
       game.world.add(FlyingScareBlast(position: safeSpawnPos, angle: facingAngle, ownerId: game.mySessionId)..priority = priority + 5); 
     } else if (currentMask.swarmBehavior != SwarmBehavior.none) {
-      // ... (Swarm logic stays exactly the same)
+      // THE RESTORED RAT SWARM LOGIC!
+      for (int i = 0; i < currentMask.swarmCount; i++) {
+        game.scareManager.spawnCritter(Critter(
+          position: safeSpawnPos.clone(),
+          behavior: currentMask.swarmBehavior,
+          seed: masterSeed,
+          index: i,
+          initialAngle: facingAngle,
+          ownerId: game.mySessionId,
+        ));
+      }
     } else if (currentMask.id == 'wendigo') {
       game.world.add(WendigoDecoy(position: safeSpawnPos, angle: facingAngle, ownerId: game.mySessionId, charId: equippedCharacterId));
     } else if (currentMask.id == 'poltergeist') {
