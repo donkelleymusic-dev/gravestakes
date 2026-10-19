@@ -592,9 +592,14 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         world.add(PowerUp(id: 'tutorial_spark', position: safeSpawnPoint + Vector2(100, 0)));
         camera.viewport.add(TutorialManager());
       }
+
+      // Tell the engine to drop the persistent ? Flutter UI over the game!
+      overlays.add('help_button');
+
     }
 
     _setupSupabaseListener();
+
   }
 
  @override
@@ -1754,7 +1759,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         event: 'quick_chat',
         callback: (payload) {
           final senderId = payload['id'] as String?;
-          final text = payload['text'] as String;
+          final text = payload['text'] as String? ?? '';
           final colorValue = payload['color'] as int;
           
           if (senderId == null || senderId == mySessionId) return;
@@ -1949,7 +1954,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           final id = payload['id'] as String?;
           if (id == null || id == mySessionId) return; // Don't echo your own taunt
           
-          final tauntId = payload['taunt_id'] as String;
+          final tauntId = payload['taunt_id'] as String? ?? 'default';
           final tauntPos = Vector2((payload['x'] as num).toDouble(), (payload['y'] as num).toDouble());
 
           AudioManager.instance.playSpatialTaunt(tauntId, tauntPos);
@@ -2064,12 +2069,18 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       )
       .onBroadcast(
         event: 'claim_box',
-        callback: (payload) => _executeBoxClaim(payload['box_id'] as String, payload['player_id'] as String),
+        callback: (payload) {
+          final boxId = payload['box_id'] as String?;
+          final playerId = payload['player_id'] as String?;
+          if (boxId != null && playerId != null) {
+            _executeBoxClaim(boxId, playerId);
+          }
+        },
       )
       .onBroadcast(
         event: 'match_control',
         callback: (payload) {
-          final action = payload['action'] as String;
+          final action = payload['action'] as String?; // <-- SAFE CAST
           if (action == 'start') triggerLocalStart(); else if (action == 'end') endGame();
         },
       )
@@ -2122,8 +2133,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       .onBroadcast(
         event: 'consume_powerup',
         callback: (payload) {
-          final id = payload['id'] as String;
-          world.children.whereType<PowerUp>().where((p) => p.id == id).toList().forEach((p) => p.removeFromParent());
+          final id = payload['id'] as String?; // <-- SAFE CAST
+          if (id != null) {
+             world.children.whereType<PowerUp>().where((p) => p.id == id).toList().forEach((p) => p.removeFromParent());
+          }
         },
       )
       .subscribe((status, [error]) async {

@@ -37,6 +37,7 @@ import 'synth_manager.dart';
 import 'vanity_screen.dart';
 import 'about_screen.dart';
 import 'flying_currency_overlay.dart';
+import 'help_overlay.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -481,6 +482,78 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                 'summary': (BuildContext context, GraveStakesGame game) => MatchSummaryOverlay(game: game),
                 'searching': (BuildContext context, GraveStakesGame game) => SearchingOverlay(game: game),
                 'countdown': (BuildContext context, GraveStakesGame game) => CountdownOverlay(game: game),
+                
+                // --- NEW: PERSISTENT HELP BUTTON ---
+                'help_button': (BuildContext context, GraveStakesGame game) => Align(
+                  alignment: Alignment.topRight,
+                  child: SafeArea(
+                    child: Padding(
+                      // Pushed slightly in to avoid the camera toggle button
+                      padding: const EdgeInsets.only(top: 8.0, right: 60.0), 
+                      child: IconButton(
+                        icon: const Icon(Icons.help_outline, color: Colors.white54, size: 28),
+                        onPressed: () => game.overlays.add('help'),
+                      ),
+                    ),
+                  ),
+                ),
+                
+                // --- NEW: THE FULL SHADOW OVERLAY ---
+                'help': (BuildContext context, GraveStakesGame game) => InteractiveHelpOverlay(
+                  onClose: () => game.overlays.remove('help'),
+                  zones: [
+                    HelpZone(
+                      title: 'MOVEMENT & AIM',
+                      text: 'Drag to walk. You aim wherever you face. Push to the edge to sprint (loud), or push slightly to sneak silently.',
+                      getTargetCenter: () {
+                        final size = MediaQuery.of(context).size;
+                        return Offset(100, size.height - 100); // Standard joystick center
+                      }
+                    ),
+                    HelpZone(
+                      title: 'QUICK CHAT',
+                      text: 'Drag your thumb outward to ping your squad, ask for help, or taunt your enemies.',
+                      getTargetCenter: () {
+                        final size = MediaQuery.of(context).size;
+                        return Offset(110, size.height - (game.isFpsMode ? 340 : 240));
+                      }
+                    ),
+                    HelpZone(
+                      title: 'ATTACK WHEEL',
+                      text: 'Your equipped masks. Tap a slice to unleash a scare. Watch the slices for individual cooldowns and energy limits.',
+                      getTargetCenter: () {
+                        final size = MediaQuery.of(context).size;
+                        return Offset(size.width - 90, size.height - 90); // Standard Right Joy position
+                      }
+                    ),
+                    HelpZone(
+                      title: 'FLASHLIGHT METER',
+                      text: 'Drains constantly in the dark. If it hits zero, it flickers out entirely. Stand in lit areas to recharge.',
+                      getTargetCenter: () {
+                        final size = MediaQuery.of(context).size;
+                        // Moved to the bottom, under the attack wheel
+                        return Offset(size.width - 200, size.height - 40);
+                      }
+                    ),
+                    HelpZone(
+                      title: 'SPECIAL BUTTON',
+                      text: 'Tap to activate held Power-Ups, like Invisibility or a Phase Dash, to escape tight spots.',
+                      getTargetCenter: () {
+                        final size = MediaQuery.of(context).size;
+                        // Moved to the right edge (where the flashlight used to be)
+                        return Offset(size.width - 50, size.height / 2);
+                      }
+                    ),
+                    HelpZone(
+                      title: 'CAMERA TOGGLE',
+                      text: 'Instantly snap between top-down 2D tactical view and immersive First-Person perspective.',
+                      getTargetCenter: () {
+                        final size = MediaQuery.of(context).size;
+                        return Offset(size.width - 40, 40);
+                      }
+                    ),
+                  ],
+                ),
               },
             ),
           ),

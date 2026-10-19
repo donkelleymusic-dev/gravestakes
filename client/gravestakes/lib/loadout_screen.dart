@@ -20,6 +20,8 @@ import 'character_asset_manager.dart';
 
 import 'tactical_analyzer.dart';
 
+import 'help_overlay.dart';
+
 // --- DATA MODELS ---
 class WearableDef {
   final String id;
@@ -73,6 +75,26 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final GlobalKey _masksTabKey = GlobalKey();
   final GlobalKey _inventoryMaskKey = GlobalKey();
+
+  // --- HELP SYSTEM KEYS ---
+  bool _showHelp = false;
+  final GlobalKey _helpCurrencyKey = GlobalKey();
+  final GlobalKey _helpCatalogKey = GlobalKey();
+  final GlobalKey _helpLoadoutKey = GlobalKey();
+  final GlobalKey _helpWearablesKey = GlobalKey();
+
+  // Helper to calculate exact center of a Flutter Widget
+  Offset _getWidgetCenter(GlobalKey key) {
+    final context = key.currentContext;
+    if (context != null) {
+      final box = context.findRenderObject() as RenderBox?;
+      if (box != null) {
+        final pos = box.localToGlobal(Offset.zero);
+        return Offset(pos.dx + (box.size.width / 2), pos.dy + (box.size.height / 2));
+      }
+    }
+    return Offset.zero; // Fallback
+  }
 
   // --- DRAFT STATE (UI) ---
   String _draftCharacterId = 'default';
@@ -668,8 +690,10 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     double baseFootprint = 1.0;
 
     return ShowCaseWidget(
-      builder: (context) => Scaffold(
-        key: _scaffoldKey,
+      builder: (context) => Stack( // <-- ADD THE STACK HERE
+        children: [
+          Scaffold(
+            key: _scaffoldKey,
         backgroundColor: const Color(0xFF111111),
         appBar: AppBar(
           title: const Text('THE CRYPT', style: TextStyle(letterSpacing: 2.0, color: Colors.purpleAccent, fontSize: 16, fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
@@ -680,9 +704,15 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
             onPressed: () => Navigator.of(context).pop(),
           ),
           actions: [
+            // --- NEW HELP TRIGGER ---
+            IconButton(
+              icon: const Icon(Icons.help_outline, color: Colors.cyanAccent),
+              onPressed: () => setState(() => _showHelp = true),
+            ),
             Padding(
               padding: const EdgeInsets.only(right: 16.0),
               child: Row(
+                key: _helpCurrencyKey,
                 children: [
                   const Icon(Icons.dark_mode, color: Colors.redAccent, size: 14),
                   const SizedBox(width: 4),
@@ -813,6 +843,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
 
           Expanded(
             child: Container(
+              key: _helpCatalogKey,
               color: Colors.black87,
               child: Column(
                 children: [
@@ -890,6 +921,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 const SizedBox(height: 12),
                 
                 Row(
+                  key: _helpLoadoutKey,
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: List.generate(4, (i) {
@@ -901,6 +933,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 const SizedBox(height: 12),
 
                 Row(
+                  key: _helpWearablesKey,
                   children: [
                     Expanded(child: _buildWearableSlot('wearable_neck', 'Neck', Icons.diamond, Colors.cyanAccent)),
                     const SizedBox(width: 6),
@@ -926,7 +959,8 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                   ),
                   Showcase(
                     key: _sealKey,
-                    description: 'STEP 7: Seal your attunement to save changes.',disposeOnTap: true,
+                    description: 'STEP 7: Seal your attunement to save changes.',
+                    disposeOnTap: true,
                     onTargetClick: () async {
                       final prefs = await SharedPreferences.getInstance();
                       await prefs.setString('tutorial_phase', 'match');
@@ -950,10 +984,40 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                 ],
               ),
             ),
-        ],
-      ),
-    ),
-    );
+          ],
+        ), // End of the Column
+      ), // End of the Scaffold
+
+      // --- THE NEW HELP OVERLAY (FLOATING ON TOP OF THE SCAFFOLD) ---
+      if (_showHelp)
+        InteractiveHelpOverlay(
+          onClose: () => setState(() => _showHelp = false),
+          zones: [
+            HelpZone(
+              title: 'CURRENCY STASH',
+              text: 'Souls are earned by landing scares. Coins drop from Spooky Boxes. Use them to expand your arsenal.',
+              getTargetCenter: () => _getWidgetCenter(_helpCurrencyKey)
+            ),
+            HelpZone(
+              title: 'THE CATALOG',
+              text: 'Tap to view stats, range, and energy cost. Spend your loot here to permanently unlock new horrors.',
+              getTargetCenter: () => _getWidgetCenter(_helpCatalogKey)
+            ),
+            HelpZone(
+              title: 'ACTIVE LOADOUT',
+              text: 'Your current arsenal. Tap an unlocked mask, then tap one of these four slots to assign it to your Attack Wheel.',
+              getTargetCenter: () => _getWidgetCenter(_helpLoadoutKey)
+            ),
+            HelpZone(
+              title: 'WEARABLES & RELICS',
+              text: 'Equip specialized gear to boost your max energy, silence your footsteps, or counter enemy masks.',
+              getTargetCenter: () => _getWidgetCenter(_helpWearablesKey)
+            ),
+          ],
+        ),
+      ],
+    ), // End of the Stack
+    ); // End of ShowCaseWidget
   }
 
   Widget _buildWearableSlot(String slotKey, String label, IconData icon, Color color) {
