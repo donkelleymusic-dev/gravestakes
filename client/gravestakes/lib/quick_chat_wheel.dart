@@ -24,16 +24,37 @@ class QuickChatWheel extends PositionComponent with DragCallbacks, HasGameRefere
 
   QuickChatWheel() : super(size: Vector2.all(80), anchor: Anchor.center, priority: 200000);
 
+  double _screenHeight = 0;
+
   @override
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
-    position = Vector2(110, size.y - 240);
+    _screenHeight = size.y;
+    position.x = 110;
+    
+    // Provide a safe default Y position so Flame doesn't crash trying to read 
+    // the game mode before the component is fully attached to the world.
+    if (position.y == 0) {
+      position.y = size.y - 240; 
+    }
   }
 
   @override
   void update(double dt) {
     super.update(dt);
     if (_cooldownTimer > 0) _cooldownTimer -= dt;
+
+    // The update loop only runs after the component is mounted, making game.isFpsMode safe to read
+    if (_screenHeight > 0) {
+      double targetY = _screenHeight - (game.isFpsMode ? 340 : 240);
+      
+      // Smoothly slide up/down when toggling perspective
+      if ((position.y - targetY).abs() > 0.5) {
+        position.y += (targetY - position.y) * 15 * dt; 
+      } else {
+        position.y = targetY; // Snap to prevent micro-jitter
+      }
+    }
   }
 
   @override

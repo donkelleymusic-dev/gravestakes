@@ -68,11 +68,11 @@ class FpsActionButton extends PositionComponent with TapCallbacks, DragCallbacks
     this.onPressedUp,
   }) : super(position: position, size: Vector2(40, 32), anchor: Anchor.topLeft);
 
-  // --- TAP EVENTS (Perfectly still holds and Web Clicks) ---
+  // --- TAP EVENTS ---
   @override
   void onTapDown(TapDownEvent event) {
     super.onTapDown(event);
-    onPressed?.call();
+    onPressed?.call();         // <-- Triggers the 90° snap exactly once!
     onPressedDown?.call();
   }
 
@@ -88,12 +88,12 @@ class FpsActionButton extends PositionComponent with TapCallbacks, DragCallbacks
     onPressedUp?.call();
   }
 
-  // --- DRAG EVENTS (Thumb rolling on touch screens) ---
+  // --- DRAG EVENTS (Only for holding/peeking) ---
   @override
   void onDragStart(DragStartEvent event) {
     super.onDragStart(event);
-    onPressed?.call();
-    onPressedDown?.call();
+    // REMOVED: onPressed?.call();
+    onPressedDown?.call();     // Peek keeps holding down even if finger drags
   }
 
   @override
