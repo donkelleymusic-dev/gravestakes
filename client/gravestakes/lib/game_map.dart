@@ -7,7 +7,8 @@ import 'game.dart';
 import 'hallway_triggers.dart';
 import 'puzzle_door.dart';
 
-class GameMap extends Component with HasGameReference<GraveStakesGame> {
+// 1. RELAXED ENGINE REQUIREMENT TO 'FlameGame'
+class GameMap extends Component with HasGameReference<FlameGame> {
   final String roomId;
   final String mapName;
   
@@ -36,17 +37,21 @@ class GameMap extends Component with HasGameReference<GraveStakesGame> {
   int minExploredY = 999, maxExploredY = -1;
 
   int getProgressionSeed(String roomId) {
-    // Cast the generic Flame game reference to your specific class
-    final myGame = game as GraveStakesGame;
+    bool isCinematic = false;
+    
+    // 2. SAFE CAST FOR SPECTATOR MODE
+    if (game is GraveStakesGame) {
+      isCinematic = (game as GraveStakesGame).matchMode == 'cinematic';
+    }
 
     // 1. Lock the movie set perfectly in place for the cinematic director!
-    if (myGame.matchMode == 'cinematic') {
+    if (isCinematic) {
       return 8675309; 
     }
     
     // 2. Stable, cross-platform hash combining map progression and room identity
     // (If you want identical daily maps across ALL lobbies, remove "_$roomId")
-    String combinedKey = "${myGame.mapName}_$roomId";
+    String combinedKey = "${mapName}_$roomId";
     int stableHash = 0;
     for (int i = 0; i < combinedKey.length; i++) {
       stableHash = 31 * stableHash + combinedKey.codeUnitAt(i);
@@ -96,28 +101,6 @@ class GameMap extends Component with HasGameReference<GraveStakesGame> {
       }
     }
   }
-
-  /* void revealRadius(Vector2 worldPos, {int radius = 2}) {
-    int gridX = (worldPos.x / tileSize).floor();
-    int gridY = (worldPos.y / tileSize).floor();
-
-    for (int dy = -radius; dy <= radius; dy++) {
-      for (int dx = -radius; dx <= radius; dx++) {
-        int targetX = gridX + dx;
-        int targetY = gridY + dy;
-
-        if (targetX >= 0 && targetX < gridWidth && targetY >= 0 && targetY < gridHeight) {
-          visitedGrid[targetY][targetX] = true;
-
-          // Expand bounding box for the mini-map zoom calculation
-          if (targetX < minExploredX) minExploredX = targetX;
-          if (targetX > maxExploredX) maxExploredX = targetX;
-          if (targetY < minExploredY) minExploredY = targetY;
-          if (targetY > maxExploredY) maxExploredY = targetY;
-        }
-      }
-    }
-  } */
 
   void markDiscovered(int gridX, int gridY) {
     if (gridX >= 0 && gridX < gridWidth && gridY >= 0 && gridY < gridHeight) {
@@ -200,14 +183,12 @@ class GameMap extends Component with HasGameReference<GraveStakesGame> {
           // Keep normal spawns away from the secret hallway
           if (x < 40) allOpenTiles.add(Vector2(worldX + (tileSize / 2), worldY + (tileSize / 2)));
         } else if (mapGrid[y][x] == 1) { // Normal Purple Wall
-          // STRIPPED parameter so it doesn't crash during map load
           game.world.add(WallComponent(
             position: Vector2(worldX, worldY), 
             tileSize: tileSize
           ));
           obstacles.add(Rect.fromLTWH(worldX, worldY, tileSize, tileSize));
         } else if (mapGrid[y][x] == 2) { // Secret Red Wall
-          // STRIPPED parameter so it doesn't crash during map load
           game.world.add(WallComponent(
             position: Vector2(worldX, worldY), tileSize: tileSize,
             wallColor: Colors.red[900]!, borderColor: Colors.black87,
@@ -440,7 +421,8 @@ class MapRow extends PositionComponent {
   }
 }
 
-class WallComponent extends PositionComponent with HasGameReference<GraveStakesGame> {
+// 3. RELAXED ENGINE REQUIREMENT TO 'FlameGame'
+class WallComponent extends PositionComponent with HasGameReference<FlameGame> {
   final double tileSize;
   final Color wallColor; 
   final Color borderColor; 
@@ -462,11 +444,14 @@ class WallComponent extends PositionComponent with HasGameReference<GraveStakesG
   void render(Canvas canvas) {
     final rect = Rect.fromLTWH(0, 0, tileSize, tileSize);
     
-    // RESTORED: Safely check the player's skin during the render loop!
     String currentSkin = 'default';
-    try {
-      currentSkin = game.player.equippedWallSkin;
-    } catch (_) {}
+    
+    // 4. SAFE CAST TO CHECK COSMETICS (Bypassed if Spectator)
+    if (game is GraveStakesGame) {
+      try {
+        currentSkin = (game as GraveStakesGame).player.equippedWallSkin;
+      } catch (_) {}
+    }
 
     if (currentSkin == 'wall_void') {
       // --- THE VANTABLACK VOID (2D) ---
