@@ -222,6 +222,9 @@ class _StoreScreenState extends State<StoreScreen> {
                 label: 'ENTER CRYPT',
                 textColor: Colors.greenAccent,
                 onPressed: () {
+                  // --- NEW: Safe mounted check! ---
+                  if (!mounted) return; 
+                  
                   // Teleport them to the Loadout screen
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const LoadoutScreen()),
