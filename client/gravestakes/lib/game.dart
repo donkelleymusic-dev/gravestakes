@@ -561,7 +561,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       
 
       try {
-        final logoSprite = await Sprite.load('lumen_breach_small.jpg');
+        final logoSprite = await Sprite.load('Lumen_Breach_small.jpg');
         final logoComponent = SpriteComponent(
           sprite: logoSprite,
           size: Vector2(120, 60), 
