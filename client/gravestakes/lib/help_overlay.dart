@@ -136,13 +136,23 @@ class _InteractiveHelpOverlayState extends State<InteractiveHelpOverlay> with Si
             ),
           ),
           
-          // 5. Initial instruction text
+          // 5. Initial instruction text (Moved to Top Left to prevent touch blocking)
           if (_activeZone == null)
-            const Center(
-              child: Text(
-                'TAP A GLOWING NODE\nTO REVEAL ITS SECRETS',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white54, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 3, fontFamily: 'Orbitron'),
+            const Positioned(
+              top: 60,
+              left: 32,
+              child: SafeArea(
+                child: Text(
+                  'TAP A GLOWING NODE\nTO REVEAL ITS SECRETS',
+                  textAlign: TextAlign.left,
+                  style: TextStyle(
+                    color: Colors.white54, 
+                    fontSize: 16, 
+                    fontWeight: FontWeight.bold, 
+                    letterSpacing: 2, 
+                    fontFamily: 'Orbitron',
+                  ),
+                ),
               ),
             )
         ],

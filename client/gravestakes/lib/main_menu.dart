@@ -531,8 +531,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       text: 'Drains constantly in the dark. If it hits zero, it flickers out entirely. Stand in lit areas to recharge.',
                       getTargetCenter: () {
                         final size = MediaQuery.of(context).size;
-                        // Moved to the bottom, under the attack wheel
-                        return Offset(size.width - 200, size.height - 40);
+                        // Shifted further to the right to clear the camera toggle
+                        return Offset(size.width - 140, size.height - 40);
                       }
                     ),
                     HelpZone(
@@ -540,7 +540,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       text: 'Tap to activate held Power-Ups, like Invisibility or a Phase Dash, to escape tight spots.',
                       getTargetCenter: () {
                         final size = MediaQuery.of(context).size;
-                        // Moved to the right edge (where the flashlight used to be)
                         return Offset(size.width - 50, size.height / 2);
                       }
                     ),
@@ -549,7 +548,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       text: 'Instantly snap between top-down 2D tactical view and immersive First-Person perspective.',
                       getTargetCenter: () {
                         final size = MediaQuery.of(context).size;
-                        return Offset(size.width - 40, 40);
+                        // Moved from top-right to bottom, just left of center
+                        return Offset((size.width / 2) - 60, size.height - 60);
                       }
                     ),
                   ],
