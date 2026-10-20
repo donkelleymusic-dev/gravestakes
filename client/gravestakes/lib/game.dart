@@ -637,7 +637,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       }
 
       cinematicTimer += dt;
-      super.update(dt); 
+      //super.update(dt); 
 
       // --- SCRIPT MONITOR TEXT UPDATER ---
       String currentBeat = 'WAITING';
@@ -886,8 +886,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       final pY = player.position.y / audioScale;
       SoLoud.instance.set3dListenerPosition(pX, pY, 0.0);
       
-      final forwardX = -sin(player.angle);
-      final forwardY = -cos(player.angle);
+      // FIXED: Use facingAngle (and glanceOffset) instead of PositionComponent.angle
+      final activeAngle = player.facingAngle + player.glanceOffset;
+      final forwardX = sin(activeAngle);
+      final forwardY = -cos(activeAngle);
       SoLoud.instance.set3dListenerAt(forwardX, forwardY, 0.0);
       SoLoud.instance.set3dListenerUp(0.0, 0.0, -1.0);
     }
@@ -1063,14 +1065,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       // Explicitly kill the local player's breathing loop!
       player.stopAudio();
       
-      // NEW: Force-kill all Bot and RemotePlayer audio loops bleeding into the lobby
-      try {
-        for (var child in world.children) {
-          if (child is BotPlayer) (child as dynamic).stopAudio();
-          if (child is RemotePlayer) (child as dynamic).stopAudio();
-        }
-      } catch (e) {
-         debugPrint('Failed to stop remote audio: $e');
+      // FIXED: Type-safe audio shutdown across all bots and remote players
+      for (var bot in bots) {
+        bot.stopAudio();
+      }
+      for (var remote in networkPlayers.values) {
+        remote.stopAudio();
       }
       
       AudioManager.instance.stopMusic();

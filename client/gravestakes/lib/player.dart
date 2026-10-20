@@ -873,7 +873,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     }
     // -----------------------------------
 
-    super.update(dt);
+    //super.update(dt);
 
     // --- WALL COLLISION TIMERS ---
     if (wallStunTimer > 0) wallStunTimer -= dt;

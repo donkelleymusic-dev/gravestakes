@@ -24,7 +24,23 @@ enum BotPersonality { grunt, stalker, phantom, trapdoor }
 class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame> {
 
   BotPersonality personality = BotPersonality.grunt;
-  late TextComponent debugLabel;
+  TextComponent? debugLabel; // FIXED: Made nullable instead of uninitialized 'late'
+
+  // --- NEW: Audio Handle & Killswitch to match Player / RemotePlayer ---
+  SoundHandle? _breathHandle;
+
+  void stopAudio() {
+    if (_breathHandle != null && SoLoud.instance.isInitialized) {
+      SoLoud.instance.stop(_breathHandle!);
+      _breathHandle = null;
+    }
+  }
+
+  @override
+  void onRemove() {
+    stopAudio();
+    super.onRemove();
+  }
 
   bool isHunter; 
   double wanderSpeed = 80.0;
@@ -103,9 +119,22 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
     isHunter = true;
     personality = BotPersonality.grunt; // The Goliath just hunts blindly
     
-    if (parent != null) {
-      debugLabel.text = '[GOLIATH]';
-      debugLabel.textRenderer = TextPaint(style: const TextStyle(color: Colors.redAccent, fontSize: 10, fontFamily: 'Courier'));
+    // FIXED: Safely instantiate or update the debug label
+    if (debugLabel == null) {
+      debugLabel = TextComponent(
+        text: '[GOLIATH]',
+        position: Vector2(size.x / 2, -15),
+        anchor: Anchor.center,
+        textRenderer: TextPaint(
+          style: const TextStyle(color: Colors.redAccent, fontSize: 10, fontFamily: 'Courier'),
+        ),
+      );
+      add(debugLabel!);
+    } else {
+      debugLabel!.text = '[GOLIATH]';
+      debugLabel!.textRenderer = TextPaint(
+        style: const TextStyle(color: Colors.redAccent, fontSize: 10, fontFamily: 'Courier'),
+      );
     }
 
     String goliathId = 'the_goliath';
@@ -746,12 +775,20 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       return; 
     }
 
-    // --- THE LUNGE STATE ---
+    // --- THE LUNGE STATE (WITH WALL COLLISION) ---
     if (_lungeTimer > 0) {
       _lungeTimer -= dt;
       
       final forward = Vector2(sin(facingAngle), -cos(facingAngle));
-      position += forward * (huntSpeed * 3.0) * dt; 
+      final potentialPos = position + (forward * (huntSpeed * 3.0) * dt);
+      
+      // Check X and Y axes independently so lunging bots slide along walls instead of clipping through!
+      if (!game.gameMap.checkCollision(Vector2(potentialPos.x, position.y), size)) {
+        position.x = potentialPos.x;
+      }
+      if (!game.gameMap.checkCollision(Vector2(position.x, potentialPos.y), size)) {
+        position.y = potentialPos.y;
+      }
       
       if (voxelComponent != null) {
         voxelComponent!.targetAngle = facingAngle - (pi / 2);
@@ -763,7 +800,6 @@ class BotPlayer extends PositionComponent with HasGameReference<GraveStakesGame>
       }
       return; 
     }
-    // --------------------------------
 
     if (voxelComponent != null) {
       voxelComponent!.targetAngle = facingAngle - (pi / 2); 
