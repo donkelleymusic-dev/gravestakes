@@ -41,7 +41,7 @@ class _InteractiveHelpOverlayState extends State<InteractiveHelpOverlay> with Si
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.black.withOpacity(0.85),
+      color: Colors.black.withOpacity(0.5),
       child: Stack(
         children: [
           // 1. Invisible touch layer to dismiss active tooltip if tapped elsewhere

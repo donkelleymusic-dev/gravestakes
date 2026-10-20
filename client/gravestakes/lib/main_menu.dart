@@ -549,7 +549,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       getTargetCenter: () {
                         final size = MediaQuery.of(context).size;
                         // Moved from top-right to bottom, just left of center
-                        return Offset((size.width / 2) - 60, size.height - 60);
+                        return Offset((size.width / 2) - 60, size.height - 30);
                       }
                     ),
                   ],
@@ -876,8 +876,14 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                     child: Column(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Container(
-                                          height: 36,
+                                        // --- NEW: Wrap in Expanded and ScrollView to prevent squashed-screen crashes ---
+                                        Flexible( 
+                                          child: SingleChildScrollView(
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Container(
+                                                  height: 36,
                                           padding: const EdgeInsets.symmetric(horizontal: 12),
                                           decoration: BoxDecoration(
                                             color: Colors.black87,
@@ -980,6 +986,10 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                                 ),
                                                 // -------------------------------
                                               ),
+                                            ),
+                                          ),
+                                        ),
+                                              ],
                                             ),
                                           ),
                                         ),
