@@ -79,25 +79,26 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     maxRayDistance *= player.flashlightScale;
 
     // -------------------------------------------------------------
-    // CEILING AND FLOOR
+    // 1. CEILING AND FLOOR (PITCH BLACK IN THE DISTANCE)
     // -------------------------------------------------------------
     if (player.isInPuzzleRoom) {
       final ceilingRect = Rect.fromLTWH(0, 0, size.x, screenHeight / 2);
-      canvas.drawRect(ceilingRect, Paint()..color = const Color(0xFF080000));
+      canvas.drawRect(ceilingRect, Paint()..color = const Color(0xFF050000));
       
       double time = game.currentTime();
       if (sin(time * 15) * cos(time * 7) > 0.85) {
         canvas.drawRect(ceilingRect, Paint()..color = Colors.amber[100]!.withOpacity(0.15));
       }
       
-      canvas.drawRect(Rect.fromLTWH(0, screenHeight / 2, size.x, screenHeight / 2), Paint()..color = const Color(0xFF110000));
+      canvas.drawRect(Rect.fromLTWH(0, screenHeight / 2, size.x, screenHeight / 2), Paint()..color = const Color(0xFF090000));
     } else {
-      canvas.drawRect(Rect.fromLTWH(0, 0, size.x, screenHeight / 2), Paint()..color = const Color(0xFF0A0A10));
-      canvas.drawRect(Rect.fromLTWH(0, screenHeight / 2, size.x, screenHeight / 2), Paint()..color = const Color(0xFF14141E));
+      // Pure black horizon at the center line so unhit rays fade into total darkness
+      canvas.drawRect(Rect.fromLTWH(0, 0, size.x, screenHeight / 2), Paint()..color = Colors.black);
+      canvas.drawRect(Rect.fromLTWH(0, screenHeight / 2, size.x, screenHeight / 2), Paint()..color = const Color(0xFF060609));
     }
 
     // -------------------------------------------------------------
-    // 2. RAYCAST WALLS & LIMITED VISIBILITY
+    // 2. RAYCAST WALLS & STRICT FLASHLIGHT FALLOFF
     // -------------------------------------------------------------
     String currentSkin = player.equippedWallSkin;
     bool isVoidSkin = currentSkin == 'wall_void';
@@ -119,7 +120,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       double impactY = playerPos.y;
       int hitGridValue = 1;
 
-      // Fast scalar raymarch (zero Vector2 heap allocations inside inner loop)
       while (!hitWall && dist < maxRayDistance) {
         dist += 4.0;
         impactX = playerPos.x + dirX * dist;
@@ -138,6 +138,12 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         }
       }
 
+      // FIXED: If the flashlight beam didn't hit a wall within range, draw NOTHING!
+      // Leaving _zBuffer at 999999.0 and skipping drawRect lets distant hallways stay pitch black.
+      if (!hitWall || maxRayDistance <= 1.0) {
+        continue;
+      }
+
       double correctedDist = dist * cos(rayAngle - totalViewAngle);
       if (correctedDist < 1.0) correctedDist = 1.0;
 
@@ -148,8 +154,15 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       double wallHeight = min(screenHeight * 2.5, (tileSize * focalLength) / correctedDist);
       double wallTop = (screenHeight - wallHeight) / 2;
 
-      double fadeFactor = maxRayDistance > 0 ? (1.0 - (correctedDist / maxRayDistance)).clamp(0.15, 1.0) : 0.15;
-      int brightness = (255 * fadeFactor).clamp(10, 255).toInt();
+      // FIXED: Use raw radial 'dist' (not fisheye-shortened correctedDist) and clamp down to 0.0 
+      // with a 1.5 power curve so walls fade completely into pitch black at maxRayDistance!
+      double linearFade = (1.0 - (dist / maxRayDistance)).clamp(0.0, 1.0);
+      double fadeFactor = pow(linearFade, 1.5).toDouble();
+      int brightness = (255 * fadeFactor).round().clamp(0, 255);
+
+      if (brightness <= 1 && !isVoidSkin) {
+        continue; // Completely dark, skip drawing
+      }
       
       double hitX = impactX % tileSize;
       double hitY = impactY % tileSize;
@@ -160,7 +173,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       if (isVoidSkin) {
         wallColor = Colors.black;
       } else if (hitGridValue == 4) {
-        wallColor = Colors.amberAccent;
+        wallColor = Color.fromARGB(255, brightness, (brightness * 0.85).toInt(), (brightness * 0.2).toInt());
       } else if (hitGridValue == 3) {
         wallColor = isTileEdge 
           ? Color.fromARGB(255, (brightness * 0.2).toInt(), (brightness * 0.1).toInt(), 0)
@@ -212,7 +225,9 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
           Rect.fromLTWH(x.toDouble(), glowY, stripWidth.toDouble(), glowHeight),
           _wallPaint,
         );
-      } else {
+      } else if (fadeFactor > 0.08) {
+        // FIXED: Scale brick & mortar opacity with fadeFactor so they disappear into darkness
+        _brickLinePaint.color = Color.fromARGB((115 * fadeFactor).toInt(), 0, 0, 0);
         double brickHeight = wallHeight / 6.0;
         for (int b = 1; b < 6; b++) {
           double lineY = wallTop + (b * brickHeight);
@@ -222,6 +237,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
           );
         }
 
+        _mortarLinePaint.color = Color.fromARGB((96 * fadeFactor).toInt(), 0, 0, 0);
         double mortarY = wallTop + (wallHeight * 0.5);
         canvas.drawRect(
           Rect.fromLTWH(x.toDouble(), mortarY, stripWidth.toDouble(), 2.0),
