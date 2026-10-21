@@ -1,3 +1,4 @@
+// party_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flame/game.dart';
@@ -15,14 +16,15 @@ class _PartyScreenState extends State<PartyScreen> {
   final supabase = Supabase.instance.client;
 
   bool _isLoading = true;
+  bool _isLaunchingMatch = false; // Prevents double-pushing into the same match
   Map<String, dynamic>? _currentParty;
   List<Map<String, dynamic>> _partyMembers = [];
   List<Map<String, dynamic>> _friends = [];
+  int _myLevel = 1;
   
   RealtimeChannel? _lobbyChannel;
 
-  // --- NEW: SQUAD MATCHMAKING SETTINGS ---
-  String _selectedMatchMode = 'casual';
+  String _selectedMatchMode = '2v2';
   bool _isJuggernautMode = false;
 
   @override
@@ -42,13 +44,22 @@ class _PartyScreenState extends State<PartyScreen> {
     if (user == null) return;
 
     try {
+      final myProfile = await supabase
+          .from('profiles')
+          .select('level')
+          .eq('id', user.id)
+          .maybeSingle();
+      if (myProfile != null) {
+        _myLevel = (myProfile['level'] as num?)?.toInt() ?? 1;
+      }
+
       final membership = await supabase
           .from('party_members')
           .select('party_id, parties(*)')
           .eq('user_id', user.id)
           .maybeSingle();
 
-      if (membership != null) {
+      if (membership != null && membership['parties'] != null) {
         _currentParty = membership['parties'];
 
         final membersRes = await supabase
@@ -71,15 +82,20 @@ class _PartyScreenState extends State<PartyScreen> {
           .eq('status', 'accepted')
           .or('user_id.eq.${user.id},friend_id.eq.${user.id}');
 
-      List<Map<String, dynamic>> friendList = [];
+      final Set<String> friendIds = {};
       for (var f in friendshipsRes) {
-        final friendId = f['user_id'] == user.id ? f['friend_id'] : f['user_id'];
-        final profile = await supabase
+        final String fId = f['user_id'] == user.id ? f['friend_id'] : f['user_id'];
+        friendIds.add(fId);
+      }
+
+      // FIXED: Single batch query for all friends instead of N+1 sequential queries
+      List<Map<String, dynamic>> friendList = [];
+      if (friendIds.isNotEmpty) {
+        final profilesRes = await supabase
             .from('profiles')
             .select('id, username, level')
-            .eq('id', friendId)
-            .single();
-        friendList.add(profile);
+            .inFilter('id', friendIds.toList());
+        friendList = List<Map<String, dynamic>>.from(profilesRes);
       }
 
       if (mounted) {
@@ -90,6 +106,7 @@ class _PartyScreenState extends State<PartyScreen> {
       }
     } catch (e) {
       debugPrint('Error loading party data: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -103,8 +120,7 @@ class _PartyScreenState extends State<PartyScreen> {
         filter: PostgresChangeFilter(type: PostgresChangeFilterType.eq, column: 'id', value: partyId),
         callback: (payload) {
           final newStatus = payload.newRecord['status'];
-          if (newStatus == 'in_match') {
-            // --- NEW: CATCH THE MATCH DATA ---
+          if (newStatus == 'in_match' && !_isLaunchingMatch) {
             final matchId = payload.newRecord['match_id'] as String?;
             final mode = payload.newRecord['match_mode'] as String? ?? 'casual';
             final isJuggernaut = payload.newRecord['is_juggernaut'] as bool? ?? false;
@@ -112,23 +128,37 @@ class _PartyScreenState extends State<PartyScreen> {
             if (matchId != null) {
               _launchIntoGame(matchId, mode, isJuggernaut);
             }
+          } else if (newStatus == 'formed') {
+            _loadPartyAndFriends();
           }
+        },
+      )
+      // FIXED: Also listen to party_members changes so the roster updates live when friends join/leave!
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'party_members',
+        filter: PostgresChangeFilter(type: PostgresChangeFilterType.eq, column: 'party_id', value: partyId),
+        callback: (payload) {
+          _loadPartyAndFriends();
         },
       )
       .subscribe();
   }
 
-  void _launchIntoGame(String roomId, String matchMode, bool isJuggernaut) {
-    if (_currentParty == null) return;
+  Future<void> _launchIntoGame(String roomId, String matchMode, bool isJuggernaut) async {
+    if (_currentParty == null || _isLaunchingMatch) return;
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
+    _isLaunchingMatch = true;
     final String leaderId = _currentParty!['leader_id'];
     
     // You are ONLY a Gunner if Juggernaut is enabled AND you are not the Party Leader
     final bool isGunner = isJuggernaut && (leaderId != user.id);
+    final bool hasGunner = isJuggernaut && (_partyMembers.length > 1);
 
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => Scaffold(
           body: GameWidget<GraveStakesGame>(
@@ -136,8 +166,8 @@ class _PartyScreenState extends State<PartyScreen> {
               roomId: roomId, 
               matchMode: matchMode,
               isGunner: isGunner,
-              hasGunner: isJuggernaut,
-              driverId: isJuggernaut ? leaderId : null, // Driver ID is only needed if Juggernaut is active
+              hasGunner: hasGunner,
+              driverId: isJuggernaut ? leaderId : null,
             ),
             loadingBuilder: (context) => Container(
               color: Colors.black,
@@ -169,20 +199,29 @@ class _PartyScreenState extends State<PartyScreen> {
           ),
         ),
       ),
-    ).then((_) async {
-      // When the match ends and pops back, the leader resets the party lobby status
-      if (user.id == leaderId) {
+    );
+
+    _isLaunchingMatch = false;
+
+    if (user.id == leaderId && _currentParty != null) {
+      try {
         await supabase.from('parties').update({'status': 'formed'}).eq('id', _currentParty!['id']);
-      }
+      } catch (_) {}
+    }
+    if (mounted) {
       _loadPartyAndFriends();
-    });
+    }
   }
 
   Future<void> _createParty() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
+    setState(() => _isLoading = true);
     try {
+      // Clean up any stale party memberships first
+      await supabase.from('party_members').delete().eq('user_id', user.id);
+
       final partyRes = await supabase.from('parties').insert({
         'leader_id': user.id,
         'status': 'formed',
@@ -194,26 +233,36 @@ class _PartyScreenState extends State<PartyScreen> {
         'status': 'accepted',
       });
 
-      _loadPartyAndFriends();
+      await _loadPartyAndFriends();
     } catch (e) {
       debugPrint('Error creating party: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _inviteFriend(String friendId) async {
     if (_currentParty == null) return;
+    if (_partyMembers.any((m) => m['user_id'] == friendId)) return;
+
     try {
       await supabase.from('party_members').insert({
         'party_id': _currentParty!['id'],
         'user_id': friendId,
         'status': 'accepted',
       });
-      _loadPartyAndFriends();
+      await _loadPartyAndFriends();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Friend added to squad!'), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Friend added to squad!'), backgroundColor: Colors.green),
+        );
       }
     } catch (e) {
       debugPrint('Error inviting friend: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Friend is already in another squad!'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -221,26 +270,30 @@ class _PartyScreenState extends State<PartyScreen> {
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
+    _lobbyChannel?.unsubscribe();
     try {
-      await supabase.from('party_members').delete().eq('user_id', user.id);
-      
       if (_currentParty != null && _currentParty!['leader_id'] == user.id) {
+        await supabase.from('party_members').delete().eq('party_id', _currentParty!['id']);
         await supabase.from('parties').delete().eq('id', _currentParty!['id']);
+      } else {
+        await supabase.from('party_members').delete().eq('user_id', user.id);
       }
 
-      setState(() {
-        _currentParty = null;
-        _partyMembers = [];
-      });
-      _loadPartyAndFriends();
+      if (mounted) {
+        setState(() {
+          _currentParty = null;
+          _partyMembers = [];
+        });
+      }
+      await _loadPartyAndFriends();
     } catch (e) {
       debugPrint('Error leaving party: $e');
     }
   }
 
   Future<void> _startPartyMatch() async {
-    if (_currentParty == null) return;
-    setState(() => _isLoading = true); // Set spinner while finding match
+    if (_currentParty == null || _isLaunchingMatch) return;
+    setState(() => _isLoading = true);
 
     try {
       int targetPlayers = 8;
@@ -249,32 +302,34 @@ class _PartyScreenState extends State<PartyScreen> {
 
       final user = supabase.auth.currentUser;
       
-      // Fetch user's guild for the matchmaking rules
       final memberRes = await supabase.from('guild_members').select('guild_id').eq('user_id', user!.id).maybeSingle();
       final guildId = memberRes?['guild_id'];
 
-      // 1. Leader finds or creates a match using the RPC
+      // FIXED: Include p_player_level so it routes to the exact same RPC overload as MainMenuScreen!
       final matchId = await supabase.rpc(
         'find_or_create_match',
         params: {
-          'p_map_name': 'L1T1V1.0.0', // Standard map
+          'p_map_name': 'L1T1V1.0.0',
           'p_mode': _selectedMatchMode,
           'p_target_players': targetPlayers,
-          if (guildId != null) 'p_guild_id': guildId,
+          'p_guild_id': guildId,
+          'p_player_level': _myLevel,
         }, 
       );
 
-      // 2. Leader updates the party database to broadcast the configuration to the squad
       await supabase.from('parties').update({
         'status': 'in_match',
-        'match_id': matchId as String,
+        'match_id': matchId.toString(),
         'match_mode': _selectedMatchMode,
-        'is_juggernaut': _isJuggernautMode
+        'is_juggernaut': _isJuggernautMode,
       }).eq('id', _currentParty!['id']);
-      
-      // Note: We don't call _launchIntoGame here manually! The realtime listener 
-      // will catch the update we just fired and launch the leader alongside the squad.
-      
+
+      // Fallback launch in case Realtime PostgresChanges is delayed
+      Future.delayed(const Duration(milliseconds: 600), () {
+        if (mounted && !_isLaunchingMatch) {
+          _launchIntoGame(matchId.toString(), _selectedMatchMode, _isJuggernautMode);
+        }
+      });
     } catch (e) {
       debugPrint('Error starting squad match: $e');
       if (mounted) setState(() => _isLoading = false);
@@ -285,6 +340,7 @@ class _PartyScreenState extends State<PartyScreen> {
   Widget build(BuildContext context) {
     final user = supabase.auth.currentUser;
     final isLeader = _currentParty != null && user != null && _currentParty!['leader_id'] == user.id;
+    final Set<String> memberIds = _partyMembers.map((m) => m['user_id'].toString()).toSet();
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -361,11 +417,12 @@ class _PartyScreenState extends State<PartyScreen> {
                       const SizedBox(height: 12),
                       Expanded(
                         child: _friends.isEmpty
-                            ? const Center(child: Text('No allies online.', style: TextStyle(color: Colors.grey)))
+                            ? const Center(child: Text('No allies found.', style: TextStyle(color: Colors.grey)))
                             : ListView.builder(
                                 itemCount: _friends.length,
                                 itemBuilder: (context, index) {
                                   final friend = _friends[index];
+                                  final bool isAlreadyInParty = memberIds.contains(friend['id'].toString());
                                   return Container(
                                     margin: const EdgeInsets.only(bottom: 8),
                                     padding: const EdgeInsets.all(12),
@@ -375,9 +432,11 @@ class _PartyScreenState extends State<PartyScreen> {
                                       children: [
                                         Text('${friend['username']} (Lv. ${friend['level']})', style: const TextStyle(color: Colors.white, fontFamily: 'Courier')),
                                         ElevatedButton(
-                                          style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800]),
-                                          onPressed: () => _inviteFriend(friend['id']),
-                                          child: const Text('INVITE', style: TextStyle(color: Colors.white)),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: isAlreadyInParty ? Colors.grey[800] : Colors.red[800],
+                                          ),
+                                          onPressed: isAlreadyInParty ? null : () => _inviteFriend(friend['id']),
+                                          child: Text(isAlreadyInParty ? 'IN SQUAD' : 'INVITE', style: const TextStyle(color: Colors.white)),
                                         ),
                                       ],
                                     ),
@@ -386,7 +445,6 @@ class _PartyScreenState extends State<PartyScreen> {
                               ),
                       ),
 
-                      // --- NEW: LEADER MATCH DEPLOYMENT CONTROLS ---
                       if (isLeader) ...[
                         const SizedBox(height: 16),
                         Container(
@@ -411,7 +469,6 @@ class _PartyScreenState extends State<PartyScreen> {
                                 if (newValue != null) {
                                   setState(() {
                                     _selectedMatchMode = newValue;
-                                    // You cannot play Juggernaut in a 1v1 mode!
                                     if (newValue == '1v1') _isJuggernautMode = false;
                                   });
                                 }
@@ -425,7 +482,7 @@ class _PartyScreenState extends State<PartyScreen> {
                           subtitle: const Text('Leader drives. Partner covers the rear.', style: TextStyle(color: Colors.grey, fontSize: 12)),
                           activeColor: Colors.amberAccent,
                           value: _isJuggernautMode,
-                          onChanged: _selectedMatchMode == '1v1' ? null : (bool value) {
+                          onChanged: (_selectedMatchMode == '1v1' || _partyMembers.length < 2) ? null : (bool value) {
                             setState(() => _isJuggernautMode = value);
                           },
                         ),
@@ -455,9 +512,6 @@ class _PartyScreenState extends State<PartyScreen> {
   }
 }
 
-// ==========================================
-// OVERLAYS
-// ==========================================
 class SearchingOverlay extends StatelessWidget {
   final GraveStakesGame game;
   const SearchingOverlay({super.key, required this.game});

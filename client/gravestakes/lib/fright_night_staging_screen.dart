@@ -1,3 +1,4 @@
+// fright_night_staging_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flame/game.dart';
@@ -29,6 +30,7 @@ class _FrightNightStagingScreenState extends State<FrightNightStagingScreen> {
   String _eventStatus = 'staging';
   List<Map<String, dynamic>> _attendees = [];
   bool _isLoading = true;
+  bool _isInMatch = false; // Prevents double-pushing if broadcast & DB change arrive together
 
   @override
   void initState() {
@@ -45,14 +47,12 @@ class _FrightNightStagingScreenState extends State<FrightNightStagingScreen> {
 
   Future<void> _loadEventState() async {
     try {
-      // 1. Fetch event metadata
       final eventRes = await supabase
           .from('guild_fright_nights')
           .select('current_round, max_rounds, event_status')
           .eq('id', widget.eventId)
           .single();
 
-      // 2. Fetch all participants and their cumulative scores
       final attendeesRes = await supabase
           .from('fright_night_rsvps')
           .select('status, cumulative_score, user_id, profiles(username)')
@@ -70,7 +70,6 @@ class _FrightNightStagingScreenState extends State<FrightNightStagingScreen> {
     } catch (e) {
       debugPrint('Error loading staging state: $e');
       if (mounted) {
-        // --- CRUCIAL FIX: Stop the spinner even if the database fails! ---
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to load event data. It may have expired.'), backgroundColor: Colors.red),
@@ -84,8 +83,9 @@ class _FrightNightStagingScreenState extends State<FrightNightStagingScreen> {
       .onBroadcast(
         event: 'launch_round_match',
         callback: (payload) {
+          if (widget.isLeader || _isInMatch) return; // Leader already entered locally
           final roomId = payload['room_id'] as String;
-          final round = payload['round'] as int;
+          final round = (payload['round'] as num).toInt();
           _enterMatch(roomId, round);
         },
       )
@@ -102,23 +102,35 @@ class _FrightNightStagingScreenState extends State<FrightNightStagingScreen> {
           _loadEventState();
         },
       )
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'fright_night_rsvps',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'event_id',
+          value: widget.eventId,
+        ),
+        callback: (payload) {
+          _loadEventState();
+        },
+      )
       .subscribe();
   }
 
   Future<void> _launchNextRoundLeader() async {
+    if (_isInMatch) return;
     int nextRound = _currentRound + 1;
     if (nextRound > _maxRounds) return;
 
     final String roundRoomId = 'fright_${widget.eventId}_round_$nextRound';
 
     try {
-      // 1. Update DB state
       await supabase.from('guild_fright_nights').update({
         'current_round': nextRound,
         'event_status': 'in_match',
       }).eq('id', widget.eventId);
 
-      // 2. Broadcast launch signal to all connected guild members
       await _stagingChannel?.sendBroadcastMessage(
         event: 'launch_round_match',
         payload: {
@@ -127,7 +139,6 @@ class _FrightNightStagingScreenState extends State<FrightNightStagingScreen> {
         },
       );
 
-      // 3. Leader enters match locally
       _enterMatch(roundRoomId, nextRound);
     } catch (e) {
       debugPrint('Failed to launch round: $e');
@@ -139,17 +150,23 @@ class _FrightNightStagingScreenState extends State<FrightNightStagingScreen> {
     }
   }
 
-  void _enterMatch(String roomId, int roundNumber) {
-    Navigator.of(context).push(
+  Future<void> _enterMatch(String roomId, int roundNumber) async {
+    if (_isInMatch) return;
+    _isInMatch = true;
+
+    final gameInstance = GraveStakesGame(
+      roomId: roomId,
+      matchMode: 'fright_night',
+      chaosModifier: widget.chaosMode,
+      // FIXED: Allow up to 16 human players (guild + Reddit guest passes) in the same room!
+      targetPlayers: 16,
+    );
+
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => Scaffold(
           body: GameWidget<GraveStakesGame>(
-            game: GraveStakesGame(
-              roomId: roomId,
-              matchMode: 'fright_night',
-              chaosModifier: widget.chaosMode,
-              targetPlayers: 8,
-            ),
+            game: gameInstance,
             loadingBuilder: (context) => Container(
               color: Colors.black,
               child: Center(
@@ -174,9 +191,45 @@ class _FrightNightStagingScreenState extends State<FrightNightStagingScreen> {
           ),
         ),
       ),
-    ).then((_) {
+    );
+
+    _isInMatch = false;
+
+    // FIXED: Persist this round's score to cumulative_score in fright_night_rsvps!
+    final userId = supabase.auth.currentUser?.id;
+    if (userId != null && gameInstance.player.score > 0) {
+      try {
+        final existing = await supabase
+            .from('fright_night_rsvps')
+            .select('cumulative_score')
+            .eq('event_id', widget.eventId)
+            .eq('user_id', userId)
+            .maybeSingle();
+        final int prevScore = (existing?['cumulative_score'] as num?)?.toInt() ?? 0;
+        await supabase.from('fright_night_rsvps').upsert({
+          'event_id': widget.eventId,
+          'user_id': userId,
+          'status': existing != null ? (existing['status'] ?? 'attending') : 'guest_pass',
+          'cumulative_score': prevScore + gameInstance.player.score,
+        });
+      } catch (e) {
+        debugPrint('Error updating Fright Night cumulative score: $e');
+      }
+    }
+
+    // FIXED: If leader returns from the match, set event_status back to 'staging' (or 'completed' after final round)
+    if (widget.isLeader) {
+      try {
+        final String nextStatus = roundNumber >= _maxRounds ? 'completed' : 'staging';
+        await supabase.from('guild_fright_nights').update({
+          'event_status': nextStatus,
+        }).eq('id', widget.eventId);
+      } catch (e) {}
+    }
+
+    if (mounted) {
       _loadEventState();
-    });
+    }
   }
 
   @override
@@ -264,12 +317,24 @@ class _FrightNightStagingScreenState extends State<FrightNightStagingScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         side: const BorderSide(color: Colors.amberAccent, width: 1.5),
                       ),
-                      onPressed: _currentRound < _maxRounds ? _launchNextRoundLeader : null,
+                      onPressed: (_currentRound < _maxRounds && _eventStatus != 'in_match') ? _launchNextRoundLeader : null,
                       icon: const Icon(Icons.bolt, color: Colors.amberAccent),
                       label: Text(
-                        _currentRound == 0 ? 'LAUNCH ROUND 1' : 'LAUNCH ROUND ${_currentRound + 1}',
+                        _currentRound >= _maxRounds
+                            ? 'TOURNAMENT COMPLETED'
+                            : (_currentRound == 0 ? 'LAUNCH ROUND 1' : 'LAUNCH ROUND ${_currentRound + 1}'),
                         style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.5),
                       ),
+                    )
+                  else if (_eventStatus == 'in_match' && _currentRound > 0)
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange[900],
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      onPressed: () => _enterMatch('fright_${widget.eventId}_round_$_currentRound', _currentRound),
+                      icon: const Icon(Icons.login, color: Colors.white),
+                      label: Text('JOIN ROUND $_currentRound IN PROGRESS', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                     )
                   else
                     const Center(
@@ -285,9 +350,6 @@ class _FrightNightStagingScreenState extends State<FrightNightStagingScreen> {
   }
 }
 
-// ==========================================
-// REQUIRED OVERLAYS FOR THE GAME WIDGET
-// ==========================================
 class SearchingOverlay extends StatelessWidget {
   final GraveStakesGame game;
   const SearchingOverlay({super.key, required this.game});

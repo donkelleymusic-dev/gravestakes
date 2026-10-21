@@ -1,3 +1,4 @@
+// store_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -5,6 +6,7 @@ import 'package:showcaseview/showcaseview.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'ad_manager.dart';
+import 'audio_manager.dart';
 
 import 'vessel_opener_overlay.dart';
 import 'loadout_screen.dart';
@@ -26,23 +28,20 @@ class _StoreScreenState extends State<StoreScreen> {
   int _playerCoins = 0;
   bool _isLoading = true;
 
-  // Free Drop Timer Mechanics
   DateTime? _lastFreeDropTime;
   Timer? _countdownTimer;
   String _freeDropTimeRemaining = '';
   bool _canClaimFreeDrop = false;
 
-  final GlobalKey _backKey = GlobalKey();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  final GlobalKey _freeDropKey = GlobalKey(); // Repurposed for tutorial
+  final GlobalKey _freeDropKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
-    AdManager.instance.loadRewardedAd(); // Pre-load the video
+    AdManager.instance.loadRewardedAd();
     _loadStoreData();
     
-    // Updates the countdown UI every minute
     _countdownTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
       if (mounted) _updateFreeDropTimer();
     });
@@ -59,26 +58,37 @@ class _StoreScreenState extends State<StoreScreen> {
     if (user == null) return;
 
     try {
+      // Query wearables first (since player.dart reads wearables), falling back to abilities
+      List<Map<String, dynamic>> catalog = [];
+      try {
+        final wearablesRes = await supabase.from('wearables').select('*');
+        if (wearablesRes.isNotEmpty) {
+          catalog = List<Map<String, dynamic>>.from(wearablesRes);
+        }
+      } catch (_) {}
+
+      if (catalog.isEmpty) {
+        final abilitiesRes = await supabase.from('abilities').select('*');
+        catalog = List<Map<String, dynamic>>.from(abilitiesRes);
+      }
+
       final responses = await Future.wait<dynamic>([
         supabase.from('wallets').select('shadows, coins').eq('id', user.id).single(),
-        supabase.from('abilities').select('*'),
         supabase.from('player_loadouts').select('ability_id').eq('player_id', user.id),
       ]);
 
       final walletData = responses[0] as Map<String, dynamic>;
-      final abilityLoadouts = List<Map<String, dynamic>>.from(responses[2]); 
+      final abilityLoadouts = List<Map<String, dynamic>>.from(responses[1]); 
       
       _ownedAbilityIds = abilityLoadouts
           .where((row) => row['ability_id'] != null)
           .map((row) => row['ability_id'].toString())
           .toList();
 
-      // Check local SharedPreferences for the last free claim time
       final prefs = await SharedPreferences.getInstance();
       final currentPhase = prefs.getString('tutorial_phase') ?? 'market';
       final lastClaimIso = prefs.getString('last_free_drop_${user.id}');
 
-      // NEW: Only trigger if the phase is strictly 'market' and NOT 'completed'
       if (currentPhase == 'market') {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && _scaffoldKey.currentContext != null) {
@@ -95,7 +105,7 @@ class _StoreScreenState extends State<StoreScreen> {
         setState(() {
           _playerShadows = walletData['shadows'] ?? 0;
           _playerCoins = walletData['coins'] ?? 0;
-          _abilities = List<Map<String, dynamic>>.from(responses[1]); 
+          _abilities = catalog; 
           _isLoading = false;
         });
         _updateFreeDropTimer();
@@ -138,7 +148,7 @@ class _StoreScreenState extends State<StoreScreen> {
     final user = supabase.auth.currentUser;
     if (user == null || !_canClaimFreeDrop) return;
 
-    final rewardCoins = 50;
+    const int rewardCoins = 50;
     
     try {
       await supabase.from('wallets').update({
@@ -182,18 +192,14 @@ class _StoreScreenState extends State<StoreScreen> {
       return;
     }
 
-    setState(() => _isLoading = true); // Block the UI so they don't double-charge
+    setState(() => _isLoading = true);
 
     try {
-      // 1. Process the transaction
-      await supabase.rpc('buy_item', params: {
-        'p_item_type': 'vessel',
-        'p_item_id': vesselType,
-        'p_price': price,
-        'p_currency': currency,
-      });
+      // Deduct wallet currency directly so we don't pollute user_inventory with permanent 'vessel' rows
+      await supabase.from('wallets').update({
+        currency: currentBalance - price,
+      }).eq('id', user.id);
 
-      // 2. Update local wallets
       setState(() {
         if (currency == 'coins') {
           _playerCoins -= price;
@@ -203,11 +209,11 @@ class _StoreScreenState extends State<StoreScreen> {
         _isLoading = false;
       });
 
-      // 3. Trigger the Opener Animation!
       if (mounted) {
         await VesselOpenerOverlay.show(context, vesselType);
+        // Re-sync wallet balance in case the vessel dropped extra coins or shadows!
+        await _loadStoreData();
         
-        // 4. Offer a direct portal to the Crypt once they close the loot screen
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -222,10 +228,7 @@ class _StoreScreenState extends State<StoreScreen> {
                 label: 'ENTER CRYPT',
                 textColor: Colors.greenAccent,
                 onPressed: () {
-                  // --- NEW: Safe mounted check! ---
                   if (!mounted) return; 
-                  
-                  // Teleport them to the Loadout screen
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const LoadoutScreen()),
                   );
@@ -241,9 +244,42 @@ class _StoreScreenState extends State<StoreScreen> {
     }
   }
 
-  Future<void> _buyAbility(String abilityId, int price, String currency) async {
+  Future<void> _exchangeShadowsForCoins(int shadowCost, int coinReward) async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
+
+    if (_playerShadows < shadowCost) {
+      _showError('Not enough SHADOWS! Need $shadowCost Shadows.');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final int newShadows = _playerShadows - shadowCost;
+      final int newCoins = _playerCoins + coinReward;
+
+      await supabase.from('wallets').update({
+        'shadows': newShadows,
+        'coins': newCoins,
+      }).eq('id', user.id);
+
+      if (mounted) {
+        setState(() {
+          _playerShadows = newShadows;
+          _playerCoins = newCoins;
+          _isLoading = false;
+        });
+        _showSuccess('Exchanged $shadowCost Shadows for +$coinReward Coins!');
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+      _showError('Exchange failed: $e');
+    }
+  }
+
+  Future<void> _buyAbility(String abilityId, int price, String currency) async {
+    final user = supabase.auth.currentUser;
+    if (user == null || _ownedAbilityIds.contains(abilityId)) return;
 
     int currentBalance = currency == 'coins' ? _playerCoins : _playerShadows;
     if (currentBalance < price) {
@@ -254,21 +290,23 @@ class _StoreScreenState extends State<StoreScreen> {
     try {
       await supabase.from('wallets').update({
         currency: currentBalance - price
-      }).eq('id', user.id).select();
+      }).eq('id', user.id);
 
       await supabase.from('player_loadouts').upsert({
         'player_id': user.id,
         'ability_id': abilityId,
         'is_equipped': true,
-      }).select();
+      });
 
       setState(() {
-        if (currency == 'coins') _playerCoins -= price;
-        else _playerShadows -= price;
-        
+        if (currency == 'coins') {
+          _playerCoins -= price;
+        } else {
+          _playerShadows -= price;
+        }
         if (!_ownedAbilityIds.contains(abilityId)) _ownedAbilityIds.add(abilityId);
       });
-      _showSuccess('Account Perk Unlocked!');
+      _showSuccess('Account Perk Unlocked & Equipped!');
     } catch (e) {
       _showError('Transaction failed: $e');
     }
@@ -317,7 +355,7 @@ class _StoreScreenState extends State<StoreScreen> {
                 children: [
                   const Text('THE SMUGGLER\'S DROP', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  Text('Contains Operative Shards and Coins.', style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+                  Text('Contains +50 Coins and Standard Mask.', style: TextStyle(color: Colors.grey[400], fontSize: 12)),
                   const SizedBox(height: 6),
                   Text(_freeDropTimeRemaining, style: TextStyle(color: _canClaimFreeDrop ? Colors.greenAccent : Colors.orangeAccent, fontSize: 11, fontWeight: FontWeight.bold)),
                 ],
@@ -418,9 +456,8 @@ class _StoreScreenState extends State<StoreScreen> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800]),
-            onPressed: () {
-              _showError('Exchange coming soon.');
-            },
+            // FIXED: Actually performs the Shadow -> Coin exchange!
+            onPressed: () => _exchangeShadowsForCoins(shadowCost, coinReward),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -435,7 +472,6 @@ class _StoreScreenState extends State<StoreScreen> {
     );
   }
 
-  // --- NEW: THE REWARDED AD BUTTON WIDGET ---
   Widget _buildAdCard() {
     return Container(
       margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
@@ -464,8 +500,11 @@ class _StoreScreenState extends State<StoreScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.green[800]),
             onPressed: () {
+              // FIXED: Mute background music before playing video ad to comply with AdMob policy
+              AudioManager.instance.mute();
               AdManager.instance.showRewardedAd(
                 onRewardEarned: () async {
+                  AudioManager.instance.unmute();
                   final user = supabase.auth.currentUser;
                   if (user != null) {
                     setState(() => _playerCoins += 25);
@@ -474,6 +513,7 @@ class _StoreScreenState extends State<StoreScreen> {
                   }
                 },
                 onAdFailed: () {
+                  AudioManager.instance.unmute();
                   _showError('No ads available right now. Check back later!');
                 }
               );
@@ -584,31 +624,29 @@ class _StoreScreenState extends State<StoreScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // 1. PREMIUM VESSELS FIRST
+                    // 1. PREMIUM VESSELS (FIXED DESCRIPTIONS TO MATCH SQL LOOT TABLES)
                     _buildSectionHeader('VESSELS', Icons.all_inbox),
                     _buildVesselCard(
                       'VOID CHRYSALIS', 
-                      'Contains common Operative shards and base gear.', 
+                      'Legendary Reliquary (3x Pulls). Highest chance for rare Operatives & Cosmetics.', 
                       500, 'coins', 'void_chrysalis', 
-                      Colors.cyanAccent, Icons.widgets
+                      Colors.purpleAccent, Icons.auto_awesome
                     ),
                     _buildVesselCard(
                       'SOUL CASKET', 
-                      'Guaranteed rare shards and premium modifiers.', 
+                      'Rare Casket (2x Pulls). Contains Operative shards and currency.', 
                       100, 'shadows', 'soul_casket', 
-                      Colors.purpleAccent, Icons.auto_awesome
+                      Colors.cyanAccent, Icons.widgets
                     ),
 
-                    // 2. FREE DROP SCROLL-TRAP
+                    // 2. FREE DROP
                     _buildSectionHeader('DAILY SUPPLIES', Icons.access_time),
                     _buildFreeDropSection(),
 
                     // 3. CURRENCY EXCHANGE & ADS
                     _buildSectionHeader('CURRENCY EXCHANGE', Icons.swap_horiz),
-                    _buildAdCard(), // <--- NEW: Inserted here!
-                    // NEW: 1000 Shadows yields 50 Coins
+                    _buildAdCard(),
                     _buildExchangeCard('Smuggler\'s Purse', 1000, 50),
-                    // NEW: 6000 Shadows yields 250 Coins (Slight bulk discount)
                     _buildExchangeCard('Shadow Syndicate Vault', 6000, 250),
 
                     // 4. ACCOUNT PERKS

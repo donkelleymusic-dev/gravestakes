@@ -1,3 +1,4 @@
+// friends_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:share_plus/share_plus.dart';
@@ -24,6 +25,12 @@ class _FriendsScreenState extends State<FriendsScreen> {
     _loadSocialData();
   }
 
+  @override
+  void dispose() {
+    _codeController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadSocialData() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
@@ -40,17 +47,32 @@ class _FriendsScreenState extends State<FriendsScreen> {
           .select('id, user_id, friend_id, status')
           .or('user_id.eq.${user.id},friend_id.eq.${user.id}');
 
+      final List<Map<String, dynamic>> rawList = List<Map<String, dynamic>>.from(friendshipsRes);
+      final Set<String> otherIds = {};
+      for (var f in rawList) {
+        final String otherId = f['user_id'] == user.id ? f['friend_id'] : f['user_id'];
+        otherIds.add(otherId);
+      }
+
+      // FIXED: Batch-fetch all friend profiles in a single query instead of an N+1 loop!
+      final Map<String, Map<String, dynamic>> profilesById = {};
+      if (otherIds.isNotEmpty) {
+        final profilesRes = await supabase
+            .from('profiles')
+            .select('id, username, level')
+            .inFilter('id', otherIds.toList());
+        for (var p in profilesRes) {
+          profilesById[p['id'] as String] = p;
+        }
+      }
+
       List<Map<String, dynamic>> activeFriends = [];
       List<Map<String, dynamic>> pending = [];
 
-      for (var f in friendshipsRes) {
-        final otherId = f['user_id'] == user.id ? f['friend_id'] : f['user_id'];
-        
-        final otherProfile = await supabase
-            .from('profiles')
-            .select('id, username, level')
-            .eq('id', otherId)
-            .single();
+      for (var f in rawList) {
+        final String otherId = f['user_id'] == user.id ? f['friend_id'] : f['user_id'];
+        final otherProfile = profilesById[otherId];
+        if (otherProfile == null) continue;
 
         final friendData = {
           'friendship_id': f['id'],
@@ -76,6 +98,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
       }
     } catch (e) {
       debugPrint('Error loading social data: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -184,7 +207,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
                             Text(_myFriendCode, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 2)),
                           ],
                         ),
-                        // REPLACE THE STATIC ICON WITH THIS BUTTON:
                         IconButton(
                           icon: const Icon(Icons.share, color: Colors.redAccent),
                           onPressed: () => _showShareMenu(_myFriendCode),
@@ -272,7 +294,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
                                       children: [
                                         Text(friend['username'], style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                                         const SizedBox(height: 4),
-                                        const Text('Level • Online', style: TextStyle(color: Colors.greenAccent, fontSize: 12)),
+                                        // FIXED: Display actual friend level
+                                        Text('Level ${friend['level']} • Ally', style: const TextStyle(color: Colors.greenAccent, fontSize: 12)),
                                       ],
                                     ),
                                     const Icon(Icons.bolt, color: Colors.redAccent),
@@ -306,8 +329,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2, fontFamily: 'Courier'),
               ),
               const SizedBox(height: 20),
-              
-              // --- 1. EXTERNAL OS SHARING ---
               ListTile(
                 leading: const Icon(Icons.share, color: Colors.cyanAccent),
                 title: const Text('Share via Message / Social', style: TextStyle(color: Colors.white)),
@@ -319,10 +340,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   );
                 },
               ),
-              
               const Divider(color: Colors.white24),
-              
-              // --- 2. INTERNAL GUILD SHARING ---
               ListTile(
                 leading: const Icon(Icons.shield, color: Colors.purpleAccent),
                 title: const Text('Send to Guild Chat', style: TextStyle(color: Colors.white)),
@@ -343,7 +361,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
     if (user == null) return;
 
     try {
-      // 1. Find the user's active guild
       final membership = await Supabase.instance.client
           .from('guild_members')
           .select('guild_id')
@@ -355,12 +372,12 @@ class _FriendsScreenState extends State<FriendsScreen> {
         return;
       }
 
-      // 2. Post the message to the guild_messages table
+      // FIXED: Use 'sender_id' and put 'type' inside 'metadata' to match guild_messages schema!
       await Supabase.instance.client.from('guild_messages').insert({
         'guild_id': membership['guild_id'],
-        'user_id': user.id,
+        'sender_id': user.id,
         'message': 'Hey, add my friend code! $friendCode',
-        'type': 'system_share', // Optional: Allows you to style this uniquely in the chat UI
+        'metadata': {'type': 'system_share'},
       });
 
       if (mounted) {

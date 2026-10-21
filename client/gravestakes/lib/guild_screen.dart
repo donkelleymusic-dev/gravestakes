@@ -23,6 +23,7 @@ class _GuildScreenState extends State<GuildScreen> {
 
   bool _isLoading = true;
   Map<String, dynamic>? _myGuild;
+  Map<String, dynamic>? _guestPassEvent; // FIXED: Declared here for Mercenary/Reddit Guest Passes
   String _myRole = 'member';
   List<Map<String, dynamic>> _members = [];
   List<Map<String, dynamic>> _publicGuilds = [];
@@ -72,7 +73,7 @@ class _GuildScreenState extends State<GuildScreen> {
 
         final membersRes = await supabase
             .from('guild_members')
-            .select('user_id, role, profiles(username, level)')
+            .select('user_id, role, weekly_ip, profiles(username, level)')
             .eq('guild_id', guildId);
 
         await _fetchMessages(guildId);
@@ -87,9 +88,30 @@ class _GuildScreenState extends State<GuildScreen> {
         _subscribeToChat(guildId);
       } else {
         final publicRes = await supabase.from('guilds').select('*');
+
+        // Check if this solo player holds a Reddit/Mercenary Guest Pass!
+        Map<String, dynamic>? activeGuestEvent;
+        try {
+          final rsvpRes = await supabase
+              .from('fright_night_rsvps')
+              .select('event_id, guild_fright_nights(*)')
+              .eq('user_id', user.id)
+              .eq('status', 'guest_pass')
+              .order('created_at', ascending: false)
+              .limit(1)
+              .maybeSingle();
+          if (rsvpRes != null && rsvpRes['guild_fright_nights'] != null) {
+            final ev = rsvpRes['guild_fright_nights'] as Map<String, dynamic>;
+            if (ev['event_status'] != 'completed') {
+              activeGuestEvent = ev;
+            }
+          }
+        } catch (_) {}
+
         if (mounted) {
           setState(() {
             _publicGuilds = List<Map<String, dynamic>>.from(publicRes);
+            _guestPassEvent = activeGuestEvent;
             _myGuild = null;
             _isLoading = false;
           });
@@ -97,31 +119,38 @@ class _GuildScreenState extends State<GuildScreen> {
       }
     } catch (e) {
       debugPrint('Error loading guild data: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _fetchMessages(String guildId) async {
-    // UPDATED: Now selects the new 'metadata' column
-    final messagesRes = await supabase
-        .from('guild_messages')
-        .select('id, message, sender_id, created_at, metadata, profiles(username)')
-        .eq('guild_id', guildId)
-        .order('created_at', ascending: true)
-        .limit(50);
+    try {
+      final messagesRes = await supabase
+          .from('guild_messages')
+          .select('id, message, sender_id, created_at, metadata, profiles(username)')
+          .eq('guild_id', guildId)
+          .order('created_at', ascending: true)
+          .limit(50);
 
-    final user = supabase.auth.currentUser;
-    if (user != null) {
-      final rsvpRes = await supabase.from('fright_night_rsvps').select('event_id, status').eq('user_id', user.id);
-      _myRsvps.clear();
-      for (var row in rsvpRes) {
-        _myRsvps[row['event_id'].toString()] = row['status'];
+      final user = supabase.auth.currentUser;
+      if (user != null) {
+        final rsvpRes = await supabase
+            .from('fright_night_rsvps')
+            .select('event_id, status')
+            .eq('user_id', user.id);
+        _myRsvps.clear();
+        for (var row in rsvpRes) {
+          _myRsvps[row['event_id'].toString()] = row['status'];
+        }
       }
-    }
 
-    if (mounted) {
-      setState(() {
-        _messages = List<Map<String, dynamic>>.from(messagesRes);
-      });
+      if (mounted) {
+        setState(() {
+          _messages = List<Map<String, dynamic>>.from(messagesRes);
+        });
+      }
+    } catch (e) {
+      debugPrint('Network timeout fetching guild messages: $e');
     }
   }
 
@@ -381,21 +410,33 @@ class _GuildScreenState extends State<GuildScreen> {
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
-    final String mode = metadata['mode'];
+    // Fetch fresh metadata from DB to prevent race conditions when multiple guildmates tap JOIN
+    Map<String, dynamic> currentMeta = Map<String, dynamic>.from(metadata);
+    try {
+      final latestRow = await supabase
+          .from('guild_messages')
+          .select('metadata')
+          .eq('id', messageId)
+          .maybeSingle();
+      if (latestRow != null && latestRow['metadata'] != null) {
+        currentMeta = Map<String, dynamic>.from(latestRow['metadata']);
+      }
+    } catch (_) {}
+
+    final String mode = currentMeta['mode'] ?? '1v1';
     final int targetPlayers = mode == '1v1' ? 2 : 4;
-    final String customRoomId = metadata['room_id'];
-    List<String> players = List<String>.from(metadata['players'] ?? []);
+    final String customRoomId = currentMeta['room_id'];
+    List<String> players = List<String>.from(currentMeta['players'] ?? []);
 
     if (!players.contains(user.id)) {
       players.add(user.id);
       
       String newStatus = players.length >= targetPlayers ? 'playing' : 'waiting';
-      Map<String, dynamic> newMetadata = Map.from(metadata);
-      newMetadata['players'] = players;
-      newMetadata['status'] = newStatus;
+      currentMeta['players'] = players;
+      currentMeta['status'] = newStatus;
 
       await supabase.from('guild_messages').update({
-        'metadata': newMetadata
+        'metadata': currentMeta
       }).eq('id', messageId);
     }
 
@@ -411,7 +452,6 @@ class _GuildScreenState extends State<GuildScreen> {
     Map<String, dynamic> newMetadata = Map.from(metadata);
     newMetadata['status'] = 'cancelled';
 
-    // 1. Optimistic local update (makes the UI feel instantly responsive)
     setState(() {
       final index = _messages.indexWhere((m) => m['id'].toString() == messageId);
       if (index != -1) {
@@ -420,20 +460,16 @@ class _GuildScreenState extends State<GuildScreen> {
     });
 
     try {
-      // 2. Fire the database update
       await supabase.from('guild_messages').update({
         'metadata': newMetadata
       }).eq('id', messageId);
-      
     } catch (e) {
-      // 3. Surface the error so we aren't flying blind
       debugPrint('Error cancelling scrimmage: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to cancel (RLS issue?): $e'), backgroundColor: Colors.red),
         );
       }
-      // Revert the optimistic update if it failed
       _fetchMessages(_myGuild!['id']); 
     }
   }
@@ -450,7 +486,6 @@ class _GuildScreenState extends State<GuildScreen> {
               isGuildScrimmage: true,
               scrimmageMessageId: messageId,
             ),
-            // THE FIX: Add the loadingBuilder to show UI during asset extraction
             loadingBuilder: (context) => Container(
               color: Colors.black,
               child: const Center(
@@ -516,8 +551,6 @@ class _GuildScreenState extends State<GuildScreen> {
     );
   }
 
-  
-
   Future<void> _scheduleFrightNight(DateTime scheduledTime, String chaosMode) async {
     final user = supabase.auth.currentUser;
     if (user == null || _myGuild == null) return;
@@ -545,7 +578,7 @@ class _GuildScreenState extends State<GuildScreen> {
         'sender_id': user.id,
         'message': 'A new Fright Night has been scheduled!',
         'metadata': {
-          'type': 'fright_night_invite', // <-- Moved inside metadata!
+          'type': 'fright_night_invite',
           'event_id': eventRes['id'],
           'title': 'OP: ${chaosMode.toUpperCase()}',
           'time': scheduledTime.toUtc().toIso8601String(),
@@ -560,55 +593,7 @@ class _GuildScreenState extends State<GuildScreen> {
     }
   }
 
-
-
-  void _showChallengeMenu() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.grey[900],
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('ISSUE CHALLENGE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-            const Divider(color: Colors.grey),
-            ListTile(
-              leading: const Icon(Icons.person, color: Colors.orangeAccent),
-              title: const Text('1v1 Sparring Match', style: TextStyle(color: Colors.white)),
-              subtitle: const Text('No cost, no loot. Just glory.', style: TextStyle(color: Colors.white54, fontSize: 12)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _sendScrimmageInvite('1v1');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.people, color: Colors.orangeAccent),
-              title: const Text('2v2 Squad Scrimmage', style: TextStyle(color: Colors.white)),
-              subtitle: const Text('Team training session.', style: TextStyle(color: Colors.white54, fontSize: 12)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _sendScrimmageInvite('2v2');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.people, color: Colors.orangeAccent),
-              title: const Text('2v2 Squad Scrimmage', style: TextStyle(color: Colors.white)),
-              subtitle: const Text('Team training session.', style: TextStyle(color: Colors.white54, fontSize: 12)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _sendScrimmageInvite('2v2');
-              },
-            ),
-            // --- NEW: FRIGHT NIGHT BUTTON ---
-            if (_myRole == 'founder' || _myRole == 'officer') ...[
-              const Divider(color: Colors.grey),
-              ListTile(
-                leading: const Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
-                title: const Text('Schedule Fright Night', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-                subtitle: const Text('Massive guild-wide survival event.', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                onTap: () {void _showFrightNightScheduler() {
+  void _showFrightNightScheduler() {
     DateTime selectedDate = DateTime.now().add(const Duration(days: 1));
     TimeOfDay selectedTime = const TimeOfDay(hour: 19, minute: 0); 
     String selectedModifier = 'swarm';
@@ -687,6 +672,44 @@ class _GuildScreenState extends State<GuildScreen> {
       ),
     );
   }
+
+  void _showChallengeMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('ISSUE CHALLENGE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+            const Divider(color: Colors.grey),
+            ListTile(
+              leading: const Icon(Icons.person, color: Colors.orangeAccent),
+              title: const Text('1v1 Sparring Match', style: TextStyle(color: Colors.white)),
+              subtitle: const Text('No cost, no loot. Just glory.', style: TextStyle(color: Colors.white54, fontSize: 12)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _sendScrimmageInvite('1v1');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.people, color: Colors.orangeAccent),
+              title: const Text('2v2 Squad Scrimmage', style: TextStyle(color: Colors.white)),
+              subtitle: const Text('Team training session.', style: TextStyle(color: Colors.white54, fontSize: 12)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _sendScrimmageInvite('2v2');
+              },
+            ),
+            if (_myRole == 'founder' || _myRole == 'officer') ...[
+              const Divider(color: Colors.grey),
+              ListTile(
+                leading: const Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
+                title: const Text('Schedule Fright Night', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                subtitle: const Text('Massive guild-wide survival event.', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                onTap: () {
                   Navigator.pop(ctx);
                   _showFrightNightScheduler();
                 },
@@ -712,7 +735,6 @@ class _GuildScreenState extends State<GuildScreen> {
           int currentDividend = _myGuild?['dividend_rate'] ?? 20;
           String currentDoctrine = _myGuild?['active_doctrine'] ?? 'none';
           String currentStrike = _myGuild?['active_strike'] ?? 'none';
-          int vaultCoins = _myGuild?['vault_coins'] ?? 0;
           int vaultShadows = _myGuild?['vault_shadows'] ?? 0;
 
           Future<void> updateGuildField(String field, dynamic value) async {
@@ -772,51 +794,51 @@ class _GuildScreenState extends State<GuildScreen> {
                       const Divider(height: 30, color: Colors.white24),
 
                       // SECTION 2: PERMANENT PASSIVES (GUILD DOCTRINES)
-const Text('GUILD DOCTRINE (SPECIES FOCUS)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'Courier')),
-const SizedBox(height: 4),
-const Text('Buffs squad defense & scare power against specific target types.', style: TextStyle(color: Colors.grey, fontSize: 11, fontFamily: 'Courier')),
-const SizedBox(height: 12),
+                      const Text('GUILD DOCTRINE (SPECIES FOCUS)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'Courier')),
+                      const SizedBox(height: 4),
+                      const Text('Buffs squad defense & scare power against specific target types.', style: TextStyle(color: Colors.grey, fontSize: 11, fontFamily: 'Courier')),
+                      const SizedBox(height: 12),
 
-_buildDoctrineCard(
-  title: 'Xenophobic Protocol',
-  desc: '+10% Scare Stun against ALIEN species.',
-  id: 'alien',
-  current: currentDoctrine,
-  isFounder: isFounder,
-  onSelect: () => updateGuildField('active_doctrine', 'alien'),
-),
-_buildDoctrineCard(
-  title: 'Bestial Ward',
-  desc: '+10% Scare Stun against BEAST species.',
-  id: 'beast',
-  current: currentDoctrine,
-  isFounder: isFounder,
-  onSelect: () => updateGuildField('active_doctrine', 'beast'),
-),
-_buildDoctrineCard(
-  title: 'Anti-Tech Protocol',
-  desc: '+10% Scare Stun against CYBERNETIC species.',
-  id: 'cybernetic',
-  current: currentDoctrine,
-  isFounder: isFounder,
-  onSelect: () => updateGuildField('active_doctrine', 'cybernetic'),
-),
-_buildDoctrineCard(
-  title: 'Phantom Bane',
-  desc: '+10% Scare Stun against GHOST species.',
-  id: 'ghost',
-  current: currentDoctrine,
-  isFounder: isFounder,
-  onSelect: () => updateGuildField('active_doctrine', 'ghost'),
-),
-_buildDoctrineCard(
-  title: 'Bio-Defense Pact',
-  desc: '+10% Scare Stun against HUMANOID species.',
-  id: 'humanoid',
-  current: currentDoctrine,
-  isFounder: isFounder,
-  onSelect: () => updateGuildField('active_doctrine', 'humanoid'),
-),
+                      _buildDoctrineCard(
+                        title: 'Xenophobic Protocol',
+                        desc: '+10% Scare Stun against ALIEN species.',
+                        id: 'alien',
+                        current: currentDoctrine,
+                        isFounder: isFounder,
+                        onSelect: () => updateGuildField('active_doctrine', 'alien'),
+                      ),
+                      _buildDoctrineCard(
+                        title: 'Bestial Ward',
+                        desc: '+10% Scare Stun against BEAST species.',
+                        id: 'beast',
+                        current: currentDoctrine,
+                        isFounder: isFounder,
+                        onSelect: () => updateGuildField('active_doctrine', 'beast'),
+                      ),
+                      _buildDoctrineCard(
+                        title: 'Anti-Tech Protocol',
+                        desc: '+10% Scare Stun against CYBERNETIC species.',
+                        id: 'cybernetic',
+                        current: currentDoctrine,
+                        isFounder: isFounder,
+                        onSelect: () => updateGuildField('active_doctrine', 'cybernetic'),
+                      ),
+                      _buildDoctrineCard(
+                        title: 'Phantom Bane',
+                        desc: '+10% Scare Stun against GHOST species.',
+                        id: 'ghost',
+                        current: currentDoctrine,
+                        isFounder: isFounder,
+                        onSelect: () => updateGuildField('active_doctrine', 'ghost'),
+                      ),
+                      _buildDoctrineCard(
+                        title: 'Bio-Defense Pact',
+                        desc: '+10% Scare Stun against HUMANOID species.',
+                        id: 'humanoid',
+                        current: currentDoctrine,
+                        isFounder: isFounder,
+                        onSelect: () => updateGuildField('active_doctrine', 'humanoid'),
+                      ),
                       const Divider(height: 30, color: Colors.white24),
 
                       // SECTION 3: TACTICAL STRIKES (PRIME-TIME CONSUMABLES)
@@ -831,20 +853,34 @@ _buildDoctrineCard(
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('The Scrambler', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
-                                Text('Blinds node progress tracking for rivals (Cost: 500 Shadows)', style: TextStyle(color: Colors.grey, fontSize: 10, fontFamily: 'Courier')),
-                              ],
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('The Scrambler', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
+                                  Text('Blinds node progress tracking for rivals (Cost: 500 Shadows)', style: TextStyle(color: Colors.grey, fontSize: 10, fontFamily: 'Courier')),
+                                ],
+                              ),
                             ),
                             ElevatedButton(
                               style: ElevatedButton.styleFrom(backgroundColor: Colors.purple[800]),
-                              onPressed: isFounder && vaultShadows >= 500 ? () {
-                                // Deduct shadows & activate strike logic here
-                                updateGuildField('active_strike', 'scrambler');
+                              onPressed: isFounder && vaultShadows >= 500 && currentStrike != 'scrambler' ? () async {
+                                final int newShadows = vaultShadows - 500;
+                                try {
+                                  await supabase.from('guilds').update({
+                                    'active_strike': 'scrambler',
+                                    'vault_shadows': newShadows,
+                                  }).eq('id', _myGuild!['id']);
+                                  setState(() {
+                                    _myGuild!['active_strike'] = 'scrambler';
+                                    _myGuild!['vault_shadows'] = newShadows;
+                                  });
+                                  setStateModal(() {});
+                                } catch (e) {
+                                  debugPrint('Error deploying scrambler: $e');
+                                }
                               } : null,
-                              child: const Text('DEPLOY', style: TextStyle(color: Colors.white, fontFamily: 'Courier', fontSize: 11)),
+                              child: Text(currentStrike == 'scrambler' ? 'DEPLOYED' : 'DEPLOY', style: const TextStyle(color: Colors.white, fontFamily: 'Courier', fontSize: 11)),
                             ),
                           ],
                         ),
@@ -930,6 +966,48 @@ _buildDoctrineCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // FIXED: Mercenary / Reddit Guest Pass Banner so non-guild invitees can enter Fright Night!
+          if (_guestPassEvent != null) ...[
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 20),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red[950],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amberAccent, width: 2),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    '🎟️ MERCENARY GUEST PASS: ${_guestPassEvent!['title']}',
+                    style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red[800]),
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => FrightNightStagingScreen(
+                            eventId: _guestPassEvent!['id'].toString(),
+                            chaosMode: _guestPassEvent!['chaos_modifier'] ?? 'swarm',
+                            isLeader: false,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.meeting_room, color: Colors.white),
+                    label: const Text(
+                      'ENTER FRIGHT NIGHT STAGING LOUNGE',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const Text('CREATE A GUILD', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16)),
           const SizedBox(height: 12),
           TextField(
@@ -1007,7 +1085,7 @@ _buildDoctrineCard(
 
     final myId = supabase.auth.currentUser?.id;
     final alreadyJoined = myId != null && players.contains(myId);
-    final isHost = msg['sender_id'] == myId; // Check if I created the invite
+    final isHost = msg['sender_id'] == myId;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12.0),
@@ -1105,15 +1183,33 @@ _buildDoctrineCard(
 
     return Column(
       children: [
+        // Consolidated Top Guild Header & Treasury Button
         Container(
           padding: const EdgeInsets.all(12),
           color: Colors.grey[900],
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
+          child: Column(
             children: [
-              Text('Level $guildLevel Guild', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
-              Text('Vault Shadows: $vaultShadows', style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'Courier')),
-              Text('Vault Coins: $vaultCoins', style: const TextStyle(color: Colors.amberAccent, fontSize: 12, fontFamily: 'Courier')),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  Text('Level $guildLevel Guild', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
+                  Text('Shadows: $vaultShadows', style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'Courier')),
+                  Text('Coins: $vaultCoins', style: const TextStyle(color: Colors.amberAccent, fontSize: 12, fontFamily: 'Courier')),
+                ],
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.purpleAccent),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                ),
+                onPressed: () => _showTreasuryModal(context),
+                icon: const Icon(Icons.account_balance, color: Colors.purpleAccent, size: 16),
+                label: Text(
+                  isFounder ? 'MANAGE TREASURY & DOCTRINES' : 'VIEW GUILD VAULT',
+                  style: const TextStyle(color: Colors.purpleAccent, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Courier'),
+                ),
+              ),
             ],
           ),
         ),
@@ -1147,12 +1243,10 @@ _buildDoctrineCard(
               final msg = _messages[index];
               final metadata = msg['metadata'] as Map<String, dynamic>? ?? {};
 
-              // --- UPDATED: Scrimmage Intercept ---
               if (msg['message_type'] == 'scrimmage_invite' || metadata['type'] == 'scrimmage_invite') {
                 return _buildScrimmageBubble(msg, metadata);
               }
 
-              // --- NEW: Fright Night Intercepts ---
               if (metadata['type'] == 'fright_night_invite') {
                 return FrightNightChatCard(
                   messageMeta: metadata,
@@ -1165,7 +1259,6 @@ _buildDoctrineCard(
                 return FrightNightResultsCard(messageMeta: metadata);
               }
 
-              // --- EXISTING: Standard Chat Messages ---
               final profile = msg['profiles'] ?? {};
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8.0),
@@ -1178,9 +1271,10 @@ _buildDoctrineCard(
           ),
         ),
 
+        // FIXED: Dark grey background so white chat text is clearly legible while typing
         Container(
           padding: const EdgeInsets.all(8),
-          color: const Color.fromARGB(255, 226, 182, 182),
+          color: Colors.grey[850],
           child: Row(
             children: [
               IconButton(
@@ -1205,36 +1299,6 @@ _buildDoctrineCard(
             ],
           ),
         ),
-        // Inside _buildGuildDashboard() in guild_screen.dart:
-Container(
-  padding: const EdgeInsets.all(12),
-  color: Colors.grey[900],
-  child: Column(
-    children: [
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          Text('Level $guildLevel Guild', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
-          Text('Shadows: $vaultShadows', style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'Courier')),
-          Text('Coins: $vaultCoins', style: const TextStyle(color: Colors.amberAccent, fontSize: 12, fontFamily: 'Courier')),
-        ],
-      ),
-      const SizedBox(height: 8),
-      OutlinedButton.icon(
-        style: OutlinedButton.styleFrom(
-          side: const BorderSide(color: Colors.purpleAccent),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        ),
-        onPressed: () => _showTreasuryModal(context),
-        icon: const Icon(Icons.account_balance, color: Colors.purpleAccent, size: 16),
-        label: Text(
-          isFounder ? 'MANAGE TREASURY & DOCTRINES' : 'VIEW GUILD VAULT',
-          style: const TextStyle(color: Colors.purpleAccent, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Courier'),
-        ),
-      ),
-    ],
-  ),
-),
       ],
     );
   }
@@ -1282,7 +1346,6 @@ class FrightNightResultsCard extends StatelessWidget {
           const Divider(color: Colors.redAccent, height: 1),
           const SizedBox(height: 12),
           
-          // --- THE SCOREBOARD ---
           ...List.generate(rankings.length, (index) {
             final entry = rankings[index];
             final isMVP = index == 0; 
@@ -1325,7 +1388,6 @@ class FrightNightResultsCard extends StatelessWidget {
             );
           }),
 
-          // --- THE HIGHLIGHT REEL POLAROID ---
           if (highlight != null) ...[
             const SizedBox(height: 16),
             Container(
@@ -1363,9 +1425,6 @@ class FrightNightResultsCard extends StatelessWidget {
   }
 }
 
-// ==========================================
-// OVERLAYS FOR SCRIMMAGES
-// ==========================================
 class SearchingOverlay extends StatelessWidget {
   final GraveStakesGame game;
   const SearchingOverlay({super.key, required this.game});
@@ -1437,7 +1496,6 @@ class FrightNightChatCard extends StatelessWidget {
     final DateTime eventTime = DateTime.parse(messageMeta['time']).toLocal();
     final DateTime now = DateTime.now();
     
-    // THE 3 TIME PHASES
     final bool isConcluded = now.isAfter(eventTime.add(const Duration(hours: 3)));
     final bool isLive = !isConcluded && now.isAfter(eventTime.subtract(const Duration(minutes: 15)));
     final bool isUpcoming = now.isBefore(eventTime.subtract(const Duration(minutes: 15)));
@@ -1478,7 +1536,6 @@ class FrightNightChatCard extends StatelessWidget {
           Text('MODIFIER: ${messageMeta['chaos_mode'].toString().toUpperCase()}', style: TextStyle(color: isConcluded ? Colors.grey : Colors.amberAccent, fontSize: 12)),
           const SizedBox(height: 12),
           
-          // --- DYNAMIC PHASE RENDERER ---
           if (isConcluded)
             const Center(
               child: Text('EVENT CONCLUDED', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
@@ -1547,7 +1604,6 @@ class FrightNightChatCard extends StatelessWidget {
     bool isLeader = false;
     
     try {
-      // Check if the current user is the actual creator of the event
       final eventRes = await Supabase.instance.client
           .from('guild_fright_nights')
           .select('creator_id')
@@ -1561,7 +1617,6 @@ class FrightNightChatCard extends StatelessWidget {
 
     if (!context.mounted) return;
     
-    // Route to the multi-round Staging Lounge
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => FrightNightStagingScreen(

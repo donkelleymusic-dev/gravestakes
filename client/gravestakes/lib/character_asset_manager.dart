@@ -6,11 +6,9 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:http/http.dart' as http;
 
 class CharacterAssetManager {
-  // Prevents multiple bots from downloading the exact same ZIP concurrently at match start
   static final Map<String, Future<List<int>>> _inFlightDownloads = {};
   static final Map<String, Uint8List> _webMemoryCache = {};
 
-  /// Fetches the ZIP bytes from local cache if available, otherwise downloads and caches it.
   static Future<List<int>> getZipBytes(String zipPath) {
     if (_inFlightDownloads.containsKey(zipPath)) {
       return _inFlightDownloads[zipPath]!;
@@ -23,24 +21,35 @@ class CharacterAssetManager {
 
   static Future<List<int>> _fetchBytesInternal(String zipPath) async {
     if (zipPath.startsWith('http')) {
-      // Web safe fallback (DefaultCacheManager relies on dart:io / sqflite)
       if (kIsWeb) {
         if (_webMemoryCache.containsKey(zipPath)) {
           return _webMemoryCache[zipPath]!;
         }
-        final response = await http.get(Uri.parse(zipPath));
+        final response = await http.get(Uri.parse(zipPath)).timeout(const Duration(seconds: 10));
         if (response.statusCode == 200) {
           _webMemoryCache[zipPath] = response.bodyBytes;
           return response.bodyBytes;
         }
-        throw Exception('Failed to download asset on web: HTTP ${response.statusCode}');
+        throw Exception('HTTP ${response.statusCode} fetching $zipPath');
       }
 
-      // Mobile/Desktop disk caching
-      final file = await DefaultCacheManager().getSingleFile(zipPath);
-      return await file.readAsBytes();
+      // 1. Check local disk cache first (no network call)
+      final cachedFile = await DefaultCacheManager().getFileFromCache(zipPath);
+      if (cachedFile != null && await cachedFile.file.exists()) {
+        return await cachedFile.file.readAsBytes();
+      }
+
+      // 2. Download via standard http.get with timeout instead of DefaultCacheManager's internal WebHelper queue
+      // This prevents unhandled zoned HttpExceptions (like 504 Gateway Timeout) from crashing Sentry/Play Review!
+      final response = await http.get(Uri.parse(zipPath)).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final bytes = response.bodyBytes;
+        await DefaultCacheManager().putFile(zipPath, bytes, fileExtension: 'zip');
+        return bytes;
+      } else {
+        throw Exception('Supabase Storage returned HTTP ${response.statusCode} for $zipPath');
+      }
     } else {
-      // Fallback for local assets (e.g., 'assets/character_assets.zip')
       final ByteData data = await rootBundle.load(zipPath);
       return data.buffer.asUint8List();
     }
