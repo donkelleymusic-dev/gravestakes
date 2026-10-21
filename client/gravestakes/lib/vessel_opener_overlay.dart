@@ -9,13 +9,27 @@ import 'synth_manager.dart';
 class VesselOpenerOverlay extends StatefulWidget {
   final String vesselId;
   final bool isFromMatch;
+  final int matchXpEarned;
+  final int matchShadowsEarned;
+  final int matchCoinsEarned;
+
   const VesselOpenerOverlay({
     super.key, 
     required this.vesselId,
     this.isFromMatch = false,
+    this.matchXpEarned = 0,
+    this.matchShadowsEarned = 0,
+    this.matchCoinsEarned = 0,
   });
 
-  static Future<void> show(BuildContext context, String vesselId, {bool isFromMatch = false}) async {
+  static Future<void> show(
+    BuildContext context, 
+    String vesselId, {
+    bool isFromMatch = false,
+    int matchXpEarned = 0,
+    int matchShadowsEarned = 0,
+    int matchCoinsEarned = 0,
+  }) async {
     await showGeneralDialog(
       context: context,
       barrierColor: Colors.transparent, 
@@ -23,6 +37,9 @@ class VesselOpenerOverlay extends StatefulWidget {
       pageBuilder: (context, anim1, anim2) => VesselOpenerOverlay(
         vesselId: vesselId, 
         isFromMatch: isFromMatch,
+        matchXpEarned: matchXpEarned,
+        matchShadowsEarned: matchShadowsEarned,
+        matchCoinsEarned: matchCoinsEarned,
       ),
     );
   }
@@ -287,28 +304,56 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.black, side: BorderSide(color: _explosionColor, width: 2)),
                           onPressed: () async {
                             if (widget.isFromMatch) {
-                              int totalCoins = 0;
-                              int totalShadows = 0;
+                              int chestCoins = 0;
+                              int chestShadows = 0;
                               for (var reward in _rewards) {
-                                if (reward['granted_reward_type'] == 'coins') totalCoins += (reward['granted_amount'] as int? ?? 0);
-                                if (reward['granted_reward_type'] == 'shadows') totalShadows += (reward['granted_amount'] as int? ?? 0);
+                                if (reward['granted_reward_type'] == 'coins') chestCoins += (reward['granted_amount'] as int? ?? 0);
+                                if (reward['granted_reward_type'] == 'shadows') chestShadows += (reward['granted_amount'] as int? ?? 0);
                               }
-                              int xpEarned = totalCoins + totalShadows + 150; 
+
+                              // Combine match extraction loot + vessel drop loot
+                              final int totalCoins = widget.matchCoinsEarned + chestCoins;
+                              final int totalShadows = widget.matchShadowsEarned + chestShadows;
+                              final int xpEarned = widget.matchXpEarned > 0 
+                                  ? widget.matchXpEarned 
+                                  : (chestCoins + chestShadows + 50);
+
                               try {
                                 await Supabase.instance.client.rpc('add_season_xp', params: {'p_xp_gained': xpEarned});
                               } catch (e) {}
 
                               int currentLevel = 1;
-                              int xpPerLevel = 1000;
+                              int xpRequiredForCurrentBracket = 1000;
+                              int oldBracketXp = 0;
+                              int newBracketXp = xpEarned;
+
                               final user = Supabase.instance.client.auth.currentUser;
                               if (user != null) {
                                 try {
-                                  final profile = await Supabase.instance.client.from('profiles').select('level').eq('id', user.id).maybeSingle();
-                                  if (profile != null) currentLevel = profile['level'] ?? 1;
-                                } catch (e) {}
+                                  // Query actual 'level' and 'total_xp' from your profiles schema
+                                  final profile = await Supabase.instance.client
+                                      .from('profiles')
+                                      .select('level, total_xp')
+                                      .eq('id', user.id)
+                                      .maybeSingle();
+
+                                  if (profile != null) {
+                                    currentLevel = (profile['level'] as num?)?.toInt() ?? 1;
+                                    final int totalXpAfterMatch = (profile['total_xp'] as num?)?.toInt() ?? 0;
+                                    final int totalXpBeforeMatch = max(0, totalXpAfterMatch - xpEarned);
+
+                                    // Exact inverse of SQL: v_new_level := floor(power(v_total_xp / 1000.0, 1.0 / 1.5)) + 1;
+                                    final int levelStartXp = (1000.0 * pow(currentLevel - 1, 1.5)).ceil();
+                                    final int nextLevelStartXp = (1000.0 * pow(currentLevel, 1.5)).ceil();
+
+                                    xpRequiredForCurrentBracket = max(1, nextLevelStartXp - levelStartXp);
+                                    newBracketXp = (totalXpAfterMatch - levelStartXp).clamp(0, xpRequiredForCurrentBracket);
+                                    oldBracketXp = (totalXpBeforeMatch - levelStartXp).clamp(0, newBracketXp);
+                                  }
+                                } catch (e) {
+                                  debugPrint('Error fetching total_xp for progression screen: $e');
+                                }
                               }
-                              int oldXp = (currentLevel * 250) % xpPerLevel;
-                              int newXp = oldXp + xpEarned;
 
                               if (!context.mounted) return;
 
@@ -318,9 +363,9 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
                                     currentLevel: currentLevel,
                                     shadowsEarned: totalShadows,
                                     coinsEarned: totalCoins,
-                                    oldXp: oldXp,
-                                    newXp: newXp,
-                                    xpRequired: xpPerLevel,
+                                    oldXp: oldBracketXp,
+                                    newXp: newBracketXp,
+                                    xpRequired: xpRequiredForCurrentBracket,
                                   ),
                                 ),
                                 (route) => route.isFirst, 

@@ -88,6 +88,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   static List<ScareSnapshot> lastMatchPhotos = [];
   // --- Lumen Delta Tracking ---
   int matchLumenDelta = 0;
+  int lastMatchXpEarned = 0;
+  int lastMatchShadowsEarned = 0;
+  int lastMatchCoinsEarned = 0;
+
   String roomId;
   final bool isGunner;
   final String? driverId;
@@ -1190,6 +1194,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           worldPosition: Vector2(player.position.x - 50, player.position.y - 100)
         ));
       }
+
+      // FIXED: Store the real match earnings so ProgressionScreen displays accurate numbers!
+      lastMatchXpEarned = xpEarned;
+      lastMatchShadowsEarned = shadowsEarned;
+      lastMatchCoinsEarned = finalCoins;
 
       // --- 3. SEND LUMEN TO DATABASE ---
       if (player.score > 0 || player.coinsEarned > 0 || matchLumenDelta != 0 || myPlayerLevel < 3) {

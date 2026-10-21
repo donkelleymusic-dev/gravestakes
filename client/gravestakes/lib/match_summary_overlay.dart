@@ -182,7 +182,14 @@ class MatchSummaryOverlay extends StatelessWidget {
                   // Hide the competitive scoreboard
                   game.overlays.remove('summary');
                   // Launch the personal rewards phase and let IT handle the navigation
-                  VesselOpenerOverlay.show(context, 'match_drop', isFromMatch: true);
+                  VesselOpenerOverlay.show(
+                    context, 
+                    'match_drop', 
+                    isFromMatch: true,
+                    matchXpEarned: game.lastMatchXpEarned,
+                    matchShadowsEarned: game.lastMatchShadowsEarned,
+                    matchCoinsEarned: game.lastMatchCoinsEarned,
+                  );
                 },
                 child: const Text('CLAIM REWARDS', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
               ),
