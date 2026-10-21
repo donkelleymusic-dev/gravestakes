@@ -1,3 +1,4 @@
+// voxel_character_component.dart
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flame/components.dart';
@@ -13,18 +14,33 @@ class VoxelCharacterComponent extends PositionComponent {
   bool isStunned = false;
   bool isVisible = true;
   bool isInvisible = false;
-  bool showStars = false; // --- Toggle for wall collision stars ---
+  bool showStars = false;
   double stunTimer = 0.0;
 
   String currentMaskId = 'standard';
 
   double attackCooldown = 0.0;
   double swapAnimTimer = 0.0;
-
   double scareAnimTimer = 0.0;
 
   ui.Image? activeMaskImage;
   double _walkCycleTime = 0.0;
+
+  // FIXED: Pre-allocated static Paint objects to eliminate 300+ ColorFilter allocations per frame
+  static final Paint _basePaint = Paint();
+  static final Paint _extrudeShadowPaint = Paint()
+    ..colorFilter = const ColorFilter.mode(Colors.black45, BlendMode.srcATop);
+  static final Paint _highlightPaint = Paint()
+    ..colorFilter = const ColorFilter.mode(Colors.white, BlendMode.srcATop);
+  static final Paint _starPaint = Paint()..color = Colors.yellowAccent;
+  static final Paint _cloakFillPaint = Paint()..color = Colors.black.withOpacity(0.80);
+  static final Paint _cloakStrokePaint = Paint()
+    ..color = Colors.cyanAccent
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.0
+    ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 3.0);
+
+  int _cachedTotalLegs = 2;
 
   void triggerSwapAnimation() {
     swapAnimTimer = 0.15;
@@ -39,7 +55,14 @@ class VoxelCharacterComponent extends PositionComponent {
     required this.images,
     required this.rigData,
     required Vector2 hitboxSize,
-  }) : super(size: hitboxSize, anchor: Anchor.center);
+  }) : super(size: hitboxSize, anchor: Anchor.center) {
+    if (rigData != null && rigData!['parts'] is Map) {
+      final parts = rigData!['parts'] as Map;
+      _cachedTotalLegs = parts.keys
+          .where((k) => k.toString().startsWith('leg') || k.toString().contains('_leg'))
+          .length;
+    }
+  }
 
   @override
   void update(double dt) {
@@ -60,33 +83,25 @@ class VoxelCharacterComponent extends PositionComponent {
 
     canvas.save();
 
-    // --- EXTRACT TORSO METRICS FIRST ---
     final parts = rigData!['parts'];
     final torsoW = parts['torso']['width'];
     final torsoH = parts['torso']['height'];
 
-    
-
-    // Handle Stun Jiggle
     if (isStunned) {
       canvas.translate(sin(stunTimer * 50) * 4, 0);
     }
 
-    // Move drawing pivot to center of Flame Component
     canvas.translate(size.x / 2, size.y / 2);
 
-    // --- WALL COLLISION SPINNING STARS ---
     if (showStars) {
       canvas.save();
-      // Position safely above the top edge of the component's bounding box
       canvas.translate(0, -size.y * 0.8); 
       double time = DateTime.now().millisecondsSinceEpoch / 200.0;
       for (int i = 0; i < 3; i++) {
         double angle = time + (i * (2 * pi / 3));
         double starX = cos(angle) * 14.0;
         double starY = sin(angle) * 4.0;
-        
-        canvas.drawCircle(Offset(starX, starY), 3.0, Paint()..color = Colors.yellowAccent);
+        canvas.drawCircle(Offset(starX, starY), 3.0, _starPaint);
       }
       canvas.restore();
     }
@@ -123,7 +138,6 @@ class VoxelCharacterComponent extends PositionComponent {
     double shoulderY = rootY - (torsoH / 2) + 15; 
     double hipY = rootY + (torsoH / 2) - 15;      
 
-    // Define helper functions AFTER variables are declared
     void drawExtrudedLimb(String name, double x, double y, double rot, int thickness, double scaleMod) {
       if (!parts.containsKey(name)) return;
       final partData = parts[name];
@@ -143,23 +157,18 @@ class VoxelCharacterComponent extends PositionComponent {
       double extrudeDir = (degrees > 90 && degrees < 270) ? 1.0 : -1.0;
       int currentThickness = (scaleX.abs() < 1.0) ? thickness : 0;
 
+      final srcRect = Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble());
+      final dstRect = Rect.fromLTWH(-pX, -pY, w, h);
+
       for (int i = currentThickness; i >= 0; i--) {
         canvas.save();
         canvas.translate(i * extrudeDir * 2.5, 0);
         
-        Paint layerPaint = Paint();
-        if (i > 0) {
-          layerPaint.colorFilter = const ColorFilter.mode(Colors.black45, BlendMode.srcATop);
-        } else if (isHighlighted) {
-          layerPaint.colorFilter = const ColorFilter.mode(Colors.white, BlendMode.srcATop);
-        }
+        final Paint layerPaint = (i > 0)
+            ? _extrudeShadowPaint
+            : (isHighlighted ? _highlightPaint : _basePaint);
         
-        canvas.drawImageRect(
-          img, 
-          Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()), 
-          Rect.fromLTWH(-pX, -pY, w, h), 
-          layerPaint
-        );
+        canvas.drawImageRect(img, srcRect, dstRect, layerPaint);
         canvas.restore();
       }
       canvas.restore();
@@ -182,46 +191,32 @@ class VoxelCharacterComponent extends PositionComponent {
         maskScale *= 1.2; 
       }
 
-      // --- SCARE LUNGE ANIMATION ---
       if (scareAnimTimer > 0) {
-        // Progress goes from 0.0 up to 1.0
         double progress = 1.0 - (scareAnimTimer / 0.75); 
         
         if (currentMaskId == 'banshee') {
-           // --- THE BANSHEE SKYWARD LAUNCH ---
-           // The mask rockets into the air and snaps back down
            double arc = sin(progress * pi);
-           double skywardDistance = -150.0 * arc; // 150 pixels straight up
+           double skywardDistance = -150.0 * arc;
            canvas.translate(0, skywardDistance);
-           
-           // Shake violently at the peak of the scream
            canvas.rotate(sin(progress * pi * 20) * 0.25);
         } else {
-           // --- STANDARD LUNGE ---
-           // 1. Move the mask "up/forward" off the face
            double lungeDistance = sin(progress * pi) * 30.0;
            canvas.translate(0, -lungeDistance);
-           
-           // 2. Scale the mask to 2.2x its normal size at the peak
            maskScale += sin(progress * pi) * 1.2;
-           
-           // 3. Rapidly vibrate back and forth
            canvas.rotate(sin(progress * pi * 10) * 0.35); 
         }
       }
-      // ---------------------------------
 
       canvas.scale(maskScale, maskScale);
 
       canvas.drawImage(
         activeMaskImage!, 
-        Offset(-activeMaskImage!.width / 2, -pY * (1/maskScale)), 
-        Paint()
+        Offset(-activeMaskImage!.width / 2, -pY * (1 / maskScale)), 
+        _basePaint,
       );
       canvas.restore();
     }
 
-    // --- DYNAMIC LIMB RENDERER ---
     parts.forEach((partName, partData) {
       if (partName == 'torso' || partName == 'head') return; 
 
@@ -229,27 +224,19 @@ class VoxelCharacterComponent extends PositionComponent {
       bool isLeg = partName.startsWith('leg') || partName.contains('_leg');
       
       int index = 0;
-      try {
-        if (partName.contains('_')) {
-           index = int.tryParse(partName.split('_').last) ?? 0;
-        }
-      } catch (_) {}
+      if (partName.contains('_')) {
+        index = int.tryParse(partName.split('_').last) ?? 0;
+      }
       
-      // Fallback index assignment for legacy bipedal characters
       if (partName == 'left_arm') index = 0;
       if (partName == 'right_arm') index = 1;
       if (partName == 'left_leg') index = 0;
       if (partName == 'right_leg') index = 1;
 
-      // --- THE RIPPLE MATH ---
-      // 1. Base alternating phase for left vs right (Even = 0, Odd = 180 degrees)
       double sideOffset = (index % 2 == 0) ? 0.0 : pi;
-      
-      // 2. Cascade offset based on the limb's row (Front-to-back delay)
       int row = index ~/ 2;
-      double rippleDelay = row * (pi / 2.5); // Tweak 2.5 to change the wave's tightness
+      double rippleDelay = row * (pi / 2.5);
       
-      // 3. Combine for the final staggered phase
       double phaseOffset = sideOffset - rippleDelay;
       double rawSwing = sin(_walkCycleTime + phaseOffset);
       
@@ -257,45 +244,32 @@ class VoxelCharacterComponent extends PositionComponent {
       double posY = rootY;
       double rot = 0.0;
       double scaleMod = 1.0;
-      int thickness = isArm ? 4 : 4;
+      int thickness = 4;
 
       if (isLeg) {
-        int totalLegs = parts.keys.where((k) => k.startsWith('leg') || k.contains('_leg')).length;
         double yOffset = 0.0;
-        
-        if (totalLegs == 1) {
-          // Perfectly center the single leg directly under the body
+        if (_cachedTotalLegs == 1) {
           posX = 0.0;
-          // Tuck the monoleg 30 pixels higher into the torso
           yOffset = -30.0; 
         } else {
-          // Spread multiple legs evenly across the bottom of the torso
-          double legSpacing = (torsoW / 2) / max(1, totalLegs - 1);
+          double legSpacing = (torsoW / 2) / max(1, _cachedTotalLegs - 1);
           posX = -(torsoW / 4) + (index * legSpacing);
         }
         
-        // Hardcode fallback offsets for legacy bipedal rigs
         if (partName == 'left_leg') posX = -(torsoW / 4);
         if (partName == 'right_leg') posX = (torsoW / 4);
 
-        // Apply the yOffset to the final vertical position calculation
         posY = hipY + yOffset + (rawSwing * 8.0 * frontWeight * depthDir);
         rot = rawSwing * 0.55 * sideWeight;
         scaleMod = 1.0 + (rawSwing * 0.15 * frontWeight * depthDir * (index.isEven ? 1 : -1));
       } else if (isArm) {
         bool isLeftArm = index % 2 == 0;
-
-        // 1. Pin arms strictly to the outer edges of the torso
         posX = isLeftArm ? -(torsoW / 2) + 10 : (torsoW / 2) - 10;
 
-        // Hardcode fallback offsets for legacy bipeds
         if (partName == 'left_arm') posX = -(torsoW / 2) + 5;
         if (partName == 'right_arm') posX = (torsoW / 2) - 5;
 
-        // 2. Cascade extra limbs vertically down the sides of the body
-        int row = index ~/ 2;
-        double verticalStackOffset = row * 35.0; // Push each extra pair down by 35 pixels
-
+        double verticalStackOffset = row * 35.0;
         posY = shoulderY + verticalStackOffset + (-rawSwing * 5.0 * frontWeight * depthDir);
         rot = -rawSwing * 0.40 * sideWeight;
         scaleMod = 1.0 - (rawSwing * 0.10 * frontWeight * depthDir);
@@ -304,7 +278,6 @@ class VoxelCharacterComponent extends PositionComponent {
       drawExtrudedLimb(partName, posX, posY, rot, thickness, scaleMod);
     });
 
-    // Render Torso and Head statically in the center
     drawExtrudedLimb('torso', 0, rootY, 0, 10, 1.0);
     drawExtrudedLimb('head', 0, shoulderY + 5, 0, 8, 1.0);
     if (showFront) {
@@ -313,26 +286,17 @@ class VoxelCharacterComponent extends PositionComponent {
 
     canvas.restore();
     
-    // --- THE INVISIBILITY CLOAK ---
     if (isInvisible) {
-      final path = Path();
-      
-      path.moveTo(2, size.y + 6);
-      path.quadraticBezierTo(6, -2, size.x / 2 - 7, -10);
-      path.quadraticBezierTo(size.x / 2, -16, size.x / 2 + 7, -10);
-      path.quadraticBezierTo(size.x - 6, -2, size.x - 2, size.y + 6);
-      path.quadraticBezierTo(size.x / 2, size.y + 10, 2, size.y + 6);
-      path.close();
+      final path = Path()
+        ..moveTo(2, size.y + 6)
+        ..quadraticBezierTo(6, -2, size.x / 2 - 7, -10)
+        ..quadraticBezierTo(size.x / 2, -16, size.x / 2 + 7, -10)
+        ..quadraticBezierTo(size.x - 6, -2, size.x - 2, size.y + 6)
+        ..quadraticBezierTo(size.x / 2, size.y + 10, 2, size.y + 6)
+        ..close();
 
-      canvas.drawPath(path, Paint()..color = Colors.black.withOpacity(0.80));
-      canvas.drawPath(
-        path,
-        Paint()
-          ..color = Colors.cyanAccent
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.0
-          ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 3.0),
-      );
+      canvas.drawPath(path, _cloakFillPaint);
+      canvas.drawPath(path, _cloakStrokePaint);
     }
   }
 }

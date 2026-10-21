@@ -203,7 +203,11 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
         if (AudioManager.instance.heavyBreathingSource != null) {
           const double audioScale = 50.0;
           
-          // Save the handle so stopAudio() can kill it instantly
+          // FIXED: Stop any lingering handle before spawning a new 3D voice
+          if (_breathHandle != null) {
+            SoLoud.instance.stop(_breathHandle!);
+          }
+          
           _breathHandle = SoLoud.instance.play3d(
             AudioManager.instance.heavyBreathingSource!,
             position.x / audioScale,

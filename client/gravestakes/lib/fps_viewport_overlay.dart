@@ -1,3 +1,4 @@
+// fps_viewport_overlay.dart
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flame/components.dart';
@@ -13,14 +14,25 @@ import 'scare_blast.dart';
 import 'siren_blast.dart';
 import 'player.dart';
 import 'tactical_entities.dart';
+import 'game_map.dart';
 
 class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveStakesGame> {
   FpsViewportOverlay() : super(priority: 10); 
+
+  // Reusable buffer & paints to prevent GC churn every frame
+  List<double> _zBuffer = [];
+  final Paint _wallPaint = Paint();
+  final Paint _brickLinePaint = Paint()..color = Colors.black45;
+  final Paint _mortarLinePaint = Paint()..color = Colors.black38;
 
   @override
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
     this.size = size;
+    final int w = size.x.toInt();
+    if (_zBuffer.length != w) {
+      _zBuffer = List<double>.filled(w, 999999.0);
+    }
   }
 
   @override
@@ -31,7 +43,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     final player = game.player;
     final gameMap = game.gameMap;
 
-    // --- Protect canvas state for camera shake ---
     canvas.save(); 
 
     // --- FPS Mask Swap Camera Shudder ---
@@ -41,7 +52,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       canvas.translate(shakeX, shakeY);
     }
     
-    // --- WIDER FOV (75 Degrees) ---
     final double fov = pi / 2.4; 
     final double halfFov = fov / 2.0;
     
@@ -49,10 +59,18 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     final Vector2 playerPos = player.position;
 
     final int screenWidth = size.x.toInt();
+    if (screenWidth <= 0) {
+      canvas.restore();
+      return;
+    }
     final double screenHeight = size.y;
     final double focalLength = (screenWidth / 2) / tan(halfFov);
 
-    final List<double> zBuffer = List.filled(screenWidth, 999999.0);
+    if (_zBuffer.length != screenWidth) {
+      _zBuffer = List<double>.filled(screenWidth, 999999.0);
+    } else {
+      _zBuffer.fillRange(0, screenWidth, 999999.0);
+    }
 
     // =============================================================
     // 1. FLASHLIGHT THROW DISTANCE TUNING
@@ -64,21 +82,16 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     // CEILING AND FLOOR
     // -------------------------------------------------------------
     if (player.isInPuzzleRoom) {
-      // 1. Creepy dark ceiling
       final ceilingRect = Rect.fromLTWH(0, 0, size.x, screenHeight / 2);
       canvas.drawRect(ceilingRect, Paint()..color = const Color(0xFF080000));
       
-      // 2. Procedural Flicker Trick
       double time = game.currentTime();
       if (sin(time * 15) * cos(time * 7) > 0.85) {
-        // Boosted from 0.04 to 0.15, and changed to a sickly yellow/white
         canvas.drawRect(ceilingRect, Paint()..color = Colors.amber[100]!.withOpacity(0.15));
       }
       
-      // Floor
       canvas.drawRect(Rect.fromLTWH(0, screenHeight / 2, size.x, screenHeight / 2), Paint()..color = const Color(0xFF110000));
     } else {
-      // Normal map ceiling and floor
       canvas.drawRect(Rect.fromLTWH(0, 0, size.x, screenHeight / 2), Paint()..color = const Color(0xFF0A0A10));
       canvas.drawRect(Rect.fromLTWH(0, screenHeight / 2, size.x, screenHeight / 2), Paint()..color = const Color(0xFF14141E));
     }
@@ -86,39 +99,42 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     // -------------------------------------------------------------
     // 2. RAYCAST WALLS & LIMITED VISIBILITY
     // -------------------------------------------------------------
-    
-    // Check equipped skin once per frame
-    String currentSkin = 'default';
-    try {
-      currentSkin = player.equippedWallSkin;
-    } catch (_) {}
+    String currentSkin = player.equippedWallSkin;
     bool isVoidSkin = currentSkin == 'wall_void';
 
-    int stripWidth = 2; 
+    const int stripWidth = 2; 
+    final double tileSize = gameMap.tileSize;
+    final int gridWidth = gameMap.gridWidth;
+    final int gridHeight = gameMap.gridHeight;
+    final mapGrid = gameMap.mapGrid;
+
     for (int x = 0; x < screenWidth; x += stripWidth) {
       double rayAngle = (totalViewAngle - halfFov) + (x / screenWidth) * fov;
-      double cosRay = cos(rayAngle);
-      double sinRay = sin(rayAngle);
+      double dirX = sin(rayAngle);
+      double dirY = -cos(rayAngle);
 
       double dist = 0.0;
       bool hitWall = false;
-      Vector2 impactPos = Vector2.zero();
+      double impactX = playerPos.x;
+      double impactY = playerPos.y;
+      int hitGridValue = 1;
 
-      int hitGridValue = 1; // Default to standard wall if out of bounds
-
+      // Fast scalar raymarch (zero Vector2 heap allocations inside inner loop)
       while (!hitWall && dist < maxRayDistance) {
         dist += 4.0;
-        Vector2 checkPos = playerPos + Vector2(sinRay * dist, -cosRay * dist);
-        int gridX = (checkPos.x / gameMap.tileSize).floor();
-        int gridY = (checkPos.y / gameMap.tileSize).floor();
+        impactX = playerPos.x + dirX * dist;
+        impactY = playerPos.y + dirY * dist;
+        int gridX = (impactX / tileSize).floor();
+        int gridY = (impactY / tileSize).floor();
 
-        if (gridX < 0 || gridX >= gameMap.gridWidth || gridY < 0 || gridY >= gameMap.gridHeight) {
+        if (gridX < 0 || gridX >= gridWidth || gridY < 0 || gridY >= gridHeight) {
           hitWall = true;
-          impactPos = checkPos;
-        } else if (gameMap.mapGrid[gridY][gridX] > 0) { 
-          hitWall = true;
-          impactPos = checkPos;
-          hitGridValue = gameMap.mapGrid[gridY][gridX]; // STORE WHAT WE HIT
+        } else {
+          int cell = mapGrid[gridY][gridX];
+          if (cell > 0) {
+            hitWall = true;
+            hitGridValue = cell;
+          }
         }
       }
 
@@ -126,50 +142,42 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       if (correctedDist < 1.0) correctedDist = 1.0;
 
       for (int w = 0; w < stripWidth; w++) {
-        if (x + w < screenWidth) zBuffer[x + w] = correctedDist;
+        if (x + w < screenWidth) _zBuffer[x + w] = correctedDist;
       }
 
-      double wallHeight = min(screenHeight * 2.5, (gameMap.tileSize * focalLength) / correctedDist);
+      double wallHeight = min(screenHeight * 2.5, (tileSize * focalLength) / correctedDist);
       double wallTop = (screenHeight - wallHeight) / 2;
 
-      // --- INCREASED AMBIENT FLOOR VISIBILITY ---
-      double fadeFactor = (1.0 - (correctedDist / maxRayDistance)).clamp(0.15, 1.0);
+      double fadeFactor = maxRayDistance > 0 ? (1.0 - (correctedDist / maxRayDistance)).clamp(0.15, 1.0) : 0.15;
       int brightness = (255 * fadeFactor).clamp(10, 255).toInt();
       
-      double hitX = impactPos.x % gameMap.tileSize;
-      double hitY = impactPos.y % gameMap.tileSize;
-      bool isTileEdge = (hitX < 3.0 || hitX > gameMap.tileSize - 3.0) || 
-                        (hitY < 3.0 || hitY > gameMap.tileSize - 3.0);
+      double hitX = impactX % tileSize;
+      double hitY = impactY % tileSize;
+      bool isTileEdge = (hitX < 3.0 || hitX > tileSize - 3.0) || 
+                        (hitY < 3.0 || hitY > tileSize - 3.0);
 
       Color wallColor;
       if (isVoidSkin) {
-        // --- NEW: THE VANTABLACK VOID (3D) ---
-        // Pure black walls regardless of proximity
         wallColor = Colors.black;
       } else if (hitGridValue == 4) {
-        // Bright activated gold flash!
         wallColor = Colors.amberAccent;
       } else if (hitGridValue == 3) {
-        // Dark Wooden Door
         wallColor = isTileEdge 
           ? Color.fromARGB(255, (brightness * 0.2).toInt(), (brightness * 0.1).toInt(), 0)
           : Color.fromARGB(255, (brightness * 0.4).toInt(), (brightness * 0.25).toInt(), (brightness * 0.1).toInt());
       } else if (hitGridValue == 2) {
-        // Red Flesh Wall
         wallColor = isTileEdge 
           ? Color.fromARGB(255, (brightness * 0.3).toInt(), 0, 0)
           : Color.fromARGB(255, (brightness * 0.7).toInt(), (brightness * 0.1).toInt(), (brightness * 0.1).toInt());
       } else {
-        // Standard Purple Maze (Your original math)
         wallColor = isTileEdge 
           ? Color.fromARGB(255, (brightness * 0.2).toInt(), (brightness * 0.1).toInt(), (brightness * 0.5).toInt())
           : Color.fromARGB(255, (brightness * 0.45).toInt(), (brightness * 0.2).toInt(), brightness);
       }
 
-      // --- CORNER SHADOWS (Ignored in Void mode) ---
       if (!isVoidSkin) {
-        bool isNearCorner = (hitX < 4.0 || hitX > gameMap.tileSize - 4.0) &&
-                            (hitY < 4.0 || hitY > gameMap.tileSize - 4.0);
+        bool isNearCorner = (hitX < 4.0 || hitX > tileSize - 4.0) &&
+                            (hitY < 4.0 || hitY > tileSize - 4.0);
         if (isNearCorner) {
           wallColor = Color.fromARGB(
             wallColor.alpha,
@@ -179,7 +187,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
           );
         }
 
-        // --- NEAR-PLANE FOG (PROXIMITY DARKENING) ---
         if (correctedDist < 32.0) {
           double proxFactor = (correctedDist / 32.0).clamp(0.4, 1.0);
           wallColor = Color.fromARGB(
@@ -191,93 +198,92 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         }
       }
 
-      // Draw Wall Strip
+      _wallPaint.color = wallColor;
       canvas.drawRect(
         Rect.fromLTWH(x.toDouble(), wallTop, stripWidth.toDouble(), wallHeight),
-        Paint()..color = wallColor,
+        _wallPaint,
       );
 
-      // --- BRICKS VS VOID DECORATIONS ---
       if (isVoidSkin) {
-        // Render the pulsing purple "Event Horizon" at the base of the wall
         double glowHeight = 4.0;
         double glowY = wallTop + wallHeight - glowHeight;
-        
+        _wallPaint.color = Colors.purpleAccent.withOpacity(0.5 * fadeFactor);
         canvas.drawRect(
           Rect.fromLTWH(x.toDouble(), glowY, stripWidth.toDouble(), glowHeight),
-          Paint()..color = Colors.purpleAccent.withOpacity(0.5 * fadeFactor), // Fades out in the distance!
+          _wallPaint,
         );
       } else {
-        // --- HORIZONTAL BRICK COURSES ---
         double brickHeight = wallHeight / 6.0;
         for (int b = 1; b < 6; b++) {
           double lineY = wallTop + (b * brickHeight);
           canvas.drawRect(
             Rect.fromLTWH(x.toDouble(), lineY, stripWidth.toDouble(), 1.5),
-            Paint()..color = Colors.black45,
+            _brickLinePaint,
           );
         }
 
-        // Original Mortar Center Line
         double mortarY = wallTop + (wallHeight * 0.5);
         canvas.drawRect(
           Rect.fromLTWH(x.toDouble(), mortarY, stripWidth.toDouble(), 2.0),
-          Paint()..color = Colors.black38,
+          _mortarLinePaint,
         );
       }
     }
 
     // -------------------------------------------------------------
-    // 3. PROJECT BILLBOARDS WITH CUSTOM HEIGHT OFFSETS
+    // 3. PROJECT BILLBOARDS (SINGLE-PASS WORLD SCAN)
     // -------------------------------------------------------------
     List<_RenderableEntity> entities = [];
+    final double maxDistSq = maxRayDistance * maxRayDistance;
 
     for (var bot in game.bots) {
-      entities.add(_RenderableEntity(pos: bot.position, component: bot));
+      if (!bot.isInvisible && bot.position.distanceToSquared(playerPos) <= maxDistSq) {
+        entities.add(_RenderableEntity(pos: bot.position, component: bot));
+      }
     }
     for (var remote in game.networkPlayers.values) {
-      if (!remote.isInvisible) {
+      if (!remote.isInvisible && remote.position.distanceToSquared(playerPos) <= maxDistSq) {
         entities.add(_RenderableEntity(pos: remote.position, component: remote));
       }
-    }
-    for (var box in game.world.children.whereType<SpookyBox>()) {
-      if (box.isMounted && !box.isRemoving) {
-        entities.add(_RenderableEntity(pos: box.position, component: box));
+      for (var siren in remote.children.whereType<SirenBlast>()) {
+        entities.add(_RenderableEntity(pos: remote.position, component: siren));
       }
-    }
-    for (var powerup in game.world.children.whereType<PowerUp>()) {
-      if (powerup.isMounted && !powerup.isRemoving) {
-        entities.add(_RenderableEntity(pos: powerup.position, component: powerup));
-      }
-    }
-    // --- Read bats directly from the world ---
-    for (var bat in game.world.children.whereType<FlyingScareBlast>()) {
-      if (!bat.isDead) entities.add(_RenderableEntity(pos: bat.position, component: bat));
     }
     for (var critter in game.scareManager.critters) {
-      if (!critter.isDead) entities.add(_RenderableEntity(pos: critter.position, component: critter));
-    }
-    for (var blast in game.world.children.whereType<ScareBlast>()) {
-      entities.add(_RenderableEntity(pos: blast.position, component: blast));
-    }
-    for (var siren in game.world.children.whereType<SirenBlast>()) {
-      entities.add(_RenderableEntity(pos: siren.position, component: siren));
-    }
-    for (var decoy in game.world.children.whereType<WendigoDecoy>()) {
-      entities.add(_RenderableEntity(pos: decoy.position, component: decoy));
-    }
-    for (var trap in game.world.children.whereType<PoltergeistTrap>()) {
-      entities.add(_RenderableEntity(pos: trap.position, component: trap));
-    }
-    for (var playerComp in game.children.whereType<Player>()) {
-      for (var siren in playerComp.children.whereType<SirenBlast>()) {
-        entities.add(_RenderableEntity(pos: playerComp.position, component: siren));
+      if (!critter.isDead && critter.position.distanceToSquared(playerPos) <= maxDistSq) {
+        entities.add(_RenderableEntity(pos: critter.position, component: critter));
       }
     }
-    for (var remoteComp in game.networkPlayers.values) {
-      for (var siren in remoteComp.children.whereType<SirenBlast>()) {
-        entities.add(_RenderableEntity(pos: remoteComp.position, component: siren));
+
+    // FIXED: Single pass over world.children instead of 7 separate .whereType<T>() scans!
+    for (final child in game.world.children) {
+      if (child is WallComponent || child is Player || child is BotPlayer || child is RemotePlayer) {
+        continue;
       }
+      if (child is SpookyBox && child.isMounted && !child.isRemoving) {
+        if (child.position.distanceToSquared(playerPos) <= maxDistSq) {
+          entities.add(_RenderableEntity(pos: child.position, component: child));
+        }
+      } else if (child is PowerUp && child.isMounted && !child.isRemoving) {
+        if (child.position.distanceToSquared(playerPos) <= maxDistSq) {
+          entities.add(_RenderableEntity(pos: child.position, component: child));
+        }
+      } else if (child is FlyingScareBlast && !child.isDead) {
+        entities.add(_RenderableEntity(pos: child.position, component: child));
+      } else if (child is ScareBlast) {
+        entities.add(_RenderableEntity(pos: child.position, component: child));
+      } else if (child is SirenBlast) {
+        entities.add(_RenderableEntity(pos: child.position, component: child));
+      } else if (child is WendigoDecoy) {
+        entities.add(_RenderableEntity(pos: child.position, component: child));
+      } else if (child is PoltergeistTrap) {
+        entities.add(_RenderableEntity(pos: child.position, component: child));
+      }
+    }
+
+    // Check local player children directly
+    for (var siren in player.children.whereType<SirenBlast>()) {
+      entities.add(_RenderableEntity(pos: player.position, component: siren));
     }
 
     entities.sort((a, b) => b.pos.distanceToSquared(playerPos).compareTo(a.pos.distanceToSquared(playerPos)));
@@ -303,19 +309,18 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       int leftCol = (screenX - (projectedWidth / 2)).toInt().clamp(0, screenWidth - 1);
       int rightCol = (screenX + (projectedWidth / 2)).toInt().clamp(0, screenWidth - 1);
 
-      if (camY > zBuffer[centerCol] && camY > zBuffer[leftCol] && camY > zBuffer[rightCol]) {
+      if (camY > _zBuffer[centerCol] && camY > _zBuffer[leftCol] && camY > _zBuffer[rightCol]) {
         continue; 
       }
 
       double renderY = screenHeight / 2;
-      double wallHeightAtDist = min(screenHeight * 2.5, (gameMap.tileSize * focalLength) / camY);
+      double wallHeightAtDist = min(screenHeight * 2.5, (tileSize * focalLength) / camY);
 
       if (entity.component is FlyingScareBlast) {
         renderY -= (wallHeightAtDist * 0.75);
       } else if (entity.component is Critter) {
         renderY += (wallHeightAtDist * 0.38);
       } else if (entity.component is PoltergeistTrap) {
-        // NEW: Push the trap down onto the floor!
         renderY += (wallHeightAtDist * 0.45); 
       }
 
@@ -323,31 +328,28 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       canvas.translate(screenX, renderY);
       canvas.scale(scale * 0.5, scale * 0.5);
 
-      // --- TEAM AURA VIGNETTE FOR BILLBOARD CHARACTERS ---
-      if (entity.component is BotPlayer || entity.component is RemotePlayer) {
+      // --- TEAM AURA VIGNETTE FOR BILLBOARD CHARACTERS (ONLY IN 2v2) ---
+      if (game.matchMode == '2v2' && (entity.component is BotPlayer || entity.component is RemotePlayer)) {
         int entityTeam = game.getEntityTeam(entity.component);
-        Color teamColor = entityTeam == 1 ? const Color(0xFF0072B2) : const Color(0xFFE69F00);
-
-        canvas.drawCircle(
-          Offset.zero, 
-          36, 
-          Paint()
-            ..color = teamColor.withOpacity(0.45)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12)
-        );
+        if (entityTeam != 0) {
+          Color teamColor = entityTeam == 1 ? const Color(0xFF0072B2) : const Color(0xFFE69F00);
+          canvas.drawCircle(
+            Offset.zero, 
+            36, 
+            Paint()..color = teamColor.withOpacity(0.35),
+          );
+        }
       }
 
       if (entity.component is BotPlayer) {
         (entity.component as BotPlayer).voxelComponent?.render(canvas);
-      }
-       else if (entity.component is RemotePlayer) {
+      } else if (entity.component is RemotePlayer) {
         (entity.component as RemotePlayer).voxelComponent?.render(canvas);
       } else if (entity.component is WendigoDecoy) {
-        (entity.component as WendigoDecoy).voxel?.render(canvas); // Pulls the 3D model
+        (entity.component as WendigoDecoy).voxel?.render(canvas);
       } else if (entity.component is PoltergeistTrap) {
         final trap = entity.component as PoltergeistTrap;
         if (trap.sprite != null) {
-          // Billboards the flat trap sprite into the 3D world
           trap.sprite!.render(canvas, size: Vector2(48, 48), position: Vector2(-24, -24));
         }
       } else if (entity.component is SpookyBox) {
@@ -362,37 +364,29 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         canvas.drawCircle(Offset.zero, 16, Paint()..color = Colors.yellowAccent);
         canvas.drawCircle(Offset.zero, 8, Paint()..color = Colors.white);
       } else if (entity.component is FlyingScareBlast) {
-        // --- 3D Procedural Flapping Bat ---
         final bat = entity.component as FlyingScareBlast;
         double flap = sin(bat.lifeTimer * 30);
         
         final path = Path();
-        path.addOval(const Rect.fromLTWH(-8, -12, 16, 24)); // Larger body for 3D visibility
+        path.addOval(const Rect.fromLTWH(-8, -12, 16, 24));
         
-        // Left Wing
         path.moveTo(-6, -6);
         path.quadraticBezierTo(-25, flap * -25 - 15, -45, flap * 15 - 8);
         path.quadraticBezierTo(-25, flap * 15 + 8, -3, 9);
         
-        // Right Wing
         path.moveTo(6, -6);
         path.quadraticBezierTo(25, flap * -25 - 15, 45, flap * 15 - 8);
         path.quadraticBezierTo(25, flap * 15 + 8, 3, 9);
 
         canvas.drawPath(path, Paint()..color = Colors.purpleAccent.withOpacity(0.9));
         canvas.drawPath(path, Paint()..color = Colors.cyanAccent..style = PaintingStyle.stroke..strokeWidth = 2.0);
-        // -------------------------------------------
       } else if (entity.component is Critter) {
         final critter = entity.component as Critter;
-        
-        // --- NEW: Dynamic Billboarding ---
-        // If the critter is moving left relative to our camera, flip it horizontally!
         double dotRight = critter.velocity.dot(rightDir);
         if (dotRight < 0) {
           canvas.scale(-1.0, 1.0); 
         }
 
-        // Scurry animation based on the critter's life timer
         double wiggle = sin(critter.lifeTimer * 40) * 4.0;
 
         final bodyPaint = Paint()..color = const Color(0xFF5A5A66);
@@ -402,26 +396,21 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.5;
 
-        // Draw a side-profile rat (billboarded)
-        canvas.drawOval(const Rect.fromLTWH(-10, -5, 20, 10), bodyPaint); // Body
-        canvas.drawCircle(const Offset(6, -2), 1.5, eyePaint); // Eye (Faces Right by default)
+        canvas.drawOval(const Rect.fromLTWH(-10, -5, 20, 10), bodyPaint);
+        canvas.drawCircle(const Offset(6, -2), 1.5, eyePaint);
 
-        // Wiggling tail trailing behind
         final tailPath = Path()
           ..moveTo(-10, 0)
           ..quadraticBezierTo(-18, wiggle, -25, -wiggle * 0.5);
         canvas.drawPath(tailPath, appendagePaint);
 
-        // Wiggling little legs below the body
         canvas.drawLine(const Offset(-5, 4), Offset(-5 + wiggle, 9), appendagePaint);
         canvas.drawLine(const Offset(5, 4), Offset(5 - wiggle, 9), appendagePaint);
-
       } else if (entity.component is ScareBlast) {
         final blastPaint = Paint()..color = Colors.white.withOpacity(0.7);
         canvas.drawArc(const Rect.fromLTWH(-120, -120, 240, 240), -pi / 2, pi, true, blastPaint);
       } else if (entity.component is SirenBlast) {
         final siren = entity.component as SirenBlast;
-        
         double fade = siren.lifeTimer > 2.0 ? 1.0 : (siren.lifeTimer / 2.0);
         int alpha = (fade * 180).toInt().clamp(0, 255);
 
@@ -453,29 +442,23 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     // -------------------------------------------------------------
     // 4. ATTACK FLASH & FLASHLIGHT SPOTLIGHT
     // -------------------------------------------------------------
-    
-    // --- FPS WALL COLLISION STARS ---
     if (player.starAnimTimer > 0) {
       canvas.save();
-      // Position them high in the center of the camera view
       canvas.translate(size.x / 2, size.y * 0.25); 
       double time = DateTime.now().millisecondsSinceEpoch / 200.0;
       for (int i = 0; i < 3; i++) {
         double angle = time + (i * (2 * pi / 3));
-        // Wider orbit and larger stars for 1st-person perspective
         double starX = cos(angle) * 45.0; 
         double starY = sin(angle) * 12.0;
-        
         canvas.drawCircle(Offset(starX, starY), 6.0, Paint()..color = Colors.yellowAccent);
       }
       canvas.restore();
     }
 
-    // --- NEW: FPS SIREN SCREEN WAVES ---
     final localSiren = player.children.whereType<SirenBlast>().firstOrNull;
     if (localSiren != null) {
       double fade = localSiren.lifeTimer > 2.0 ? 1.0 : (localSiren.lifeTimer / 2.0);
-      int alpha = (fade * 60).toInt().clamp(0, 255); // Gentle pink screen wash
+      int alpha = (fade * 60).toInt().clamp(0, 255);
       
       canvas.drawRect(size.toRect(), Paint()..color = Colors.pinkAccent.withAlpha(alpha));
 
@@ -485,7 +468,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         ..strokeWidth = 5.0;
 
       for (int i = 0; i < 3; i++) {
-        // Expand concentric rings out from the center of the screen
         double wavePhase = ((15.0 - localSiren.lifeTimer) * 2 + (i * 0.33)) % 1.0;
         double rippleRadius = wavePhase * (size.x * 0.9);
         canvas.drawCircle(Offset(size.x / 2, size.y / 2), rippleRadius, strokePaint);
@@ -497,15 +479,12 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       canvas.drawRect(size.toRect(), attackPaint);
     }
 
-    // --- FPS Active Defense (Phase Dash) Visual ---
     if (player.isPhasing) {
       final phasePaint = Paint()..color = Colors.cyanAccent.withOpacity(0.20);
       canvas.drawRect(size.toRect(), phasePaint);
     }
 
-    // --- FPS Mask Swap Blink Effect ---
     if (player.maskSwapAnimationTimer > 0) {
-      // sine wave at ~100 rad/s produces about 2-3 rapid flashes within the 150ms window
       double blinkAlpha = (sin(player.maskSwapAnimationTimer * 100).abs() * 1.5).clamp(0.0, 1.0);
       final blinkPaint = Paint()..color = Colors.black.withOpacity(blinkAlpha);
       canvas.drawRect(size.toRect(), blinkPaint);
@@ -543,7 +522,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       canvas.drawRect(Rect.fromLTWH(0, size.y - 60, size.x, 60), teamEdgePaint);
     }
 
-    // --- Finalize camera shake transform ---
     canvas.restore();
   }
 }

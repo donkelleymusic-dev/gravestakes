@@ -1,3 +1,4 @@
+// vessel_opener_overlay.dart
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -35,6 +36,7 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
   late AnimationController _shakeController;
 
   List<dynamic> _crescendoHandles = [];
+  int? _activePointerId; // FIXED: Prevents multi-finger touch from spawning duplicate audio triads!
   
   bool _isOpened = false;
   bool _isFetching = false;
@@ -48,16 +50,15 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
   void initState() {
     super.initState();
     
-    // Scale hold duration and colors based on vessel tier
     int durationMs = 1000;
     if (widget.vesselId == 'void_chrysalis') {
-      _explosionColor = Colors.purpleAccent; // Legendary
+      _explosionColor = Colors.purpleAccent;
       durationMs = 3000;
     } else if (widget.vesselId == 'soul_casket') {
-      _explosionColor = Colors.redAccent; // Rare
+      _explosionColor = Colors.redAccent;
       durationMs = 2000;
     } else {
-      _explosionColor = Colors.cyanAccent; // Common
+      _explosionColor = Colors.cyanAccent;
       durationMs = 1000; 
     }
 
@@ -73,8 +74,10 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
   }
 
   Future<void> _triggerBurst() async {
+    _activePointerId = null;
     SynthManager.instance.resolveChestOpen(_crescendoHandles);
     _crescendoHandles.clear();
+    _shakeController.stop(); // Stop unnecessary background ticker once opened
 
     setState(() {
       _isFetching = true;
@@ -83,12 +86,10 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
     });
 
     try {
-      // FIXED: Added a strict 15-second timeout to prevent infinite spinners
       final res = await Supabase.instance.client
           .rpc('open_vessel', params: {'p_vessel_id': widget.vesselId})
           .timeout(const Duration(seconds: 15)); 
       
-      // FIXED: Silently abort if the user pressed the back button while waiting
       if (!mounted) return; 
       
       if (res != null && (res as List).isNotEmpty) {
@@ -98,7 +99,6 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
       debugPrint('Vessel Burst Error: $e');
       if (!mounted) return; 
       
-      // Reassure the player instead of showing an error
       _rewards = [{
         'granted_reward_type': 'network_timeout', 
         'granted_reward_id': 'Loot saved to server!', 
@@ -106,13 +106,13 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
       }];
     }
     
-    // Final safety check before removing the spinner
     if (mounted) {
       setState(() { _isFetching = false; });
     }
   }
 
   void _generateExplosion() {
+    _particles.clear();
     for (int i = 0; i < 60; i++) {
       double angle = _random.nextDouble() * 2 * pi;
       double speed = 5 + _random.nextDouble() * 25;
@@ -126,36 +126,48 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
   }
 
   void _onPointerDown(PointerDownEvent details) {
-    if (!_isOpened) {
-     _pressureController.forward();
-     
-     // SYNCHRONOUS ASSIGNMENT: This instantly captures the handles, guaranteeing 
-     // that they will be correctly shut down if the user lets go a millisecond later.
-     _crescendoHandles = SynthManager.instance.startChestCrescendo(_pressureController.duration!.inMilliseconds);
-     
-     // Failsafe: If the controller isn't moving forward, shut down immediately
-     if (_pressureController.status != AnimationStatus.forward) {
-         SynthManager.instance.stopChestCrescendo(_crescendoHandles);
-     }
+    // FIXED: Ignore secondary fingers if a finger is already holding the monolith
+    if (!_isOpened && _activePointerId == null) {
+      _activePointerId = details.pointer;
+      _pressureController.forward();
+      
+      _crescendoHandles = SynthManager.instance.startChestCrescendo(
+        _pressureController.duration!.inMilliseconds,
+      );
+      
+      if (_pressureController.status != AnimationStatus.forward) {
+        SynthManager.instance.stopChestCrescendo(_crescendoHandles);
+        _crescendoHandles.clear();
+        _activePointerId = null;
+      }
     }
   }
 
   void _onPointerUp(PointerUpEvent details) {
-    if (!_isOpened) {
+    if (!_isOpened && details.pointer == _activePointerId) {
+      _activePointerId = null;
       _pressureController.reverse();
       SynthManager.instance.stopChestCrescendo(_crescendoHandles);
+      _crescendoHandles.clear();
     }
   }
 
   void _onPointerCancel(PointerCancelEvent details) {
-    if (!_isOpened) {
+    if (!_isOpened && details.pointer == _activePointerId) {
+      _activePointerId = null;
       _pressureController.reverse();
       SynthManager.instance.stopChestCrescendo(_crescendoHandles);
+      _crescendoHandles.clear();
     }
   }
 
   @override
   void dispose() {
+    // FIXED: Guarantee synth voices are silenced if the overlay is popped early
+    if (_crescendoHandles.isNotEmpty) {
+      SynthManager.instance.stopChestCrescendo(_crescendoHandles);
+      _crescendoHandles.clear();
+    }
     _pressureController.dispose();
     _shakeController.dispose();
     super.dispose();
@@ -205,7 +217,7 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
                 bottom: 100,
                 left: 0, right: 0,
                 child: Opacity(
-                  opacity: 1.0 - pressure,
+                  opacity: (1.0 - pressure).clamp(0.0, 1.0),
                   child: const Text(
                     'HOLD TO BREAK SEAL',
                     textAlign: TextAlign.center,
@@ -238,23 +250,16 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
   }
 
   Widget _buildRewardDisplay() {
-    return TweenAnimationBuilder(
+    return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0.0, end: 1.0),
       duration: const Duration(milliseconds: 1200),
       builder: (context, val, child) {
-        
-        for (var p in _particles) {
-          p.x += p.vx; p.y += p.vy;
-          p.vy += 0.5; 
-          p.life -= 0.02;
-        }
-
         return Stack(
           alignment: Alignment.center,
           clipBehavior: Clip.none,
           children: [
             CustomPaint(
-              painter: ParticlePainter(_particles, _explosionColor),
+              painter: ParticlePainter(_particles, _explosionColor, val),
               size: const Size(1, 1),
             ),
             Transform.scale(
@@ -271,7 +276,6 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
                           style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 2, fontFamily: 'Courier', shadows: [Shadow(color: Colors.black, blurRadius: 10)]),
                         ),
                         const SizedBox(height: 30),
-                        // Dynamically render multiple rewards
                         Wrap(
                           spacing: 16,
                           runSpacing: 16,
@@ -308,7 +312,6 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
 
                               if (!context.mounted) return;
 
-                              // Return to Main Menu under the Progression Screen
                               Navigator.of(context).pushAndRemoveUntil(
                                 MaterialPageRoute(
                                   builder: (context) => ProgressionScreen(
@@ -342,7 +345,6 @@ class _VesselOpenerOverlayState extends State<VesselOpenerOverlay> with TickerPr
   }
 }
 
-// --- NEW COMPONENT: Handles the individual reward display and Shard-to-Coin conversion ---
 class RewardCard extends StatefulWidget {
   final Map<String, dynamic> rewardData;
   const RewardCard({super.key, required this.rewardData});
@@ -357,7 +359,6 @@ class _RewardCardState extends State<RewardCard> {
   @override
   void initState() {
     super.initState();
-    // If the database RPC flags this character shard as a duplicate, convert it after a brief delay
     final bool isDuplicate = widget.rewardData['is_duplicate'] == true;
     final String type = widget.rewardData['granted_reward_type'] ?? '';
 
@@ -375,7 +376,7 @@ class _RewardCardState extends State<RewardCard> {
     final String label = (widget.rewardData['granted_reward_id'] ?? '').toString().toUpperCase();
 
     bool isShard = type == 'character_shard';
-    bool isTimeout = type == 'network_timeout'; // NEW CHECK
+    bool isTimeout = type == 'network_timeout';
 
     Color baseColor = isTimeout ? Colors.orangeAccent : (isShard ? Colors.cyanAccent : (type == 'coins' ? Colors.yellowAccent : Colors.purpleAccent));
     IconData icon = isTimeout ? Icons.cloud_done : (isShard ? Icons.person_add : (type == 'coins' ? Icons.monetization_on : Icons.diamond));
@@ -387,7 +388,6 @@ class _RewardCardState extends State<RewardCard> {
 
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 600),
-      // ... [keep the rotation transition exactly as is] ...
       child: Container(
         key: ValueKey<bool>(_isConverted),
         width: 130, height: 150,
@@ -403,7 +403,7 @@ class _RewardCardState extends State<RewardCard> {
             Icon(icon, size: 40, color: baseColor),
             const SizedBox(height: 12),
             Text(
-              isTimeout ? 'SYNCED' : '+$amount', // Hide the "+0" if it's a timeout
+              isTimeout ? 'SYNCED' : '+$amount',
               style: TextStyle(color: baseColor, fontSize: 22, fontWeight: FontWeight.bold, fontFamily: 'Orbitron', shadows: const [Shadow(color: Colors.black, blurRadius: 4)]),
             ),
             const SizedBox(height: 8),
@@ -422,29 +422,38 @@ class _RewardCardState extends State<RewardCard> {
   }
 }
 
-// --- EXISTING GRAPHICS COMPONENTS ---
 class VoidParticle {
-  double x, y, vx, vy, size, life;
+  final double x, y, vx, vy, size, life;
   VoidParticle({required this.x, required this.y, required this.vx, required this.vy, required this.size, required this.life});
 }
 
 class ParticlePainter extends CustomPainter {
   final List<VoidParticle> particles;
   final Color baseColor;
-  ParticlePainter(this.particles, this.baseColor);
+  final double progress; // Driven deterministically by TweenAnimationBuilder (0.0 -> 1.0)
+
+  ParticlePainter(this.particles, this.baseColor, this.progress);
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Deterministic time step (~60 frames over 1.2s) so widget rebuilds never accelerate particles!
+    final double t = progress * 50.0;
+    final double lifeRemaining = (1.0 - progress).clamp(0.0, 1.0);
+    if (lifeRemaining <= 0) return;
+
+    final paint = Paint()
+      ..color = baseColor.withOpacity(lifeRemaining)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0);
+
     for (var p in particles) {
-      if (p.life <= 0) continue;
-      final paint = Paint()
-        ..color = baseColor.withOpacity(max(0, p.life))
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0);
-      canvas.drawRect(Rect.fromCenter(center: Offset(p.x, p.y), width: p.size, height: p.size), paint);
+      final double curX = p.x + p.vx * t;
+      final double curY = p.y + p.vy * t + (0.25 * t * t); // Smooth gravity arc
+      canvas.drawRect(Rect.fromCenter(center: Offset(curX, curY), width: p.size, height: p.size), paint);
     }
   }
+
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant ParticlePainter oldDelegate) => oldDelegate.progress != progress;
 }
 
 class VesselPainter extends CustomPainter {
