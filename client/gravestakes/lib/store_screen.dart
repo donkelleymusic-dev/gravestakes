@@ -543,7 +543,7 @@ class _StoreScreenState extends State<StoreScreen> {
         final name = item['name'] ?? 'Unknown';
         final desc = item['description'] ?? '';
         final price = item['price'] ?? 0;
-        final currency = item['currency'] ?? 'shadows';
+        final currency = item['currency'] ?? item['currency_type'] ?? 'shadows';
         final isOwned = _ownedAbilityIds.contains(id);
 
         return Container(

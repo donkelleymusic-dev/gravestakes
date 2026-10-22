@@ -1,3 +1,4 @@
+// spectator_mode.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flame/game.dart';
@@ -10,9 +11,6 @@ import 'flying_scare_blast.dart';
 import 'critter.dart';
 import 'scare_blast.dart';
 
-// ==========================================
-// 1. FLUTTER UI: ROOM SELECTOR
-// ==========================================
 class SpectatorLobbyScreen extends StatefulWidget {
   const SpectatorLobbyScreen({super.key});
 
@@ -32,12 +30,13 @@ class _SpectatorLobbyScreenState extends State<SpectatorLobbyScreen> {
   }
 
   Future<void> _fetchRooms() async {
+    if (mounted) setState(() => _isLoading = true);
     try {
       final fiveMinutesAgo = DateTime.now().toUtc().subtract(const Duration(minutes: 5)).toIso8601String();
 
       final response = await supabase
           .from('active_matches')
-          .select('id, player_count, status, created_at, updated_at, map_name')
+          .select('id, player_count, status, created_at, updated_at, map_name, mode')
           .gte('created_at', fiveMinutesAgo) 
           .order('created_at', ascending: false)
           .limit(20);
@@ -63,7 +62,7 @@ class _SpectatorLobbyScreenState extends State<SpectatorLobbyScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('SPECTATE: Live Matches', style: TextStyle(color: Colors.white)),
+        title: const Text('SPECTATE: Live Matches', style: TextStyle(color: Colors.white, fontFamily: 'Orbitron', fontSize: 16)),
         backgroundColor: Colors.black,
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
@@ -73,59 +72,67 @@ class _SpectatorLobbyScreenState extends State<SpectatorLobbyScreen> {
       backgroundColor: Colors.black,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Colors.redAccent))
-          : ListView.builder(
-              itemCount: _activeRooms.length,
-              itemBuilder: (context, index) {
-                final room = _activeRooms[index];
-                return ListTile(
-                  title: Text('Room: ${room['id']}', style: const TextStyle(color: Colors.white)),
-                  subtitle: Text('Players: ${room['player_count']} | Status: ${room['status']}', style: const TextStyle(color: Colors.grey)),
-                  trailing: const Icon(Icons.remove_red_eye, color: Colors.redAccent),
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => Scaffold(
-                          body: Stack(
-                            children: [
-                              GameWidget<SpectatorGame>(
-                                game: SpectatorGame(
-                                  roomId: room['id'], 
-                                  mapName: room['map_name'] ?? 'L1T1V1.0.0', 
-                                ),
-                                overlayBuilderMap: {
-                                  'spectator_summary': (context, SpectatorGame game) => SpectatorSummaryOverlay(game: game),
-                                },
-                              ),
-                              Positioned(
-                                top: 40, 
-                                left: 20,
-                                child: Container(
-                                  decoration: const BoxDecoration(
-                                    color: Colors.black54,
-                                    shape: BoxShape.circle,
+          : _activeRooms.isEmpty
+              ? const Center(
+                  child: Text(
+                    'No active matches right now.\nCheck back soon!',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white54, fontFamily: 'Orbitron'),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: _activeRooms.length,
+                  itemBuilder: (context, index) {
+                    final room = _activeRooms[index];
+                    final String roomIdStr = room['id'].toString();
+                    final String shortId = roomIdStr.length >= 8 ? roomIdStr.substring(0, 8) : roomIdStr;
+                    final String mode = (room['mode'] ?? 'casual').toString().toUpperCase();
+                    return ListTile(
+                      title: Text('Match #$shortId ($mode)', style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron')),
+                      subtitle: Text('Players: ${room['player_count']} | Status: ${room['status']}', style: const TextStyle(color: Colors.grey)),
+                      trailing: const Icon(Icons.remove_red_eye, color: Colors.redAccent),
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => Scaffold(
+                              body: Stack(
+                                children: [
+                                  GameWidget<SpectatorGame>(
+                                    game: SpectatorGame(
+                                      roomId: roomIdStr, 
+                                      mapName: room['map_name'] ?? 'L1T1V1.0.0', 
+                                    ),
+                                    overlayBuilderMap: {
+                                      'spectator_summary': (context, SpectatorGame game) => SpectatorSummaryOverlay(game: game),
+                                    },
                                   ),
-                                  child: IconButton(
-                                    icon: const Icon(Icons.arrow_back, color: Colors.white, size: 30),
-                                    onPressed: () => Navigator.of(context).pop(),
+                                  Positioned(
+                                    top: 40, 
+                                    left: 20,
+                                    child: Container(
+                                      decoration: const BoxDecoration(
+                                        color: Colors.black54,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: IconButton(
+                                        icon: const Icon(Icons.arrow_back, color: Colors.white, size: 30),
+                                        onPressed: () => Navigator.of(context).pop(),
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
-                        ),
-                      ),
+                        );
+                      },
                     );
                   },
-                );
-              },
-            ),
+                ),
     );
   }
 }
 
-// ==========================================
-// 2. FLAME ENGINE: SPECTATOR CLIENT
-// ==========================================
 class SpectatorGame extends FlameGame with PanDetector {
   final String roomId;
   final String mapName; 
@@ -155,11 +162,13 @@ class SpectatorGame extends FlameGame with PanDetector {
       .onBroadcast(
         event: 'move',
         callback: (payload) {
-          final id = payload['id'] as String;
-          final x = payload['x'] as double;
-          final y = payload['y'] as double;
+          final id = payload['id'] as String?;
+          if (id == null) return;
+          // FIXED: Safe num.toDouble() casts to prevent int/double crashes
+          final x = (payload['x'] as num).toDouble();
+          final y = (payload['y'] as num).toDouble();
           final colorStr = payload['c'] as String?;
-          final score = payload['s'] as int?; 
+          final score = (payload['s'] as num?)?.toInt(); 
 
           if (!humanPlayers.containsKey(id)) {
             final newDot = SpectatorDot(isBot: false)..position = Vector2(x, y);
@@ -175,12 +184,12 @@ class SpectatorGame extends FlameGame with PanDetector {
       .onBroadcast(
         event: 'sync_bots',
         callback: (payload) {
-          final botList = payload['bots'] as List<dynamic>;
+          final botList = payload['bots'] as List<dynamic>? ?? [];
           
           for (int i = 0; i < botList.length; i++) {
             final data = botList[i] as Map<String, dynamic>;
-            final x = data['x'] as double;
-            final y = data['y'] as double;
+            final x = (data['x'] as num).toDouble();
+            final y = (data['y'] as num).toDouble();
 
             if (!botPlayers.containsKey(i)) {
               final newDot = SpectatorDot(isBot: true)..position = Vector2(x, y);
@@ -195,7 +204,7 @@ class SpectatorGame extends FlameGame with PanDetector {
       .onBroadcast(
         event: 'hunter_emerge',
         callback: (payload) {
-          final index = payload['bot_index'] as int?;
+          final index = (payload['bot_index'] as num?)?.toInt();
           if (index != null && botPlayers.containsKey(index)) {
             botPlayers[index]!.transformToHunter();
           }
@@ -219,16 +228,14 @@ class SpectatorGame extends FlameGame with PanDetector {
         event: 'scare',
         callback: (payload) {
           final id = payload['id'] as String?;
-          final attackerId = payload['attacker_id'] as String?;
-
           if (id != null && humanPlayers.containsKey(id)) {
             final remote = humanPlayers[id]!;
-            final angle = payload['a'] as double;
+            final angle = (payload['a'] as num).toDouble();
             final maskId = payload['mask_id'] as String? ?? 'standard';
-            final seed = payload['seed'] as int? ?? 0;
+            final seed = (payload['seed'] as num?)?.toInt() ?? 0;
 
             if (maskId == 'flying') {
-              world.add(FlyingScareBlast(position: remote.position.clone(), angle: angle, ownerId: payload['id']));
+              world.add(FlyingScareBlast(position: remote.position.clone(), angle: angle, ownerId: id));
             } else if (maskId == 'vermin') {
               for (int i = 0; i < 15; i++) {
                 world.add(Critter(
@@ -241,23 +248,17 @@ class SpectatorGame extends FlameGame with PanDetector {
                 ));
               }
             } else {
-              world.add(ScareBlast(position: remote.position, angle: angle - (pi / 2)));
+              world.add(ScareBlast(position: remote.position.clone(), angle: angle - (pi / 2)));
             }
-          }
-
-          final victimId = payload['id'] as String?;
-          if (victimId != null && humanPlayers.containsKey(victimId)) {
-            humanPlayers[victimId]!.triggerFlash(Colors.cyanAccent);
-          }
-          if (attackerId != null && humanPlayers.containsKey(attackerId)) {
-            humanPlayers[attackerId]!.triggerFlash(Colors.yellowAccent);
+            // Flash the attacker yellow when they fire a scare
+            remote.triggerFlash(Colors.yellowAccent);
           }
         },
       )
       .onBroadcast(
         event: 'match_control',
         callback: (payload) {
-          final action = payload['action'] as String;
+          final action = payload['action'] as String?;
           if (action == 'end') {
             overlays.add('spectator_summary');
           } else if (action == 'start') {
@@ -283,9 +284,6 @@ class SpectatorGame extends FlameGame with PanDetector {
   }
 }
 
-// ==========================================
-// 3. SPECTATOR RADAR DOT & UI
-// ==========================================
 class SpectatorDot extends CircleComponent {
   final bool isBot;
   double flashTimer = 0;
@@ -344,7 +342,6 @@ class SpectatorDot extends CircleComponent {
     flashTimer = 0.5; 
   }
 
-  // --- NEW: Handle The Goliath visual swap ---
   void transformToHunter() {
     if (!isBot) return;
     baseColor = Colors.red[900]!;
@@ -364,9 +361,6 @@ class SpectatorDot extends CircleComponent {
   }
 }
 
-// ==========================================
-// 4. SPECTATOR SCOREBOARD OVERLAY
-// ==========================================
 class SpectatorSummaryOverlay extends StatelessWidget {
   final SpectatorGame game;
 

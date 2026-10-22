@@ -95,6 +95,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   String roomId;
   final bool isGunner;
   final String? driverId;
+  final String? partyPartnerUserId; // NEW: Keeps Squad Party partners on Team 1 together!
   final bool hasGunner;
   final String matchMode; 
   final String mapName;
@@ -196,6 +197,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     this.roomId = 'public_match', 
     this.isGunner = false,
     this.driverId,
+    this.partyPartnerUserId,
     this.hasGunner = false,
     this.mapName = 'L1T1V1.0.0',
     this.matchMode = 'casual',
@@ -921,9 +923,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
     
     myChannel.unsubscribe();
-    try {
-      Supabase.instance.client.rpc('leave_match', params: {'p_match_id': roomId});
-    } catch (e) {}
+    // FIXED: Only call leave_match RPC when roomId is a database UUID from active_matches!
+    if (!roomId.startsWith('public') && !roomId.startsWith('scrimmage_') && !roomId.startsWith('fright_')) {
+      try {
+        Supabase.instance.client.rpc('leave_match', params: {'p_match_id': roomId});
+      } catch (e) {}
+    }
 
     AudioManager.instance.stopMusic(); 
     AudioManager.instance.playMenuMusic(); 
@@ -966,15 +971,38 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       playerTeams[mySessionId] = 1; 
       if (matchMode == '2v2') player.applyTeamColor(1);
 
-      int nextTeam = matchMode == '2v2' ? 2 : 0; 
-      
-      for (var remoteId in networkPlayers.keys) {
-        playerTeams[remoteId] = nextTeam;
+      int team1Count = 1;
+      int team2Count = 0;
+
+      for (var entry in networkPlayers.entries) {
+        final String remoteSessionId = entry.key;
+        final RemotePlayer rp = entry.value;
+
         if (matchMode == '2v2') {
-          networkPlayers[remoteId]?.applyTeamColor(nextTeam);
-          nextTeam = (nextTeam == 1) ? 2 : 1;
+          // Check if this remote player is our Party Partner, Juggernaut Driver, or Guildmate!
+          final bool isMyAlly = (rp.userId != null && (rp.userId == driverId || rp.userId == partyPartnerUserId)) ||
+              (myGuildId != null && rp.guildId == myGuildId);
+
+          int assignedTeam;
+          if (isMyAlly && team1Count < 2) {
+            assignedTeam = 1;
+            team1Count++;
+          } else if (team2Count < 2) {
+            assignedTeam = 2;
+            team2Count++;
+          } else {
+            assignedTeam = 1;
+            team1Count++;
+          }
+
+          playerTeams[remoteSessionId] = assignedTeam;
+          rp.applyTeamColor(assignedTeam);
+        } else {
+          playerTeams[remoteSessionId] = 0;
         }
       }
+
+      int nextTeam = team1Count < 2 ? 1 : 2;
 
       int missingPlayers = targetPlayers - (1 + networkPlayers.length);
       
@@ -1546,6 +1574,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     // 2. REMOTE PLAYER COLLISION LOOP
     // ==========================================
     for (var remoteId in networkPlayers.keys) {
+      // Never allow Juggernaut partners to stun each other!
+      if ((isGunner || hasGunner) && (remoteId == driverId || networkPlayers[remoteId]?.userId == driverId || networkPlayers[remoteId]?.userId == partyPartnerUserId)) {
+        continue;
+      }
       if (matchMode == '2v2' && getEntityTeam(player) == getEntityTeam(remoteId)) continue; 
       
       var remotePlayer = networkPlayers[remoteId]!;
@@ -1652,7 +1684,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             if (presence.payload != null && presence.payload.containsKey('id')) {
               allUsers.add({
                 'id': presence.payload['id'], 
-                'username': presence.payload['username'] ?? 'Player', // <-- Read incoming names
+                'user_id': presence.payload['user_id'],
+                'guild_id': presence.payload['guild_id'],
+                'username': presence.payload['username'] ?? 'Player',
                 'joined_at': presence.payload['joined_at']
               });
             }
@@ -1675,13 +1709,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
         for (var user in allUsers) {
           final id = user['id'] as String;
-          if (id != mySessionId && !networkPlayers.containsKey(id)) {
-            if (matchPhase != 'searching') continue; 
-            
-            final newPlayer = RemotePlayer()..position = Vector2(-100, -100);
-            newPlayer.username = user['username'] as String; // <-- Assign it to the avatar
-            networkPlayers[id] = newPlayer;
-            world.add(newPlayer);
+          if (id != mySessionId) {
+            if (!networkPlayers.containsKey(id)) {
+              if (matchPhase != 'searching') continue; 
+              final newPlayer = RemotePlayer()..position = Vector2(-100, -100);
+              networkPlayers[id] = newPlayer;
+              world.add(newPlayer);
+            }
+            networkPlayers[id]!.username = (user['username'] as String?) ?? 'Player';
+            networkPlayers[id]!.userId = user['user_id'] as String?;
+            networkPlayers[id]!.guildId = user['guild_id'] as String?;
           }
         }
 
@@ -2151,7 +2188,13 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       .subscribe((status, [error]) async {
         if (status == RealtimeSubscribeStatus.subscribed) {
           // Add your username to the tracking payload!
-          await myChannel.track({'id': mySessionId, 'username': myUsername, 'joined_at': DateTime.now().toUtc().toIso8601String()});
+          await myChannel.track({ 
+            'id': mySessionId, 
+            'user_id': Supabase.instance.client.auth.currentUser?.id,
+            'guild_id': myGuildId,
+            'username': myUsername, 
+            'joined_at': DateTime.now().toUtc().toIso8601String()
+          });
           myChannel.sendBroadcastMessage(event: 'request_sync', payload: {});
         }
       });

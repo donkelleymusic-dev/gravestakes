@@ -12,6 +12,8 @@ class RemotePlayer extends PositionComponent with HasGameReference<GraveStakesGa
   String currentColorStr = 'red';
 
   String username = 'Player';
+  String? userId;  // Tracks Supabase Auth UUID for Juggernaut Driver tethering & Party Teams
+  String? guildId; // Tracks Guild ID so guildmates are automatically placed on the same 2v2 team!
 
   String currentMaskId = 'standard';
   double visualAttackCooldown = 0.0;

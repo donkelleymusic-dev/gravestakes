@@ -151,6 +151,14 @@ class _PartyScreenState extends State<PartyScreen> {
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
+    String? partnerUserId;
+    for (final m in _partyMembers) {
+      if (m['user_id'] != user.id) {
+        partnerUserId = m['user_id'].toString();
+        break;
+      }
+    }
+
     _isLaunchingMatch = true;
     final String leaderId = _currentParty!['leader_id'];
     
@@ -168,6 +176,7 @@ class _PartyScreenState extends State<PartyScreen> {
               isGunner: isGunner,
               hasGunner: hasGunner,
               driverId: isJuggernaut ? leaderId : null,
+              partyPartnerUserId: partnerUserId, // <-- Keeps 2v2 Party Partners on Team 1!
             ),
             loadingBuilder: (context) => Container(
               color: Colors.black,

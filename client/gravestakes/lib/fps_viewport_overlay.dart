@@ -294,6 +294,10 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         entities.add(_RenderableEntity(pos: child.position, component: child));
       } else if (child is PoltergeistTrap) {
         entities.add(_RenderableEntity(pos: child.position, component: child));
+      } else if (child is CosmeticTrailParticle) {
+        if (child.position.distanceToSquared(playerPos) <= maxDistSq) {
+          entities.add(_RenderableEntity(pos: child.position, component: child));
+        }
       }
     }
 
@@ -336,7 +340,8 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         renderY -= (wallHeightAtDist * 0.75);
       } else if (entity.component is Critter) {
         renderY += (wallHeightAtDist * 0.38);
-      } else if (entity.component is PoltergeistTrap) {
+      } else if (entity.component is PoltergeistTrap || entity.component is CosmeticTrailParticle) {
+        // Push traps and footstep trail embers down onto the 3D floor!
         renderY += (wallHeightAtDist * 0.45); 
       }
 
@@ -367,6 +372,27 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         final trap = entity.component as PoltergeistTrap;
         if (trap.sprite != null) {
           trap.sprite!.render(canvas, size: Vector2(48, 48), position: Vector2(-24, -24));
+        }
+      } else if (entity.component is CosmeticTrailParticle) {
+        final trail = entity.component as CosmeticTrailParticle;
+        final double alpha = (trail.life / CosmeticTrailParticle.maxLife).clamp(0.0, 1.0);
+        final bool isAsh = trail.spritePath.contains('ash');
+        final Color glowColor = isAsh ? Colors.deepOrangeAccent : Colors.cyanAccent;
+
+        // Draw glowing 3D floor ember / soul wisp
+        canvas.drawOval(
+          const Rect.fromLTWH(-14, -6, 28, 12),
+          Paint()..color = glowColor.withOpacity(alpha * 0.45),
+        );
+        if (trail.sprite != null) {
+          trail.sprite!.render(
+            canvas,
+            size: Vector2(24, 24),
+            position: Vector2(-12, -12),
+            overridePaint: Paint()..color = Colors.white.withOpacity(alpha),
+          );
+        } else {
+          canvas.drawCircle(Offset.zero, 6, Paint()..color = Colors.amberAccent.withOpacity(alpha));
         }
       } else if (entity.component is SpookyBox) {
         final boxPaint = Paint()..color = const Color(0xFF8B4513); 

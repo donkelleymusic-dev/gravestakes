@@ -306,47 +306,49 @@ class _ComposeMessageDialogState extends State<ComposeMessageDialog> {
   }
 
   Future<void> _fetchFriends() async {
-    final myId = supabase.auth.currentUser?.id;
-    if (myId == null) return;
+  final myId = supabase.auth.currentUser?.id;
+  if (myId == null) return;
 
-    try {
-      // Query using the correct user_id and friend_id columns
-      final response = await supabase
-          .from('friendships')
-          .select('user_id, friend_id')
-          .eq('status', 'accepted')
-          .or('user_id.eq.$myId,friend_id.eq.$myId');
+  try {
+    final response = await supabase
+        .from('friendships')
+        .select('user_id, friend_id')
+        .eq('status', 'accepted')
+        .or('user_id.eq.$myId,friend_id.eq.$myId');
 
-      final List<Map<String, String>> parsedFriends = [];
-      
-      // Fetch the usernames manually to avoid foreign key alias errors
-      for (var row in response) {
-        final friendId = row['user_id'] == myId ? row['friend_id'] : row['user_id'];
-        
-        final profile = await supabase
-            .from('profiles')
-            .select('username')
-            .eq('id', friendId)
-            .single();
-            
-        parsedFriends.add({
-          'id': friendId,
-          'username': profile['username'] ?? 'Unknown',
-        });
-      }
-
-      if (mounted) {
-        setState(() {
-          _friends = parsedFriends;
-          if (_friends.isNotEmpty) _selectedFriendId = _friends.first['id'];
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error fetching friends: $e');
-      if (mounted) setState(() => _isLoading = false);
+    final Set<String> friendIds = {};
+    for (var row in response) {
+      final String fId = row['user_id'] == myId ? row['friend_id'] : row['user_id'];
+      friendIds.add(fId);
     }
+
+    final List<Map<String, String>> parsedFriends = [];
+    if (friendIds.isNotEmpty) {
+      final profilesRes = await supabase
+          .from('profiles')
+          .select('id, username')
+          .inFilter('id', friendIds.toList());
+
+      for (var p in profilesRes) {
+        parsedFriends.add({
+          'id': p['id'].toString(),
+          'username': (p['username'] ?? 'Unknown').toString(),
+        });
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _friends = parsedFriends;
+        if (_friends.isNotEmpty) _selectedFriendId = _friends.first['id'];
+        _isLoading = false;
+      });
+    }
+  } catch (e) {
+    debugPrint('Error fetching friends: $e');
+    if (mounted) setState(() => _isLoading = false);
   }
+}
 
   Future<void> _sendMessage() async {
     if (_selectedFriendId == null) return;

@@ -1,4 +1,5 @@
-import 'package:flutter/foundation.dart'; // Replaces dart:io for web-safe platform checks
+// crypt_pass_screen.dart
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
@@ -27,7 +28,6 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
   bool _hasPremiumPass = false;
   int _walletCoins = 0;
 
-  // --- iOS: THE GHOSTING RULE, if it is necessary to disable any in-development paid paths, until future review ---
   // Ghost the track ONLY if we are on a native iOS device and don't own the pass
   bool get _shouldGhostPremiumTrack => 
       !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS && !_hasPremiumPass;
@@ -46,13 +46,40 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
     super.dispose();
   }
 
+  Future<void> _unlockPremiumPassInDb(String userId, String seasonId) async {
+    final existing = await supabase
+        .from('player_season_progress')
+        .select('user_id')
+        .eq('user_id', userId)
+        .eq('season_id', seasonId)
+        .maybeSingle();
+
+    if (existing != null) {
+      await supabase
+          .from('player_season_progress')
+          .update({'has_premium_pass': true})
+          .eq('user_id', userId)
+          .eq('season_id', seasonId);
+    } else {
+      await supabase.from('player_season_progress').insert({
+        'user_id': userId,
+        'season_id': seasonId,
+        'current_tier': 0,
+        'highest_claimed_tier': 0,
+        'current_xp': 0,
+        'has_premium_pass': true,
+      });
+    }
+  }
+
   Future<void> _loadPassData() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
     
-    // GUARD: RevenueCat crashes on the web if not bypassed
     if (!kIsWeb) {
-      await Purchases.invalidateCustomerInfoCache();
+      try {
+        await Purchases.invalidateCustomerInfoCache();
+      } catch (_) {}
     }
     
     try {
@@ -86,66 +113,27 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
           .eq('season_id', _seasonId!)
           .maybeSingle();
       
-      // --- AREVENUECAT SYNC BLOCK IF WE PAID BUT LOST CONNECTION AFTER ---
-      final customerInfo = await Purchases.getCustomerInfo();
       bool truePremiumStatus = progressRes?['has_premium_pass'] ?? false;
-      debugPrint('ACTIVE ENTITLEMENT KEYS: ${customerInfo.entitlements.all.keys.toList()}');
 
-      // --- REVENUECAT SYNC BLOCK (NATIVE ONLY) ---
+      // --- REVENUECAT SYNC BLOCK (GUARDED FOR NATIVE ONLY) ---
       if (!kIsWeb) {
         try {
           final customerInfo = await Purchases.getCustomerInfo();
           debugPrint('ACTIVE ENTITLEMENT KEYS: ${customerInfo.entitlements.all.keys.toList()}');
           
           if (customerInfo.entitlements.all["lumen_breach_pro"]?.isActive == true) {
-            truePremiumStatus = true;
-                        
-            final user = Supabase.instance.client.auth.currentUser;
-            if (user != null) {
-              await Supabase.instance.client
-                  .from('player_season_progress')
-                  .upsert({
-                    'user_id': user.id,
-                    'season_id': _seasonId!,
-                    'has_premium_pass': true
-                  });
-            }
-
-            if (mounted) {
-              setState(() {
-                _hasPremiumPass = true;
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Crypt Pass Activated!'), backgroundColor: Colors.green),
-              );
+            if (!truePremiumStatus) {
+              truePremiumStatus = true;
+              await _unlockPremiumPassInDb(user.id, _seasonId!);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Crypt Pass Activated!'), backgroundColor: Colors.green),
+                );
+              }
             }
           }
         } catch (e) {
           debugPrint('RevenueCat Sync Error: $e');
-        }
-      }
-      
-      if (customerInfo.entitlements.all["lumen_breach_pro"]?.isActive == true) {
-                      
-        final user = Supabase.instance.client.auth.currentUser;
-        if (user != null) {
-          // SWAPPED TO UPSERT
-          await Supabase.instance.client
-              .from('player_season_progress')
-              .upsert({
-                'user_id': user.id,
-                'season_id': _seasonId!,
-                'has_premium_pass': true
-              });
-        }
-
-        if (mounted) {
-          setState(() {
-            _hasPremiumPass = true;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Crypt Pass Activated!'), backgroundColor: Colors.green),
-          );
         }
       }
 
@@ -163,9 +151,8 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
             _currentXp = progressRes['current_xp'] ?? 0;
             _currentTier = progressRes['current_tier'] ?? 0;
             _highestClaimedTier = progressRes['highest_claimed_tier'] ?? 0;
-           // _hasPremiumPass = progressRes['has_premium_pass'] ?? false;
-            _hasPremiumPass = truePremiumStatus;
           }
+          _hasPremiumPass = truePremiumStatus;
           _walletCoins = walletRes != null ? (walletRes['coins'] ?? 0) : 0;
           _isLoading = false;
         });
@@ -181,7 +168,6 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
     final user = supabase.auth.currentUser;
     if (user == null || _seasonId == null || _isClaiming) return;
 
-    // Find tiers that are unlocked but not yet marked claimed
     final tiersToClaim = _tiers.where((t) {
       final lvl = t['tier_level'] as int;
       return lvl <= _currentTier && lvl > _highestClaimedTier;
@@ -198,15 +184,13 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
       final String? freeVessel = tier['free_vessel_type'];
       final String? premiumVessel = tier['premium_vessel_type'];
 
-      // --- NEW SCROLL LOGIC ---
       final int itemIndex = _tiers.indexOf(tier);
       if (_scrollController.hasClients) {
         await _scrollController.animateTo(
-          itemIndex * 96.0, // Multiplies the index by your exact 96px row height
+          itemIndex * 96.0,
           duration: const Duration(milliseconds: 400),
           curve: Curves.easeOutCubic,
         );
-        // Add a tiny delay so the scroll finishes before the overlay dims the screen
         await Future.delayed(const Duration(milliseconds: 100)); 
       }
       
@@ -222,7 +206,6 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
 
       newlyClaimedMax = level;
 
-      // Update in database as we progress
       await supabase
           .from('player_season_progress')
           .update({'highest_claimed_tier': newlyClaimedMax})
@@ -236,24 +219,29 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
       }
     }
 
+    // Refresh wallet coins in case any opened vessels awarded coins!
+    try {
+      final walletRes = await supabase.from('wallets').select('coins').eq('id', user.id).maybeSingle();
+      if (mounted && walletRes != null) {
+        setState(() => _walletCoins = walletRes['coins'] ?? _walletCoins);
+      }
+    } catch (_) {}
+
     if (mounted) {
       setState(() => _isClaiming = false);
     }
   }
 
-  // Wraps VesselOpenerOverlay in a Future to create the sequential queue
   Future<void> _showAndWaitForVessel(String vesselId) {
     return showDialog(
       context: context,
       barrierDismissible: false,
       builder: (dialogCtx) {
-        // Pass the string to the correct 'vesselId' named parameter
         return VesselOpenerOverlay(vesselId: vesselId); 
       },
     ).then((_) {});
   }
 
-  // --- FAST TRACK RPC ---
   Future<void> _fastTrackTiers(int count) async {
     const int costPerTier = 150;
     final totalCost = count * costPerTier;
@@ -390,8 +378,6 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
               ),
             ],
           ),
-          //if (!_hasPremiumPass) // when iOS has premium pass, revert to this version
-          // Only show the purchase button on native Android
           if (!_hasPremiumPass && !kIsWeb && defaultTargetPlatform != TargetPlatform.iOS)
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -404,35 +390,20 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
                     const SnackBar(content: Text('Contacting store...')),
                   );
 
-                  // 1. Fetch active offerings from RevenueCat
                   Offerings offerings = await Purchases.getOfferings();
                   
                   if (offerings.current != null && offerings.current!.availablePackages.isNotEmpty) {
-                    
-                    // Grab the default monthly package 
                     Package passPackage = offerings.current!.availablePackages.first;
-                    
-                    // 2. Prompt native Apple/Google Pay sheet and store the PurchaseResult
                     final purchaseResult = await Purchases.purchasePackage(passPackage);
-                    
-                    // Extract the CustomerInfo from the result wrapper
                     final customerInfo = purchaseResult.customerInfo;
                     
-                    // 3. Check if the user successfully gained the entitlement
-                    // REPLACE 'premium_pass' WITH YOUR EXACT ENTITLEMENT ID FROM REVENUECAT
-                    if (1 == 0 && customerInfo.entitlements.all["lumen_breach_pro"]?.isActive == true) {
-                      
-                      // 4. Update Supabase so the game knows they have the premium track
+                    // FIXED: Removed '1 == 0 &&' debug blocker so paying users immediately get their pass!
+                    if (customerInfo.entitlements.all["lumen_breach_pro"]?.isActive == true) {
                       final user = Supabase.instance.client.auth.currentUser;
-                      if (user != null) {
-                        await Supabase.instance.client
-                            .from('player_season_progress')
-                            .update({'has_premium_pass': true})
-                            .eq('user_id', user.id)
-                            .eq('season_id', _seasonId!);
+                      if (user != null && _seasonId != null) {
+                        await _unlockPremiumPassInDb(user.id, _seasonId!);
                       }
 
-                      // 5. Update UI to unlock premium tier buttons
                       if (mounted) {
                         setState(() {
                           _hasPremiumPass = true;
@@ -450,7 +421,6 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
                     }
                   }
                 } on PlatformException catch (e) {
-                  // Ignore if the user manually closed the payment sheet
                   var errorCode = PurchasesErrorHelper.getErrorCode(e);
                   if (errorCode != PurchasesErrorCode.purchaseCancelledError && mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -473,22 +443,22 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       color: Colors.grey[950],
-      child: Row( // <-- Removed 'const' here
+      child: Row(
         children: [
-          const Expanded( // <-- Added 'const' here
+          const Expanded(
             child: Text(
               'FREE CADENCE',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey, fontFamily: 'Courier', fontSize: 11, fontWeight: FontWeight.bold),
             ),
           ),
-          const SizedBox( // <-- Added 'const' here
+          const SizedBox(
             width: 50, 
             child: Text('TIER', textAlign: TextAlign.center, style: TextStyle(color: Colors.redAccent, fontFamily: 'Courier', fontSize: 11, fontWeight: FontWeight.bold))
           ),
           Expanded(
             child: _shouldGhostPremiumTrack 
-              ? const SizedBox() // Hides the header completely
+              ? const SizedBox()
               : const Text(
                   'CRYPT PASS (PREMIUM)',
                   textAlign: TextAlign.center,
@@ -509,7 +479,6 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
       height: 96,
       child: Row(
         children: [
-          // Left: Free Reward
           Expanded(
             child: _buildRewardCard(
               vesselType: tier['free_vessel_type'],
@@ -519,8 +488,6 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
               onTap: _claimAllAvailable,
             ),
           ),
-
-          // Center: Milestone Line & Tier Indicator
           SizedBox(
             width: 54,
             child: Column(
@@ -549,22 +516,9 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
               ],
             ),
           ),
-
-          /* // Right: Premium Reward
-          Expanded(
-            child: _buildRewardCard(
-              vesselType: tier['premium_vessel_type'],
-              isUnlocked: isUnlocked && _hasPremiumPass,
-              isClaimed: isClaimed,
-              isLockedByPass: !_hasPremiumPass,
-              accentColor: Colors.purpleAccent,
-              onTap: _claimAllAvailable,
-            ),
-          ), */
-          // Right: Premium Reward
           Expanded(
             child: _shouldGhostPremiumTrack 
-              ? const SizedBox() // Leaves a blank space on the right side of the screen
+              ? const SizedBox()
               : _buildRewardCard(
                   vesselType: tier['premium_vessel_type'],
                   isUnlocked: isUnlocked && _hasPremiumPass,
@@ -579,81 +533,78 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
     );
   }
 
- Widget _buildRewardCard({
+  Widget _buildRewardCard({
     required String? vesselType,
     required bool isUnlocked,
     required bool isClaimed,
     bool isLockedByPass = false,
     required Color accentColor,
-    VoidCallback? onTap, // <-- Add this
+    VoidCallback? onTap,
   }) {
     if (vesselType == null) return const SizedBox();
 
     final displayName = vesselType.replaceAll('_', ' ').toUpperCase();
-    final bool isReadyToOpen = isUnlocked && !isClaimed && !isLockedByPass; // <-- Add this
+    final bool isReadyToOpen = isUnlocked && !isClaimed && !isLockedByPass;
 
     return GestureDetector(
-      // Only allow tapping if the box is ready to be opened
       onTap: isReadyToOpen && !_isClaiming ? onTap : null, 
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: isUnlocked ? Colors.grey[900] : Colors.grey[950],
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isClaimed
-              ? Colors.white12
-              : (isUnlocked ? accentColor : Colors.white10),
-          width: isUnlocked && !isClaimed ? 1.5 : 1.0,
+        decoration: BoxDecoration(
+          color: isUnlocked ? Colors.grey[900] : Colors.grey[950],
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isClaimed
+                ? Colors.white12
+                : (isUnlocked ? accentColor : Colors.white10),
+            width: isUnlocked && !isClaimed ? 1.5 : 1.0,
+          ),
         ),
-      ),
-      child: Row(
-        children: [
-          // --- REPLACED GENERIC ICON WITH PROCEDURAL VESSEL ---
-          ProceduralVesselIcon(
-            isPremium: accentColor == Colors.purpleAccent,
-            isClaimed: isClaimed,
-            isLocked: isLockedByPass || !isUnlocked,
-            accentColor: accentColor,
-          ),
-          // ----------------------------------------------------
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  displayName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: isClaimed ? Colors.white38 : Colors.white,
-                    fontFamily: 'Courier',
-                    fontWeight: FontWeight.bold,
-                    fontSize: 10,
-                  ),
-                ),
-                Text(
-                  isClaimed
-                      ? 'CLAIMED'
-                      : (isLockedByPass
-                          ? 'REQUIRES PASS'
-                          : (isUnlocked ? 'TAP TO OPEN' : 'LOCKED')),
-                  style: TextStyle(
-                    color: isClaimed
-                        ? Colors.grey
-                        : (isUnlocked ? Colors.greenAccent : Colors.white24),
-                    fontFamily: 'Courier',
-                    fontSize: 8,
-                  ),
-                ),
-              ],
+        child: Row(
+          children: [
+            ProceduralVesselIcon(
+              isPremium: accentColor == Colors.purpleAccent,
+              isClaimed: isClaimed,
+              isLocked: isLockedByPass || !isUnlocked,
+              accentColor: accentColor,
             ),
-          ),
-        ],
-      ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isClaimed ? Colors.white38 : Colors.white,
+                      fontFamily: 'Courier',
+                      fontWeight: FontWeight.bold,
+                      fontSize: 10,
+                    ),
+                  ),
+                  Text(
+                    isClaimed
+                        ? 'CLAIMED'
+                        : (isLockedByPass
+                            ? 'REQUIRES PASS'
+                            : (isUnlocked ? 'TAP TO OPEN' : 'LOCKED')),
+                    style: TextStyle(
+                      color: isClaimed
+                          ? Colors.grey
+                          : (isUnlocked ? Colors.greenAccent : Colors.white24),
+                      fontFamily: 'Courier',
+                      fontSize: 8,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -666,30 +617,27 @@ class _CryptPassScreenState extends State<CryptPassScreen> {
         top: false,
         child: Row(
           children: [
-            // Fast Track 1 Tier
             if (_currentTier < _tiers.length) ...[
-            Expanded(
-              child: OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Colors.amberAccent),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                onPressed: () => _fastTrackTiers(1),
-                child: const Text(
-                  'SKIP 1 TIER (150 COINS)',
-                  style: TextStyle(
-                    color: Colors.amberAccent,
-                    fontFamily: 'Courier',
-                    fontWeight: FontWeight.bold,
-                    fontSize: 11,
+              Expanded(
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.amberAccent),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  onPressed: () => _fastTrackTiers(1),
+                  child: const Text(
+                    'SKIP 1 TIER (150 COINS)',
+                    style: TextStyle(
+                      color: Colors.amberAccent,
+                      fontFamily: 'Courier',
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                    ),
                   ),
                 ),
               ),
-            ),
             ],
             const SizedBox(width: 8),
-
-            // Waterfall Claim Button
             Expanded(
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
@@ -733,13 +681,11 @@ class ProceduralVesselIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Styling logic based on states
     final Color baseColor = isPremium ? const Color(0xFF311B42) : const Color(0xFF1A1A1A);
     final Color lineColor = isLocked 
         ? Colors.white12 
         : (isClaimed ? Colors.white24 : (isPremium ? Colors.amberAccent : accentColor));
     
-    // Add a pulsing glow if it's unlocked but not yet claimed
     final bool isReady = !isLocked && !isClaimed;
     final List<BoxShadow> glow = isReady 
         ? [BoxShadow(color: lineColor.withOpacity(0.6), blurRadius: 8, spreadRadius: 1)]
@@ -751,7 +697,6 @@ class ProceduralVesselIcon extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // --- THE BASE ---
           Positioned(
             bottom: 4,
             child: Container(
@@ -775,15 +720,13 @@ class ProceduralVesselIcon extends StatelessWidget {
               ),
             ),
           ),
-
-          // --- THE LID (AJAR IF CLAIMED) ---
           AnimatedPositioned(
             duration: const Duration(milliseconds: 300),
-            bottom: isClaimed ? 20 : 19, // Pops up when claimed
+            bottom: isClaimed ? 20 : 19,
             child: Transform.rotate(
-              angle: isClaimed ? 0.25 : 0.0, // Tilts when claimed
+              angle: isClaimed ? 0.25 : 0.0,
               child: Transform.translate(
-                offset: isClaimed ? const Offset(4, 0) : Offset.zero, // Shifts right when claimed
+                offset: isClaimed ? const Offset(4, 0) : Offset.zero,
                 child: Container(
                   width: 30,
                   height: 8,
@@ -803,8 +746,6 @@ class ProceduralVesselIcon extends StatelessWidget {
               ),
             ),
           ),
-
-          // --- LOCK ICON OVERLAY ---
           if (isLocked)
             const Positioned(
               child: Icon(Icons.lock, color: Colors.white38, size: 16),

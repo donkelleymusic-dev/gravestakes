@@ -452,38 +452,75 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
     if (user == null) return;
 
     try {
-      final res = await Supabase.instance.client
-          .from('player_loadouts')
-          .select('ability_id, wearables(*)')
-          .eq('player_id', user.id)
-          .eq('is_equipped', true);
+      footstepReductionMult = 1.0;
+      maxEnergyMult = 1.0;
+      speedMult = 1.0;
+      energyRegenMult = 1.0;
+      activeCounters.clear();
+      hasActiveDefense = false;
 
-      if (res != null) {
-        footstepReductionMult = 1.0;
-        maxEnergyMult = 1.0;
-        speedMult = 1.0;
-        energyRegenMult = 1.0;
-        activeCounters.clear();
-        hasActiveDefense = false; 
+      final Set<String> equippedIds = {};
 
-        for (final item in res) {
-          final wearable = item['wearables'] as Map<String, dynamic>?;
-          if (wearable == null) continue;
+      // 1. Read Neck/Arms/Belt relics from user_loadouts (The Crypt)
+      final cryptLoadouts = await Supabase.instance.client
+          .from('user_loadouts')
+          .select('slot_type, item_value')
+          .eq('user_id', user.id);
 
-          final counterTarget = wearable['counter_target'] as String?;
-          final buffStat = wearable['buff_stat'] as String?;
-          final buffVal = (wearable['buff_value'] as num?)?.toDouble() ?? 1.0;
-          final isActiveDef = wearable['is_active_defense'] as bool? ?? false;
+      for (final row in cryptLoadouts) {
+        final slot = row['slot_type']?.toString() ?? '';
+        final val = row['item_value']?.toString() ?? '';
+        if (slot.startsWith('wearable_') && val.isNotEmpty) {
+          equippedIds.add(val);
+        }
+      }
 
-          if (counterTarget != null) activeCounters.add(counterTarget);
-          if (isActiveDef) hasActiveDefense = true;
-
-          switch (buffStat) {
-            case 'footprint_reduction': footstepReductionMult = buffVal; break;
-            case 'energy_max': maxEnergyMult = buffVal; break;
-            case 'speed': speedMult = buffVal; break;
-            case 'regen': energyRegenMult = buffVal; break;
+      // 2. Read Global Perks from player_loadouts (The Black Market)
+      try {
+        final marketLoadouts = await Supabase.instance.client
+            .from('player_loadouts')
+            .select('ability_id, wearable_id')
+            .eq('player_id', user.id)
+            .eq('is_equipped', true);
+        for (final row in marketLoadouts) {
+          final wId = row['wearable_id']?.toString() ?? '';
+          final aId = row['ability_id']?.toString() ?? '';
+          if (wId.isNotEmpty) equippedIds.add(wId);
+          if (aId.isNotEmpty) {
+            equippedIds.add(aId);
+            // Any active ability perk from the Black Market unlocks Active Defense (Phase Dash)
+            if (aId.contains('phase') || aId.contains('dash') || aId.contains('defense')) {
+              hasActiveDefense = true;
+            }
           }
+        }
+      } catch (_) {}
+
+      if (equippedIds.isEmpty) return;
+
+      // 3. Apply stats from wearables table
+      final wearablesRes = await Supabase.instance.client
+          .from('wearables')
+          .select('*')
+          .inFilter('id', equippedIds.toList());
+
+      for (final wearable in wearablesRes) {
+        final counterTarget = wearable['counter_target'] as String?;
+        final buffStat = wearable['buff_stat'] as String?;
+        final buffVal = (wearable['buff_value'] as num?)?.toDouble() ?? 1.0;
+        final isActiveDef = wearable['is_active_defense'] as bool? ?? false;
+
+        if (counterTarget != null && counterTarget.isNotEmpty) {
+          activeCounters.add(counterTarget);
+        }
+        if (isActiveDef) hasActiveDefense = true;
+
+        switch (buffStat) {
+          case 'footprint_reduction': footstepReductionMult *= buffVal; break;
+          case 'energy_max': maxEnergyMult *= buffVal; break;
+          case 'speed': speedMult *= buffVal; break;
+          case 'regen': energyRegenMult *= buffVal; break;
+          case 'swap_speed_modifier': swapSpeedModifier *= buffVal; break;
         }
       }
     } catch (e) {
@@ -492,6 +529,9 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
   }
 
   Future<void> _fetchEquippedCosmetics() async {
+    // FIXED: Placed inside the async method where await is legally allowed!
+    await MaskRegistry.syncFromDatabase();
+
     final user = Supabase.instance.client.auth.currentUser;
     String? mask1Id; String? mask2Id; String? mask3Id; String? mask4Id;
     
@@ -519,6 +559,7 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
           else if (slot == 'character') equippedCharacterId = val;
           else if (slot == 'particle_trail') equippedTrail = val;
           else if (slot == 'wall_skin') equippedWallSkin = val;
+          else if (slot == 'taunt_1' || slot == 'audio_taunt' || slot == 'taunt') equippedTaunt = val;
         }
 
         final charRes = await Supabase.instance.client
@@ -1171,13 +1212,21 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
       if (isGunner) {
         RemotePlayer? myDriver;
         
-        if (game.driverId != null && game.networkPlayers.containsKey(game.driverId)) {
-          myDriver = game.networkPlayers[game.driverId];
+        if (game.driverId != null) {
+          if (game.networkPlayers.containsKey(game.driverId)) {
+            myDriver = game.networkPlayers[game.driverId];
+          } else {
+            // FIXED: Match the Driver's Supabase Auth UUID against RemotePlayer.userId!
+            for (final rp in game.networkPlayers.values) {
+              if (rp.userId == game.driverId) {
+                myDriver = rp;
+                break;
+              }
+            }
+          }
         }
         
-        // --- NEW: BULLETPROOF MULTIPLAYER FALLBACK ---
-        // If the socket UUID doesn't match the Auth ID, aggressively tether to 
-        // the first RemotePlayer that loads into the map!
+        // Fallback only if userId hasn't synced yet
         if (myDriver == null && game.networkPlayers.isNotEmpty) {
           myDriver = game.networkPlayers.values.first;
         }
@@ -1406,7 +1455,8 @@ class Player extends PositionComponent with KeyboardHandler, HasGameReference<Gr
 
 class CosmeticTrailParticle extends SpriteComponent with HasGameReference<GraveStakesGame> {
   final String spritePath;
-  double life = 1.5; // Disappears completely in 1.5 seconds
+  static const double maxLife = 4.5; // Lasts 4.5 seconds so you can see them when turning around in FPS mode!
+  double life = maxLife;
 
   CosmeticTrailParticle({required this.spritePath, required Vector2 position})
       : super(size: Vector2.all(16), position: position, anchor: Anchor.center) {
@@ -1431,7 +1481,7 @@ class CosmeticTrailParticle extends SpriteComponent with HasGameReference<GraveS
     if (life <= 0) {
       removeFromParent();
     } else {
-      paint.color = Colors.white.withOpacity((life / 1.5).clamp(0.0, 1.0));
+      paint.color = Colors.white.withOpacity((life / maxLife).clamp(0.0, 1.0));
     }
   }
 }

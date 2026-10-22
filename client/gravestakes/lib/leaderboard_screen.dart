@@ -25,6 +25,12 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> with SingleTicker
     _fetchLeaderboardData();
   }
 
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
   Future<void> _fetchLeaderboardData() async {
     if (mounted) setState(() => _isLoading = true);
     

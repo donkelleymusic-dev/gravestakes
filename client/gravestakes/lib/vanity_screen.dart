@@ -1,7 +1,10 @@
+// vanity_screen.dart
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'synth_manager.dart';
+import 'audio_manager.dart';
 
 class VanityScreen extends StatefulWidget {
   const VanityScreen({super.key});
@@ -18,20 +21,25 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
   List<Map<String, dynamic>> _inventory = [];
   Map<String, Map<String, dynamic>> _catalog = {};
   
-  // Wallets
   int _playerShadows = 0;
   int _playerCoins = 0;
 
-  // Committed Database State
   Map<String, String> _committedLoadout = {};
-  // UI Draft State
   Map<String, String> _draftLoadout = {};
+
+  bool get _hasUnsavedChanges => !mapEquals(_draftLoadout, _committedLoadout);
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _fetchCosmeticsData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchCosmeticsData() async {
@@ -56,8 +64,12 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
       _committedLoadout.clear();
       for (var row in List<Map<String, dynamic>>.from(responses[2])) {
         final slot = row['slot_type'] as String;
-        if (['taunt_1', 'particle_trail', 'wall_skin'].contains(slot)) {
-          _committedLoadout[slot] = row['item_value'] as String;
+        final val = row['item_value'] as String;
+        // FIXED: Normalize legacy 'taunt' / 'audio_taunt' / 'taunt_1' into 'taunt_1'
+        if (slot == 'taunt_1' || slot == 'audio_taunt' || slot == 'taunt') {
+          _committedLoadout['taunt_1'] = val;
+        } else if (slot == 'particle_trail' || slot == 'wall_skin') {
+          _committedLoadout[slot] = val;
         }
       }
 
@@ -69,10 +81,11 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
       if (mounted) setState(() => _isLoading = false);
     } catch (e) {
       debugPrint('Vanity Fetch Error: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _buyCosmetic(String itemId, int price, String currency) async {
+  Future<void> _buyCosmetic(String itemId, int price, String currency, String slotType) async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
@@ -86,7 +99,7 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
 
     try {
       await supabase.rpc('buy_item', params: {
-        'p_item_type': 'cosmetic', // Route it as a cosmetic item
+        'p_item_type': 'cosmetic',
         'p_item_id': itemId,
         'p_price': price,
         'p_currency': currency,
@@ -104,27 +117,41 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
           _playerShadows -= price;
         }
         _inventory.add({'item_id': itemId});
+        _draftLoadout[slotType] = itemId;
       });
 
       SynthManager.instance.playMagicTap();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Cosmetic acquired!'), backgroundColor: Colors.green),
-      );
+      if (slotType == 'taunt_1') {
+        AudioManager.instance.playLocalTaunt(itemId);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cosmetic acquired! Tap SAVE COSMETICS below to equip.'), backgroundColor: Colors.green),
+        );
+      }
     } catch (e) {
       debugPrint('Cosmetic Purchase Error: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Purchase failed: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Purchase failed: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
-  void _showPurchaseConfirm(String itemId, String name, int price, String currency) {
-    SynthManager.instance.playMagicTap();
+  void _showPurchaseConfirm(String itemId, String name, int price, String currency, String slotType) {
+    // Play a preview of the audio taunt when they tap it!
+    if (slotType == 'taunt_1' && AudioManager.instance.isInitialized) {
+      AudioManager.instance.playLocalTaunt(itemId);
+    } else {
+      SynthManager.instance.playMagicTap();
+    }
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.grey[900],
-        title: Text('Acquire $name?', style: const TextStyle(color: Colors.white)),
+        title: Text('Acquire $name?', style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron', fontSize: 16)),
         content: Text(
           'Unlock this cosmetic for $price ${currency.toUpperCase()}?',
           style: const TextStyle(color: Colors.white70),
@@ -140,7 +167,7 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
             ),
             onPressed: () {
               Navigator.of(ctx).pop();
-              _buyCosmetic(itemId, price, currency);
+              _buyCosmetic(itemId, price, currency, slotType);
             },
             child: Text('BUY ($price ${currency.toUpperCase()})', style: const TextStyle(color: Colors.white)),
           ),
@@ -160,69 +187,115 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
     setState(() => _isLoading = true);
     try {
       for (String slot in ['taunt_1', 'particle_trail', 'wall_skin']) {
-        if (_draftLoadout.containsKey(slot)) {
+        final val = _draftLoadout[slot];
+        if (val != null && val.isNotEmpty && val != 'default') {
           await supabase.from('user_loadouts').upsert(
-            {'user_id': userId, 'slot_type': slot, 'item_value': _draftLoadout[slot]}, 
+            {'user_id': userId, 'slot_type': slot, 'item_value': val}, 
             onConflict: 'user_id, slot_type'
           );
+          // Also write 'audio_taunt' for backwards compatibility with any older builds
+          if (slot == 'taunt_1') {
+            await supabase.from('user_loadouts').upsert(
+              {'user_id': userId, 'slot_type': 'audio_taunt', 'item_value': val}, 
+              onConflict: 'user_id, slot_type'
+            );
+          }
         } else {
           await supabase.from('user_loadouts').delete().eq('user_id', userId).eq('slot_type', slot);
+          if (slot == 'taunt_1') {
+            await supabase.from('user_loadouts').delete().eq('user_id', userId).eq('slot_type', 'audio_taunt');
+          }
         }
       }
       _committedLoadout = Map.from(_draftLoadout);
-      setState(() => _isLoading = false);
-      SynthManager.instance.playMagicTap();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cosmetics Saved!', style: TextStyle(color: Colors.purpleAccent))));
+      if (mounted) {
+        setState(() => _isLoading = false);
+        SynthManager.instance.playMagicTap();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cosmetics Saved!', style: TextStyle(color: Colors.white)), backgroundColor: Colors.purple),
+        );
+      }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   void _equipItem(String slotType, String itemId) {
-    SynthManager.instance.playMagicTap();
     setState(() {
       if (_draftLoadout[slotType] == itemId) {
-        // Toggle off if already equipped
-        _draftLoadout[slotType] = 'default';
+        _draftLoadout.remove(slotType);
+        SynthManager.instance.playMagicTap();
       } else {
         _draftLoadout[slotType] = itemId;
+        // Audition the taunt immediately when equipped!
+        if (slotType == 'taunt_1' && AudioManager.instance.isInitialized) {
+          AudioManager.instance.playLocalTaunt(itemId);
+        } else {
+          SynthManager.instance.playMagicTap();
+        }
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) return const Scaffold(backgroundColor: Color(0xFF111111), body: Center(child: CircularProgressIndicator()));
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF111111), 
+        body: Center(child: CircularProgressIndicator(color: Colors.purpleAccent)),
+      );
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFF111111),
       appBar: AppBar(
-        title: const Text('THE ECHO CHAMBER', style: TextStyle(color: Colors.purpleAccent, letterSpacing: 2.0, fontSize: 16)),
         backgroundColor: Colors.black,
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16.0),
-            child: Row(
-              children: [
-                const Icon(Icons.dark_mode, color: Colors.redAccent, size: 14),
-                const SizedBox(width: 4),
-                Text('$_playerShadows', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                const SizedBox(width: 12),
-                const Icon(Icons.monetization_on, color: Colors.amber, size: 14),
-                const SizedBox(width: 4),
-                Text('$_playerCoins', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 13)),
-              ],
-            ),
+        centerTitle: true,
+        // FIXED: Title gets the full top line to itself so it is NEVER cut off!
+        title: const Text(
+          'THE ECHO CHAMBER',
+          style: TextStyle(
+            color: Colors.purpleAccent,
+            letterSpacing: 2.0,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            fontFamily: 'Orbitron',
           ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: Colors.purpleAccent,
-          tabs: const [
-            Tab(icon: Icon(Icons.volume_up), text: 'Taunts'),
-            Tab(icon: Icon(Icons.blur_on), text: 'Trails'),
-            Tab(icon: Icon(Icons.wallpaper), text: 'Domains'),
-          ],
+        ),
+        // FIXED: Wallet info sits cleanly on its own line above the TabBar!
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(88),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+                color: Colors.grey[950],
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.dark_mode, color: Colors.redAccent, size: 15),
+                    const SizedBox(width: 6),
+                    Text('$_playerShadows SHADOWS', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Orbitron')),
+                    const SizedBox(width: 24),
+                    const Icon(Icons.monetization_on, color: Colors.amber, size: 15),
+                    const SizedBox(width: 6),
+                    Text('$_playerCoins COINS', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Orbitron')),
+                  ],
+                ),
+              ),
+              TabBar(
+                controller: _tabController,
+                indicatorColor: Colors.purpleAccent,
+                labelColor: Colors.purpleAccent,
+                unselectedLabelColor: Colors.white54,
+                tabs: const [
+                  Tab(icon: Icon(Icons.volume_up, size: 20), text: 'Taunts'),
+                  Tab(icon: Icon(Icons.blur_on, size: 20), text: 'Trails'),
+                  Tab(icon: Icon(Icons.wallpaper, size: 20), text: 'Domains'),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
       body: Column(
@@ -237,7 +310,7 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
               ],
             ),
           ),
-          if (_draftLoadout.toString() != _committedLoadout.toString())
+          if (_hasUnsavedChanges)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
               color: Colors.black,
@@ -249,12 +322,12 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
                       SynthManager.instance.playMagicTap();
                       _revertDraft();
                     },
-                    child: const Text('DISMISS', style: TextStyle(color: Colors.redAccent, letterSpacing: 1.5, fontSize: 13)),
+                    child: const Text('DISMISS', style: TextStyle(color: Colors.redAccent, letterSpacing: 1.5, fontSize: 13, fontFamily: 'Orbitron')),
                   ),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
                     onPressed: _commitDraft,
-                    child: const Text('SAVE COSMETICS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2, fontSize: 13)),
+                    child: const Text('SAVE COSMETICS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2, fontSize: 13, fontFamily: 'Orbitron')),
                   ),
                 ],
               ),
@@ -279,7 +352,7 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
       itemCount: items.length,
       itemBuilder: (context, index) {
         final item = items[index];
-        final itemId = item['id'];
+        final itemId = item['id'].toString();
         final name = item['name'].toString().toUpperCase();
         final price = item['price'] ?? 0;
         final currency = item['currency'] ?? 'shadows';
@@ -292,10 +365,11 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
             if (isOwned) {
               _equipItem(slotType, itemId);
             } else {
-              _showPurchaseConfirm(itemId, name, price, currency);
+              _showPurchaseConfirm(itemId, name, price, currency, slotType);
             }
           },
           child: Container(
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: isEquipped ? Colors.purpleAccent.withOpacity(0.2) : Colors.black45,
               border: Border.all(
@@ -309,7 +383,7 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
               children: [
                 Icon(
                   targetCategory == 'audio_taunt' ? Icons.music_note : (targetCategory == 'wall_skin' ? Icons.wallpaper : Icons.auto_awesome), 
-                  color: isOwned ? Colors.white : Colors.white38,
+                  color: isEquipped ? Colors.purpleAccent : (isOwned ? Colors.white : Colors.white38),
                   size: 28
                 ),
                 const SizedBox(height: 8),
@@ -317,7 +391,8 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
                   name,
                   textAlign: TextAlign.center,
                   maxLines: 2,
-                  style: TextStyle(fontSize: 9, color: isOwned ? Colors.white : Colors.white38, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 9, color: isOwned ? Colors.white : Colors.white38, fontWeight: FontWeight.bold, fontFamily: 'Orbitron'),
                 ),
                 const SizedBox(height: 6),
                 if (!isOwned)
@@ -330,7 +405,9 @@ class _VanityScreenState extends State<VanityScreen> with SingleTickerProviderSt
                     ],
                   )
                 else if (isEquipped)
-                  const Text('TAP TO UNEQUIP', style: TextStyle(color: Colors.redAccent, fontSize: 8, fontWeight: FontWeight.bold))
+                  const Text('EQUIPPED', style: TextStyle(color: Colors.greenAccent, fontSize: 8, fontWeight: FontWeight.bold, fontFamily: 'Orbitron'))
+                else
+                  const Text('OWNED', style: TextStyle(color: Colors.white54, fontSize: 8, fontFamily: 'Orbitron'))
               ],
             ),
           ),

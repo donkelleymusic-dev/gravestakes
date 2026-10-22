@@ -63,6 +63,8 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
   late TabController _tabController;
   late MannequinGame _mannequinGame;
 
+  late MannequinGame _defaultThumbGame;
+
   // --- COMMITTED STATE (Database) ---
   String _committedCharacterId = 'default';
   Map<String, String> _committedLoadout = {};
@@ -130,7 +132,12 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
     super.initState();
     _tabController = TabController(length: 6, vsync: this); 
     _mannequinGame = MannequinGame();
+    _defaultThumbGame = MannequinGame()..loadBaseCharacter('default');
     _fetchLoadoutData();
+  }
+
+  @override void dispose() { 
+    _tabController.dispose(); super.dispose(); 
   }
 
   Future<void> _fetchLoadoutData() async {
@@ -433,6 +440,16 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
 
       for (var payload in basePayloads) {
         await supabase.from('user_loadouts').upsert(payload, onConflict: 'user_id, slot_type');
+      }
+
+      for (final wearableSlot in ['wearable_neck', 'wearable_arms', 'wearable_belt']) {
+        if (!_draftLoadout.containsKey(wearableSlot)) {
+          await supabase
+              .from('user_loadouts')
+              .delete()
+              .eq('user_id', userId)
+              .eq('slot_type', wearableSlot);
+        }
       }
 
       setState(() {
@@ -1193,7 +1210,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                                     final desc = item['description']?.toString() ?? 'A terrifying mask with standard haunting capabilities.';
                                     final eCost = (item['energy_cost'] as num?)?.toDouble() ?? 2.0;
                                     final mCd = (item['cooldown'] as num?)?.toDouble() ?? 2.0;
-                                    final mRange = (item['range'] as num?)?.toDouble() ?? 250.0;
+                                    final mRange = (item['effect_range'] as num?)?.toDouble() ?? (item['range'] as num?)?.toDouble() ?? 250.0;
                                     
                                     showDialog(
                                       context: context,
@@ -1423,7 +1440,7 @@ class _LoadoutScreenState extends State<LoadoutScreen> with SingleTickerProvider
                                       width: 90,
                                       height: 90,
                                       child: GameWidget(
-                                        game: MannequinGame()..loadBaseCharacter('default'),
+                                        game: _defaultThumbGame,
                                       ),
                                     ),
                                   )

@@ -92,12 +92,12 @@ class _GuildScreenState extends State<GuildScreen> {
         // Check if this solo player holds a Reddit/Mercenary Guest Pass!
         Map<String, dynamic>? activeGuestEvent;
         try {
+          // FIXED: Removed .order('created_at') because fright_night_rsvps has no created_at column!
           final rsvpRes = await supabase
               .from('fright_night_rsvps')
               .select('event_id, guild_fright_nights(*)')
               .eq('user_id', user.id)
               .eq('status', 'guest_pass')
-              .order('created_at', ascending: false)
               .limit(1)
               .maybeSingle();
           if (rsvpRes != null && rsvpRes['guild_fright_nights'] != null) {
