@@ -16,6 +16,17 @@ import 'player.dart';
 import 'tactical_entities.dart';
 import 'game_map.dart';
 
+class _FpsFogPuff {
+  double worldX = 0.0;
+  double worldY = 0.0;
+  double vx = 0.0;
+  double vy = 0.0;
+  double radius = 90.0;
+  double heightBias = 0.25; // Positive = hugs the floor, near 0 = mid-air mist
+  double phase = 0.0;
+  bool initialized = false;
+}
+
 class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveStakesGame> {
   FpsViewportOverlay() : super(priority: 10); 
 
@@ -24,6 +35,12 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
   final Paint _wallPaint = Paint();
   final Paint _brickLinePaint = Paint()..color = Colors.black45;
   final Paint _mortarLinePaint = Paint()..color = Colors.black38;
+  final Paint _fogPaint = Paint();
+
+  // Zero-allocation pool of 14 drifting gloomy fog clouds
+  final Random _fogRng = Random(1337);
+  final List<_FpsFogPuff> _fogPuffs = List.generate(14, (_) => _FpsFogPuff());
+  double _lastFogTime = -1.0;
 
   @override
   void onGameResize(Vector2 size) {
@@ -33,6 +50,29 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     if (_zBuffer.length != w) {
       _zBuffer = List<double>.filled(w, 999999.0);
     }
+  }
+
+  void _respawnFogPuff(_FpsFogPuff puff, Vector2 playerPos, double viewAngle, {bool initial = false}) {
+    // Spawn within the camera's forward cone (or all around on initial seed)
+    final double angleSpread = initial ? (pi * 2.0) : (pi * 0.85);
+    final double angle = viewAngle + (_fogRng.nextDouble() - 0.5) * angleSpread;
+    final double dist = initial
+        ? (35.0 + _fogRng.nextDouble() * 260.0)
+        : (70.0 + _fogRng.nextDouble() * 230.0);
+
+    puff.worldX = playerPos.x + sin(angle) * dist;
+    puff.worldY = playerPos.y - cos(angle) * dist;
+
+    // Slow, eerie lateral drift across the corridor
+    final double driftAngle = _fogRng.nextDouble() * pi * 2.0;
+    final double speed = 10.0 + _fogRng.nextDouble() * 18.0;
+    puff.vx = cos(driftAngle) * speed;
+    puff.vy = sin(driftAngle) * speed;
+
+    puff.radius = 75.0 + _fogRng.nextDouble() * 95.0;
+    puff.heightBias = 0.08 + _fogRng.nextDouble() * 0.32;
+    puff.phase = _fogRng.nextDouble() * pi * 2.0;
+    puff.initialized = true;
   }
 
   @override
@@ -315,7 +355,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       double screenX = (screenWidth / 2) + tan(entityAngle) * focalLength;
 
       double scale = focalLength / camY;
-      // Full visual width of a voxel rig / chest on screen
       double halfSpriteWidth = 36.0 * scale;
 
       int startCol = (screenX - halfSpriteWidth).floor().clamp(0, screenWidth - 1);
@@ -323,9 +362,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       if (startCol >= endCol) continue;
 
       // =========================================================================
-      // FIXED: COLUMN-ACCURATE Z-BUFFER WALL OCCLUSION CLIPPING!
-      // Instead of drawing the whole sprite over a wall when 1 edge pokes out,
-      // find the exact horizontal span [visLeft..visRight] not blocked by walls!
+      // COLUMN-ACCURATE Z-BUFFER WALL OCCLUSION CLIPPING
       // =========================================================================
       int? visLeft;
       int? visRight;
@@ -336,7 +373,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         }
       }
 
-      // Completely behind a wall! Skip rendering.
       if (visLeft == null || visRight == null) {
         continue;
       }
@@ -354,7 +390,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
 
       canvas.save();
 
-      // If part of the character/chest is behind a wall edge, physically clip it at the wall edge!
       if (visLeft > startCol || visRight < endCol) {
         canvas.clipRect(
           Rect.fromLTRB(
@@ -498,6 +533,86 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         }
       }
       canvas.restore();
+    }
+
+    // -------------------------------------------------------------
+    // 3.5. VOLUMETRIC GLOOMY 3D FOG (DRIFTS IN & OUT OF CORRIDORS)
+    // -------------------------------------------------------------
+    if (maxRayDistance > 15.0) {
+      final double now = game.currentTime();
+      final double dtFog = (_lastFogTime < 0.0) ? 0.016 : (now - _lastFogTime).clamp(0.0, 0.1);
+      _lastFogTime = now;
+
+      // Subtle global ebb and flow so mist rolls in and thins out organically
+      final double globalMistWave = 0.65 + 0.35 * sin(now * 0.55);
+
+      for (final puff in _fogPuffs) {
+        if (!puff.initialized) {
+          _respawnFogPuff(puff, playerPos, totalViewAngle, initial: true);
+        }
+
+        puff.worldX += puff.vx * dtFog;
+        puff.worldY += puff.vy * dtFog;
+
+        final double dx = puff.worldX - playerPos.x;
+        final double dy = puff.worldY - playerPos.y;
+        final double distSq = dx * dx + dy * dy;
+
+        // If the camera cut to a new position or the puff drifted out of range, recycle it ahead
+        if (distSq > 340.0 * 340.0 || distSq < 14.0 * 14.0) {
+          _respawnFogPuff(puff, playerPos, totalViewAngle);
+          continue;
+        }
+
+        final double camY = dx * forwardDir.x + dy * forwardDir.y;
+        final double camX = dx * rightDir.x + dy * rightDir.y;
+
+        if (camY <= 16.0 || camY > maxRayDistance) {
+          if (camY < -40.0) {
+            _respawnFogPuff(puff, playerPos, totalViewAngle);
+          }
+          continue;
+        }
+
+        final double screenX = (screenWidth / 2) + (camX / camY) * focalLength;
+        final double projRadius = (puff.radius * (focalLength / camY)).clamp(24.0, screenWidth * 0.65);
+
+        if (screenX + projRadius < 0 || screenX - projRadius > screenWidth) {
+          continue;
+        }
+
+        final int centerCol = screenX.toInt().clamp(0, screenWidth - 1);
+        // Respect wall depth so fog behind solid brick walls never bleeds through
+        if (camY > _zBuffer[centerCol] + 24.0) {
+          continue;
+        }
+
+        final double wallH = min(screenHeight * 2.5, (tileSize * focalLength) / camY);
+        final double screenY = (screenHeight / 2) + (wallH * puff.heightBias);
+
+        // Smooth fade-in near lens, fade-out near flashlight tip, and slow breathing pulse
+        final double nearFade = ((camY - 16.0) / 55.0).clamp(0.0, 1.0);
+        final double farFade = (1.0 - (camY / maxRayDistance)).clamp(0.0, 1.0);
+        final double pulse = 0.55 + 0.45 * sin(now * 1.3 + puff.phase);
+        final double alpha = (0.20 * nearFade * farFade * pulse * globalMistWave).clamp(0.0, 0.24);
+
+        if (alpha <= 0.01) continue;
+
+        final Offset center = Offset(screenX, screenY);
+        _fogPaint.shader = ui.Gradient.radial(
+          center,
+          projRadius,
+          [
+            const Color(0xFF1A222E).withOpacity(alpha),       // Gloomy cold slate mist core
+            const Color(0xFF090B10).withOpacity(alpha * 0.5), // Dark shadow mid-ring
+            Colors.transparent,
+          ],
+          const [0.0, 0.55, 1.0],
+        );
+
+        canvas.drawCircle(center, projRadius, _fogPaint);
+      }
+      _fogPaint.shader = null;
     }
 
     // -------------------------------------------------------------
