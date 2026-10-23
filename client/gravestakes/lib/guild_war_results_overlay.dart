@@ -2,24 +2,86 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'vessel_opener_overlay.dart';
 
-class GuildWarResultsOverlay extends StatelessWidget {
+class GuildWarResultsOverlay extends StatefulWidget {
   final Map<String, dynamic> rewardData;
   final VoidCallback onClaimed;
+  final BuildContext parentContext;
 
   const GuildWarResultsOverlay({
     super.key,
     required this.rewardData,
     required this.onClaimed,
+    required this.parentContext,
   });
+
+  static void show(BuildContext context, Map<String, dynamic> rewardData, VoidCallback onClaimed) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => GuildWarResultsOverlay(
+        rewardData: rewardData,
+        onClaimed: onClaimed,
+        parentContext: context,
+      ),
+    );
+  }
+
+  @override
+  State<GuildWarResultsOverlay> createState() => _GuildWarResultsOverlayState();
+}
+
+class _GuildWarResultsOverlayState extends State<GuildWarResultsOverlay> {
+  bool _isSubmitting = false;
+
+  Future<void> _handleClaim() async {
+    if (_isSubmitting) return;
+    setState(() => _isSubmitting = true);
+
+    final supabase = Supabase.instance.client;
+    final user = supabase.auth.currentUser;
+    final String? vesselType = widget.rewardData['reward_vessel_type'];
+
+    if (user != null) {
+      try {
+        // 1. Execute RPC to credit coins & shadows and mark this queue entry claimed
+        await supabase.rpc('claim_guild_war_reward', params: {
+          'p_queue_id': widget.rewardData['id'],
+        });
+
+        // 2. Also mark any older duplicate/stale unclaimed rows for this user as claimed
+        //    so they never get stuck in a repeat popup loop on future launches!
+        await supabase
+            .from('guild_war_rewards_queue')
+            .update({'claimed': true})
+            .eq('user_id', user.id)
+            .eq('claimed', false);
+      } catch (e) {
+        debugPrint('Error claiming guild war reward: $e');
+      }
+    }
+
+    if (!mounted) return;
+
+    // 3. Close the Crypt War Results dialog first
+    Navigator.of(context).pop();
+
+    // 4. Launch the 3D Voxel Vessel Opener using the still-mounted parent MainMenu context!
+    if (vesselType != null && vesselType.isNotEmpty && widget.parentContext.mounted) {
+      await VesselOpenerOverlay.show(widget.parentContext, vesselType);
+    }
+
+    // 5. Refresh the Main Menu wallet & badges after unboxing finishes
+    widget.onClaimed();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final int guildRank = rewardData['guild_rank'] ?? 1;
-    final int internalRank = rewardData['internal_rank'] ?? 1;
-    final int totalIp = rewardData['total_ip_contributed'] ?? 0;
-    final int coins = rewardData['reward_coins'] ?? 0;
-    final int shadows = rewardData['reward_shadows'] ?? 0;
-    final String? vesselType = rewardData['reward_vessel_type'];
+    final int guildRank = widget.rewardData['guild_rank'] ?? 1;
+    final int internalRank = widget.rewardData['internal_rank'] ?? 1;
+    final int totalIp = widget.rewardData['total_ip_contributed'] ?? 0;
+    final int coins = widget.rewardData['reward_coins'] ?? 0;
+    final int shadows = widget.rewardData['reward_shadows'] ?? 0;
+    final String? vesselType = widget.rewardData['reward_vessel_type'];
 
     return Material(
       color: Colors.black87,
@@ -97,40 +159,19 @@ class GuildWarResultsOverlay extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
-                onPressed: () async {
-                  final supabase = Supabase.instance.client;
-                  final user = supabase.auth.currentUser;
-                  if (user != null) {
-                    try {
-                      // Execute safe RPC to transfer escrow rewards into actual wallet/inventory
-                      await supabase.rpc('claim_guild_war_reward', params: {
-                        'p_queue_id': rewardData['id'],
-                      });
-                    } catch (e) {
-                      debugPrint('Error claiming reward: $e');
-                    }
-                  }
-                  Navigator.of(context).pop();
-                  onClaimed();
-
-                  if (vesselType != null && context.mounted) {
-                    VesselOpenerOverlay.show(context, vesselType);
-                  }
-                },
-                child: const Text('COLLECT SPOILS', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
+                onPressed: _isSubmitting ? null : _handleClaim,
+                child: _isSubmitting
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      )
+                    : const Text('COLLECT SPOILS', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
               ),
             ],
           ),
         ),
       ),
-    );
-  }
-
-  static void show(BuildContext context, Map<String, dynamic> rewardData, VoidCallback onClaimed) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => GuildWarResultsOverlay(rewardData: rewardData, onClaimed: onClaimed),
     );
   }
 }
