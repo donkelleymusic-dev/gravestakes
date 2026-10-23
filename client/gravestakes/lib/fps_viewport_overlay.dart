@@ -92,7 +92,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       
       canvas.drawRect(Rect.fromLTWH(0, screenHeight / 2, size.x, screenHeight / 2), Paint()..color = const Color(0xFF090000));
     } else {
-      // Pure black horizon at the center line so unhit rays fade into total darkness
       canvas.drawRect(Rect.fromLTWH(0, 0, size.x, screenHeight / 2), Paint()..color = Colors.black);
       canvas.drawRect(Rect.fromLTWH(0, screenHeight / 2, size.x, screenHeight / 2), Paint()..color = const Color(0xFF060609));
     }
@@ -121,7 +120,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       int hitGridValue = 1;
 
       while (!hitWall && dist < maxRayDistance) {
-        dist += 4.0;
+        dist += 2.0; // Finer 2px step prevents corner-clipping leaks
         impactX = playerPos.x + dirX * dist;
         impactY = playerPos.y + dirY * dist;
         int gridX = (impactX / tileSize).floor();
@@ -138,8 +137,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         }
       }
 
-      // FIXED: If the flashlight beam didn't hit a wall within range, draw NOTHING!
-      // Leaving _zBuffer at 999999.0 and skipping drawRect lets distant hallways stay pitch black.
       if (!hitWall || maxRayDistance <= 1.0) {
         continue;
       }
@@ -154,14 +151,12 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       double wallHeight = min(screenHeight * 2.5, (tileSize * focalLength) / correctedDist);
       double wallTop = (screenHeight - wallHeight) / 2;
 
-      // FIXED: Use raw radial 'dist' (not fisheye-shortened correctedDist) and clamp down to 0.0 
-      // with a 1.5 power curve so walls fade completely into pitch black at maxRayDistance!
       double linearFade = (1.0 - (dist / maxRayDistance)).clamp(0.0, 1.0);
       double fadeFactor = pow(linearFade, 1.5).toDouble();
       int brightness = (255 * fadeFactor).round().clamp(0, 255);
 
       if (brightness <= 1 && !isVoidSkin) {
-        continue; // Completely dark, skip drawing
+        continue;
       }
       
       double hitX = impactX % tileSize;
@@ -226,7 +221,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
           _wallPaint,
         );
       } else if (fadeFactor > 0.08) {
-        // FIXED: Scale brick & mortar opacity with fadeFactor so they disappear into darkness
         _brickLinePaint.color = Color.fromARGB((115 * fadeFactor).toInt(), 0, 0, 0);
         double brickHeight = wallHeight / 6.0;
         for (int b = 1; b < 6; b++) {
@@ -247,7 +241,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     }
 
     // -------------------------------------------------------------
-    // 3. PROJECT BILLBOARDS (SINGLE-PASS WORLD SCAN)
+    // 3. PROJECT BILLBOARDS (SINGLE-PASS WORLD SCAN + Z-CLIPPING)
     // -------------------------------------------------------------
     List<_RenderableEntity> entities = [];
     final double maxDistSq = maxRayDistance * maxRayDistance;
@@ -271,7 +265,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       }
     }
 
-    // FIXED: Single pass over world.children instead of 7 separate .whereType<T>() scans!
     for (final child in game.world.children) {
       if (child is WallComponent || child is Player || child is BotPlayer || child is RemotePlayer) {
         continue;
@@ -301,7 +294,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       }
     }
 
-    // Check local player children directly
     for (var siren in player.children.whereType<SirenBlast>()) {
       entities.add(_RenderableEntity(pos: player.position, component: siren));
     }
@@ -323,14 +315,30 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       double screenX = (screenWidth / 2) + tan(entityAngle) * focalLength;
 
       double scale = focalLength / camY;
-      double projectedWidth = 48.0 * scale; 
+      // Full visual width of a voxel rig / chest on screen
+      double halfSpriteWidth = 36.0 * scale;
 
-      int centerCol = screenX.toInt().clamp(0, screenWidth - 1);
-      int leftCol = (screenX - (projectedWidth / 2)).toInt().clamp(0, screenWidth - 1);
-      int rightCol = (screenX + (projectedWidth / 2)).toInt().clamp(0, screenWidth - 1);
+      int startCol = (screenX - halfSpriteWidth).floor().clamp(0, screenWidth - 1);
+      int endCol = (screenX + halfSpriteWidth).ceil().clamp(0, screenWidth - 1);
+      if (startCol >= endCol) continue;
 
-      if (camY > _zBuffer[centerCol] && camY > _zBuffer[leftCol] && camY > _zBuffer[rightCol]) {
-        continue; 
+      // =========================================================================
+      // FIXED: COLUMN-ACCURATE Z-BUFFER WALL OCCLUSION CLIPPING!
+      // Instead of drawing the whole sprite over a wall when 1 edge pokes out,
+      // find the exact horizontal span [visLeft..visRight] not blocked by walls!
+      // =========================================================================
+      int? visLeft;
+      int? visRight;
+      for (int col = startCol; col <= endCol; col++) {
+        if (camY <= _zBuffer[col]) {
+          visLeft ??= col;
+          visRight = col;
+        }
+      }
+
+      // Completely behind a wall! Skip rendering.
+      if (visLeft == null || visRight == null) {
+        continue;
       }
 
       double renderY = screenHeight / 2;
@@ -341,11 +349,23 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
       } else if (entity.component is Critter) {
         renderY += (wallHeightAtDist * 0.38);
       } else if (entity.component is PoltergeistTrap || entity.component is CosmeticTrailParticle) {
-        // Push traps and footstep trail embers down onto the 3D floor!
         renderY += (wallHeightAtDist * 0.45); 
       }
 
       canvas.save();
+
+      // If part of the character/chest is behind a wall edge, physically clip it at the wall edge!
+      if (visLeft > startCol || visRight < endCol) {
+        canvas.clipRect(
+          Rect.fromLTRB(
+            visLeft.toDouble(),
+            0.0,
+            (visRight + 1).toDouble(),
+            screenHeight,
+          ),
+        );
+      }
+
       canvas.translate(screenX, renderY);
       canvas.scale(scale * 0.5, scale * 0.5);
 
@@ -379,7 +399,6 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         final bool isAsh = trail.spritePath.contains('ash');
         final Color glowColor = isAsh ? Colors.deepOrangeAccent : Colors.cyanAccent;
 
-        // Draw glowing 3D floor ember / soul wisp
         canvas.drawOval(
           const Rect.fromLTWH(-14, -6, 28, 12),
           Paint()..color = glowColor.withOpacity(alpha * 0.45),
