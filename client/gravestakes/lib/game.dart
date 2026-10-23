@@ -828,9 +828,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         player.isRecharging = false;
         player.flashlightBattery = 100.0;
 
-        cinematicMonster!.position.setValues(688.0, 964.0);
-        cinematicMonster!.facingAngle = 0.0;
-        cinematicMonster!.voxelComponent!.isMoving = false;
+        // FIXED: Keep the monster hidden off-screen while we are still looking South!
+        // Only teleport it into position at 18.8s once our camera has turned away to the East.
+        if (cinematicTimer < 18.8) {
+          cinematicMonster!.position.setValues(-9999.0, -9999.0);
+          cinematicMonster!.voxelComponent!.isMoving = false;
+        } else {
+          cinematicMonster!.position.setValues(688.0, 964.0);
+          cinematicMonster!.facingAngle = 0.0;
+          cinematicMonster!.voxelComponent!.isMoving = false;
+        }
 
         if (cinematicTimer < 19.0) {
           final double p = progress(16.5, 19.0);
@@ -852,6 +859,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           }
         }
       }
+
 
       // =========================================================================
       // BEAT 6 (20.5s - 24.5s): PANIC BREATH, FAST 90° TURN RIGHT & JUMP SCARE!
