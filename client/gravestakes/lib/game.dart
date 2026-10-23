@@ -670,7 +670,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         actor.wanderSpeed = 0.0;
         actor.huntSpeed = 0.0;
         actor.isStunned = false;
-        actor.isCharmed = false;
+        //actor.isCharmed = false;
       }
       try {
         cinematicMonster!.voxelComponent!.activeMaskImage ??= images.fromCache('siren_mask.png');
