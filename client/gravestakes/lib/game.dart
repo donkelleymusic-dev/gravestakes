@@ -381,6 +381,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     ]);
 
     await _loadVoxelAssets(); 
+    await ensureCharacterLoaded('survivor'); // Ensure The Survivor assets are pre-warmed for cinematic
 
     mySessionId = DateTime.now().millisecondsSinceEpoch.toString();
     final user = Supabase.instance.client.auth.currentUser;
@@ -453,7 +454,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     player = Player(leftJoystick, rightJoystick, myChannel, isGunner: isGunner)..position = safeSpawnPoint;
     jumpScareEffect = JumpScareEffect();
 
-    // --- INJECT LOCAL DUMMY FOR TESTING ---
     if (driverId == 'dummy_driver_123') {
       final dummyDriver = RemotePlayer()..position = safeSpawnPoint.clone() + Vector2(100, 0);
       dummyDriver.facingAngle = 0.0;
@@ -490,14 +490,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     await camera.viewport.add(FpsViewportOverlay());
 
-    // Always initialize late HUD/Map fields so they never throw LateInitializationError in any mode!
     gameTimer = GameTimer();
     mapOverlay = MapOverlay();
     scoreHud = ScoreHud();
 
-    // ==========================================
-    // 2D/3D ALTERNATOR
-    // ==========================================
     final prefs = await SharedPreferences.getInstance();
     bool lastWasFps = prefs.getBool('last_match_was_fps') ?? false;
 
@@ -518,12 +514,13 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       player.facingAngle = 0.0; 
       player.isInvisible = true; 
 
+      // Stunt double uses 'survivor' (The Survivor humanoid character)
       stuntDoubleHero = BotPlayer(isHunter: false)
         ..position = Vector2(stageX + 400, stageY - 64) 
         ..wanderSpeed = 0.0
         ..huntSpeed = 0.0
         ..priority = 10;
-      stuntDoubleHero!.assignedCharacterId = player.equippedCharacterId;
+      stuntDoubleHero!.assignedCharacterId = 'survivor';
 
       cinematicMonster = BotPlayer(isHunter: false) 
         ..position = Vector2(stageX + 800, stageY - 64) 
@@ -553,11 +550,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           ),
         ),
       );
-      // Uncomment the line below if you want the debug beat timer visible at the top of the screen:
-      // camera.viewport.add(cinematicStatusText!);
-
     } else {
-      // --- NORMAL GAME UI & CONTROLS ---
       world.add(PowerUpHud(player: player));
 
       camera.viewport.add(leftJoystick);
@@ -578,7 +571,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         final logoComponent = SpriteComponent(
           sprite: logoSprite,
           size: Vector2(120, 60), 
-          // Shifted 6px right (+5% width) and 3px up (-5% height), behind joysticks & attack wheel!
           position: Vector2((camera.viewport.size.x / 2) + 6, camera.viewport.size.y - 23), 
           anchor: Anchor.bottomCenter,
           priority: 50, 
@@ -646,22 +638,18 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           }
         }
 
-        // 1. Clear our stage area (Rows 11..18, Cols 7..24) to open floor (0)
         for (int gy = 11; gy <= 18; gy++) {
           for (int gx = 7; gx <= 24; gx++) {
             setGridCell(gy, gx, 0);
           }
         }
-        // 2. Long main brick wall to run beside (Row 14, Cols 11..22; Corner edge is at X = 704)
         for (int gx = 11; gx <= 22; gx++) {
           setGridCell(14, gx, 1);
         }
-        // 3. Corridor South back-wall (Row 17) & North alcove wall (Row 11)
         for (int gx = 8; gx <= 23; gx++) {
           setGridCell(17, gx, 1);
           setGridCell(11, gx, 1);
         }
-        // 4. West alley outer wall (Col 8)
         for (int gy = 11; gy <= 17; gy++) {
           setGridCell(gy, 8, 1);
         }
@@ -679,7 +667,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       double progress(double start, double end) =>
           ((cinematicTimer - start) / (end - start)).clamp(0.0, 1.0);
 
-      // Lock Bot AI so BotPlayer.update() never wanders or overrides our choreography
       for (final actor in [stuntDoubleHero!, cinematicMonster!]) {
         actor.attackCooldown = 999.0;
         actor.wanderSpeed = 0.0;
@@ -690,7 +677,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         cinematicMonster!.voxelComponent!.activeMaskImage ??= images.fromCache('siren_mask.png');
       } catch (_) {}
 
-      // Keep 3D spatial audio listener synced with the camera
       if (AudioManager.instance.isInitialized) {
         try {
           const double audioScale = 50.0;
@@ -701,7 +687,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       }
 
       // =========================================================================
-      // BEAT 1 (0.0s - 5.2s): STATIONARY CAMERA FLY-BY (HUMAN, THEN MONSTER)
+      // BEAT 1 (0.0s - 5.2s): STATIONARY CAMERA FLY-BY (HUMAN + HEAVY BREATHING)
       // =========================================================================
       if (cinematicTimer < 5.2) {
         cinematicStatusText?.text = 'BEAT 1: CORRIDOR CHASE [${cinematicTimer.toStringAsFixed(1)}s]';
@@ -714,6 +700,18 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           stuntDoubleHero!.position.setValues(1120.0 - (500.0 * p), 985.0);
           stuntDoubleHero!.facingAngle = -pi / 2;
           stuntDoubleHero!.voxelComponent!.isMoving = true;
+
+          // Play heavy breathing audio for the running human
+          if (!cinematicStage1) {
+            cinematicStage1 = true;
+            if (AudioManager.instance.isInitialized && AudioManager.instance.heavyBreathingSource != null) {
+              SoLoud.instance.play(AudioManager.instance.heavyBreathingSource!, volume: 0.7);
+            }
+          }
+
+          // Force faster sprint leg animation (2.5x speed)
+          stuntDoubleHero!.voxelComponent!.update(dt * 2.5);
+
           if ((prevTime * 4).floor() != (cinematicTimer * 4).floor()) {
             AudioManager.instance.playEntityFootstep(stuntDoubleHero!.assignedCharacterId, stuntDoubleHero!.position);
           }
@@ -727,6 +725,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           cinematicMonster!.position.setValues(1120.0 - (500.0 * p), 985.0);
           cinematicMonster!.facingAngle = -pi / 2;
           cinematicMonster!.voxelComponent!.isMoving = true;
+
+          // Force faster sprint leg animation for monster too
+          cinematicMonster!.voxelComponent!.update(dt * 2.5);
+
           if ((prevTime * 5).floor() != (cinematicTimer * 5).floor()) {
             AudioManager.instance.playEntityFootstep('default', cinematicMonster!.position);
           }
@@ -792,18 +794,18 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       }
 
       // =========================================================================
-      // BEAT 4 (13.0s - 16.5s): FLICKER, BLACKOUT, HEAVY BREATHING & RECHARGE
+      // BEAT 4 (13.0s - 17.5s): EXTENDED BLACKOUT & RECHARGE
       // =========================================================================
-      else if (cinematicTimer < 16.5) {
+      else if (cinematicTimer < 17.5) {
         cinematicStatusText?.text = 'BEAT 4: BLACKOUT & RECHARGE [${cinematicTimer.toStringAsFixed(1)}s]';
         cinematicMonster!.position.setValues(-9999, -9999);
 
         if (cinematicTimer < 13.9) {
           player.isLightFlickeringOut = (sin(cinematicTimer * 45.0) > 0.0);
           player.flashlightBattery = 12.0;
-        } else if (cinematicTimer < 15.2) {
-          if (!cinematicStage1) {
-            cinematicStage1 = true;
+        } else if (cinematicTimer < 15.6) {
+          if (!cinematicStage2) {
+            cinematicStage2 = true;
             if (AudioManager.instance.isInitialized && AudioManager.instance.heavyBreathingSource != null) {
               SoLoud.instance.play(AudioManager.instance.heavyBreathingSource!, volume: 0.85);
             }
@@ -813,40 +815,35 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           player.isRecharging = false;
           player.flashlightBattery = 0.0;
         } else {
-          final double p = progress(15.2, 16.5);
+          // Flashlight gradually recharges during the beginning of the turn (15.6s - 17.5s)
+          final double p = progress(15.6, 17.5);
           player.isFlashlightDead = false;
           player.isRecharging = true;
-          player.flashlightBattery = 10.0 + (65.0 * p);
+          player.flashlightBattery = 10.0 + (90.0 * p);
         }
       }
 
       // =========================================================================
-      // BEAT 5 (16.5s - 20.5s): SLOW TURN AWAY + HOLD BREATH + HEARTBEAT
+      // BEAT 5 (17.5s - 21.0s): CLOCKWISE SLOW TURN AWAY (TOWARDS WEST ALLEY) + HOLD BREATH
       // =========================================================================
-      else if (cinematicTimer < 20.5) {
+      else if (cinematicTimer < 21.0) {
         cinematicStatusText?.text = 'BEAT 5: CREEPING DREAD [${cinematicTimer.toStringAsFixed(1)}s]';
         player.isRecharging = false;
         player.flashlightBattery = 100.0;
 
-        // FIXED: Keep the monster hidden off-screen while we are still looking South!
-        // Only teleport it into position at 18.8s once our camera has turned away to the East.
-        if (cinematicTimer < 18.8) {
-          cinematicMonster!.position.setValues(-9999.0, -9999.0);
-          cinematicMonster!.voxelComponent!.isMoving = false;
-        } else {
-          cinematicMonster!.position.setValues(688.0, 964.0);
-          cinematicMonster!.facingAngle = 0.0;
-          cinematicMonster!.voxelComponent!.isMoving = false;
-        }
+        // Keep monster hidden off-screen until we complete the slow turn
+        cinematicMonster!.position.setValues(-9999.0, -9999.0);
+        cinematicMonster!.voxelComponent!.isMoving = false;
 
-        if (cinematicTimer < 19.0) {
-          final double p = progress(16.5, 19.0);
+        // Clockwise 90° turn: panning from South (pi) to West (3*pi/2 or -pi/2)
+        if (cinematicTimer < 19.8) {
+          final double p = progress(17.5, 19.8);
           final double smoothP = p * p * (3.0 - 2.0 * p);
-          player.facingAngle = pi - (smoothP * (pi / 2));
+          player.facingAngle = pi + (smoothP * (pi / 2)); // Turns clockwise towards West (3*pi/2)
         } else {
-          player.facingAngle = pi / 2;
-          if (!cinematicStage2) {
-            cinematicStage2 = true;
+          player.facingAngle = (3 * pi) / 2; // Locked facing West into the open alcove
+          if (!cinematicStage3) {
+            cinematicStage3 = true;
             AudioManager.instance.stopPhysiologyLoops();
             if (AudioManager.instance.isInitialized) {
               if (AudioManager.instance.gaspBreathSource != null) {
@@ -860,53 +857,60 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         }
       }
 
-
       // =========================================================================
-      // BEAT 6 (20.5s - 24.5s): PANIC BREATH, FAST 90° TURN RIGHT & JUMP SCARE!
+      // BEAT 6 (21.0s - 24.5s): CLOCKWISE FAST 90° TURN NORTH & JUMP SCARE!
       // =========================================================================
       else {
         cinematicStatusText?.text = 'BEAT 6: THE BREACH [${cinematicTimer.toStringAsFixed(1)}s]';
 
-        if (!cinematicStage3) {
-          cinematicStage3 = true;
+        if (!cinematicStage4) {
+          cinematicStage4 = true;
           if (AudioManager.instance.isInitialized && AudioManager.instance.heavyBreathingSource != null) {
             SoLoud.instance.play(AudioManager.instance.heavyBreathingSource!, volume: 1.0);
           }
         }
 
-        if (cinematicTimer < 20.8) {
-          player.facingAngle = pi / 2;
-        } else if (cinematicTimer < 21.15) {
-          final double p = progress(20.8, 21.15);
+        // Place the monster directly NORTH of our camera at (688.0, 850.0), facing South (pi) at us
+        cinematicMonster!.position.setValues(688.0, 850.0);
+        cinematicMonster!.facingAngle = pi;
+        cinematicMonster!.voxelComponent!.isMoving = false;
+
+        // Fast 90° clockwise snap turn from West (3*pi/2) to North (2*pi / 0.0)
+        if (cinematicTimer < 21.2) {
+          player.facingAngle = (3 * pi) / 2;
+        } else if (cinematicTimer < 21.55) {
+          final double p = progress(21.2, 21.55);
           final double whipCurve = pow(p, 2.5).toDouble();
-          player.facingAngle = (pi / 2) + (whipCurve * (pi / 2));
+          player.facingAngle = ((3 * pi) / 2) + (whipCurve * (pi / 2)); // Reaches 2*pi (0.0 North)
         } else {
-          player.facingAngle = pi;
+          player.facingAngle = 0.0; // Locked dead-on looking North at the Monster!
         }
 
-        if (cinematicTimer >= 21.2 && cinematicTimer < 22.6) {
-          if (!cinematicStage4) {
-            cinematicStage4 = true;
+        // 21.6s: EXACT MOMENT OF JUMP SCARE & "AH!" SOUND EFFECT!
+        if (cinematicTimer >= 21.6 && cinematicTimer < 23.0) {
+          if (!cinematicStage1) { // Re-using stage flag for trigger lock
+            cinematicStage1 = true;
             cinematicMonster!.voxelComponent!.triggerScareAnimation('siren');
             jumpScareEffect.trigger();
             if (AudioManager.instance.isInitialized) {
-              AudioManager.instance.playMaskScare('siren');
+              AudioManager.instance.playMaskScare('siren'); // Fires the "AH!" scare sound right now!
               if (AudioManager.instance.powerupSource != null) {
                 SoLoud.instance.play(AudioManager.instance.powerupSource!, volume: 1.0);
               }
             }
           }
-          final double lungeP = progress(21.2, 21.55);
-          cinematicMonster!.position.setValues(688.0, 964.0 - (27.0 * lungeP));
+          // Monster physically lunges from Y=850 (36px away) to Y=820 (6px away in the lens!)
+          final double lungeP = progress(21.6, 21.95);
+          cinematicMonster!.position.setValues(688.0, 850.0 - (30.0 * lungeP));
         }
 
-        if (cinematicTimer >= 22.6) {
+        if (cinematicTimer >= 23.0) {
           player.flashlightBattery = 0.0;
           player.isFlashlightDead = true;
           cinematicStatusText?.text = '';
         }
 
-        if (crossed(23.6)) {
+        if (crossed(24.0)) {
           AudioManager.instance.stopPhysiologyLoops();
           AudioManager.instance.playMenuMusic();
           pauseEngine();
