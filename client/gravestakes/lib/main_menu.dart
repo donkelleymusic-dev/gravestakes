@@ -770,7 +770,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                 icon: const Icon(Icons.movie_creation, color: Colors.greenAccent, size: 24),
                                 onPressed: () {
                                   SynthManager.instance.playMagicTap();
-<<<<<<< HEAD
                                   AudioManager.instance.stopMusic();
                                   Navigator.of(context).push(
                                     MaterialPageRoute(
@@ -799,19 +798,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                       ),
                                     ),
                                   );
-=======
-                                  Future.delayed(const Duration(milliseconds: 25), () {
-                                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => Scaffold(body: GameWidget(game: GraveStakesGame(matchMode: 'cinematic')))));
-                                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => Scaffold(
-                                      body: GameWidget(game: GraveStakesGame(
-                                        matchMode: 'casual',
-                                        isGunner: true, // You are playing the Gunner
-                                        driverId: 'dummy_driver_123',
-                                        hasGunner: true,
-                                      ))
-                                    )));
-                                  });
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
                                 },
                               ),
                             ),

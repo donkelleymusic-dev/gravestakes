@@ -95,11 +95,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   String roomId;
   final bool isGunner;
   final String? driverId;
-<<<<<<< HEAD
   final String? partyPartnerUserId; // Keeps Squad Party partners on Team 1 together!
-=======
-  final String? partyPartnerUserId;
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
   final bool hasGunner;
   final String matchMode; 
   final String mapName;
@@ -494,10 +490,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     await camera.viewport.add(FpsViewportOverlay());
 
-<<<<<<< HEAD
     // Always initialize late HUD/Map fields so they never throw LateInitializationError in any mode!
-=======
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
     gameTimer = GameTimer();
     mapOverlay = MapOverlay();
     scoreHud = ScoreHud();
@@ -560,11 +553,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           ),
         ),
       );
-<<<<<<< HEAD
       // Uncomment the line below if you want the debug beat timer visible at the top of the screen:
-=======
-      // Uncomment the line below if you want to see debug timecodes while testing:
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
       // camera.viewport.add(cinematicStatusText!);
 
     } else {
@@ -573,11 +562,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
       camera.viewport.add(leftJoystick);
 
-<<<<<<< HEAD
       camera.viewport.add(scoreHud);
-=======
-      camera.viewport.add(ScoreHud());
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
       camera.viewport.add(gameTimer);
       
       await camera.viewport.add(FpsTouchControls());
@@ -593,10 +578,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         final logoComponent = SpriteComponent(
           sprite: logoSprite,
           size: Vector2(120, 60), 
-<<<<<<< HEAD
           // Shifted 6px right (+5% width) and 3px up (-5% height), behind joysticks & attack wheel!
-=======
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
           position: Vector2((camera.viewport.size.x / 2) + 6, camera.viewport.size.y - 23), 
           anchor: Anchor.bottomCenter,
           priority: 50, 
@@ -625,7 +607,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         camera.viewport.add(TutorialManager());
       }
 
-<<<<<<< HEAD
       if (overlays.registeredOverlays.contains('help_button')) {
         overlays.add('help_button');
       }
@@ -634,12 +615,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     if (matchMode != 'cinematic') {
       _setupSupabaseListener();
     }
-=======
-      overlays.add('help_button');
-    }
-
-    _setupSupabaseListener();
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
   }
 
   @override
@@ -662,7 +637,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         player.isLightFlickeringOut = false;
         player.isInvisible = true;
 
-<<<<<<< HEAD
         void setGridCell(int gy, int gx, int val) {
           if (gy >= 0 && gy < gameMap.mapGrid.length) {
             final row = gameMap.mapGrid[gy];
@@ -690,29 +664,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         // 4. West alley outer wall (Col 8)
         for (int gy = 11; gy <= 17; gy++) {
           setGridCell(gy, 8, 1);
-=======
-        // Carve a deterministic L-shaped corridor directly into gameMap.mapGrid
-        // so the 3D FPS Raycaster renders a long brick wall & corner every time!
-        for (int gy = 11; gy <= 18; gy++) {
-          for (int gx = 7; gx <= 24; gx++) {
-            if (gy >= 0 && gy < gameMap.gridHeight && gx >= 0 && gx < gameMap.gridWidth) {
-              gameMap.mapGrid[gy][gx] = 0;
-            }
-          }
-        }
-        // Long main wall to run beside (Row 14, X = 704 to 1408; Corner edge is at X = 704)
-        for (int gx = 11; gx <= 22; gx++) {
-          gameMap.mapGrid[14][gx] = 1;
-        }
-        // Corridor South back-wall (Row 17) & North alcove wall (Row 11)
-        for (int gx = 8; gx <= 23; gx++) {
-          gameMap.mapGrid[17][gx] = 1;
-          gameMap.mapGrid[11][gx] = 1;
-        }
-        // West alley outer wall (Col 8)
-        for (int gy = 11; gy <= 17; gy++) {
-          gameMap.mapGrid[gy][8] = 1;
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
         }
 
         cinematicStage1 = false;
@@ -728,25 +679,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       double progress(double start, double end) =>
           ((cinematicTimer - start) / (end - start)).clamp(0.0, 1.0);
 
-<<<<<<< HEAD
       // Lock Bot AI so BotPlayer.update() never wanders or overrides our choreography
-=======
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
       for (final actor in [stuntDoubleHero!, cinematicMonster!]) {
         actor.attackCooldown = 999.0;
         actor.wanderSpeed = 0.0;
         actor.huntSpeed = 0.0;
         actor.isStunned = false;
-<<<<<<< HEAD
-=======
-        //actor.isCharmed = false;
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
       }
       try {
         cinematicMonster!.voxelComponent!.activeMaskImage ??= images.fromCache('siren_mask.png');
       } catch (_) {}
 
-<<<<<<< HEAD
       // Keep 3D spatial audio listener synced with the camera
       if (AudioManager.instance.isInitialized) {
         try {
@@ -755,13 +698,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           SoLoud.instance.set3dListenerAt(sin(player.facingAngle), -cos(player.facingAngle), 0.0);
           SoLoud.instance.set3dListenerUp(0.0, 0.0, -1.0);
         } catch (_) {}
-=======
-      if (AudioManager.instance.isInitialized) {
-        const double audioScale = 50.0;
-        SoLoud.instance.set3dListenerPosition(player.position.x / audioScale, player.position.y / audioScale, 0.0);
-        SoLoud.instance.set3dListenerAt(sin(player.facingAngle), -cos(player.facingAngle), 0.0);
-        SoLoud.instance.set3dListenerUp(0.0, 0.0, -1.0);
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
       }
 
       // =========================================================================
@@ -773,10 +709,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         player.position.setValues(780.0, 1025.0);
         player.facingAngle = 72.0 * (pi / 180.0);
 
-<<<<<<< HEAD
-=======
-        // 1A. Human sprints West (X: 1120 -> 620) from 0.2s to 2.5s
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
         if (cinematicTimer >= 0.2 && cinematicTimer <= 2.5) {
           final double p = progress(0.2, 2.5);
           stuntDoubleHero!.position.setValues(1120.0 - (500.0 * p), 985.0);
@@ -790,10 +722,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           stuntDoubleHero!.voxelComponent!.isMoving = false;
         }
 
-<<<<<<< HEAD
-=======
-        // 1B. Monster chases West along the exact same wall 2.4s later (2.6s to 4.8s)
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
         if (cinematicTimer >= 2.6 && cinematicTimer <= 4.8) {
           final double p = progress(2.6, 4.8);
           cinematicMonster!.position.setValues(1120.0 - (500.0 * p), 985.0);
@@ -1111,11 +1039,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
     
     myChannel.unsubscribe();
-<<<<<<< HEAD
     if (matchMode != 'cinematic' && !roomId.startsWith('public') && !roomId.startsWith('scrimmage_') && !roomId.startsWith('fright_')) {
-=======
-    if (!roomId.startsWith('public') && !roomId.startsWith('scrimmage_') && !roomId.startsWith('fright_')) {
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
       try {
         Supabase.instance.client.rpc('leave_match', params: {'p_match_id': roomId});
       } catch (e) {}
@@ -1310,15 +1234,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       if (isGunner && driverId != null) {
         partner = networkPlayers[driverId];
         if (partner == null) {
-<<<<<<< HEAD
           for (var remote in networkPlayers.values) {
             if (remote.userId == driverId) {
               partner = remote;
-=======
-          for (final rp in networkPlayers.values) {
-            if (rp.userId == driverId) {
-              partner = rp;
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
               break;
             }
           }
@@ -1522,10 +1440,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           debugPrint('Failed to post scrimmage results to chat: $e');
         }
       }
-<<<<<<< HEAD
-=======
 
->>>>>>> 440c85204d6d1df1a691e5e13ae808b1608c5240
       if (matchMode == 'fright_night' && myGuildId != null) {
         try {
           String _short(String id) => id.length >= 4 ? id.substring(0, 4) : id;
