@@ -49,16 +49,12 @@ class MainMenuScreen extends StatefulWidget {
 class _MainMenuScreenState extends State<MainMenuScreen> {
   int _highestLevelFired = -1;
   final supabase = Supabase.instance.client;
-  // first run menu tutorial
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final GlobalKey _marketKey = GlobalKey();
 
-  // --- The Static Session Flag (Prevents Double Rewards) ---
   static bool _hasCheckedLoginRewards = false;
 
-  // --- The Ambient Background Engine ---
   late final AmbientMenuGame _ambientGame;
-
 
   int _unreadMessages = 0;
 
@@ -95,7 +91,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   Future<void> _checkTutorialPhase() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // NEW: If the server says we are done, permanently silence the local phase.
     if (_completedTutorial || _level > 1) {
       await prefs.setString('tutorial_phase', 'completed');
       return;
@@ -151,7 +146,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     super.initState();
     _loadSavedPreferences();
     
-    // Initialize the background game
     _ambientGame = AmbientMenuGame();
     
     if (!_hasCheckedLoginRewards) {
@@ -193,7 +187,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       return; 
     }
 
-    // --- NEW: REDEEM PENDING GUEST PASSES ---
+    // --- REDEEM PENDING GUEST PASSES ---
     final prefs = await SharedPreferences.getInstance();
     final pendingEventId = prefs.getString('pending_guest_pass');
     if (pendingEventId != null) {
@@ -202,14 +196,13 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           'event_id': pendingEventId,
           'user_id': user.id,
           'status': 'guest_pass',
-        }).timeout(const Duration(seconds: 10)); // Added strict timeout limit
-        await prefs.remove('pending_guest_pass'); // Clear it so it only fires once
+        }).timeout(const Duration(seconds: 10));
+        await prefs.remove('pending_guest_pass');
         debugPrint('Pending guest pass redeemed upon login!');
       } catch (e) {
         debugPrint('Error redeeming pending guest pass: $e');
       }
     }
-    // ----------------------------------------
 
     try {
       await Purchases.logIn(user.id);
@@ -225,7 +218,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     int maxRetries = 3;
     for (int i = 0; i < maxRetries; i++) {
       try {
-        // FIXED: Added timeout limits to these critical UI-blocking queries
         final responses = await Future.wait<dynamic>([
           supabase.from('profiles').select('username, level, lumen, completed_tutorial').eq('id', user.id).single().timeout(const Duration(seconds: 15)),
           supabase.from('wallets').select('shadows, coins').eq('id', user.id).single().timeout(const Duration(seconds: 15)),
@@ -270,7 +262,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           }
         }
 
-        // ONLY update memory and show the overlay if we strictly moved UP. 
         if (serverLevel > lastSeenLevel && serverLevel > _highestLevelFired) {
           _highestLevelFired = serverLevel;
           await prefs.setInt('last_seen_level', serverLevel);
@@ -279,7 +270,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           });
         }
 
-        // --- REFINED: FRIGHT NIGHT CHECK ---
+        // --- FRIGHT NIGHT CHECK ---
         bool activeFN = false;
         if (responses[3]?['guild_id'] != null) {
           final gId = responses[3]['guild_id'];
@@ -294,7 +285,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                 .order('scheduled_time', ascending: true)
                 .limit(1)
                 .maybeSingle()
-                .timeout(const Duration(seconds: 10)); // Safety limit
+                .timeout(const Duration(seconds: 10));
 
             if (eventRes != null) {
               final DateTime eventTime = DateTime.parse(eventRes['scheduled_time']).toLocal();
@@ -391,12 +382,10 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       return;
     }
 
-    // 1. Coordinates for the wallet badge (top right) and match button (bottom center)
     final screenSize = MediaQuery.of(context).size;
     final startOffset = Offset(screenSize.width - 60, 40);
     final endOffset = Offset(screenSize.width / 2, screenSize.height - 70);
 
-    // 2. Optimistic Deduction + Flight Animation
     if (fee > 0) {
       FlyingCurrencyOverlay.fly(
         context: context,
@@ -432,7 +421,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         scope.setTag('map_name', _selectedMapName);
       });
 
-      // FIXED: Added timeout to prevent infinite searching spinner if network hangs
       final response = await supabase.rpc(
         'find_or_create_match',
         params: {
@@ -482,13 +470,10 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                 'summary': (BuildContext context, GraveStakesGame game) => MatchSummaryOverlay(game: game),
                 'searching': (BuildContext context, GraveStakesGame game) => SearchingOverlay(game: game),
                 'countdown': (BuildContext context, GraveStakesGame game) => CountdownOverlay(game: game),
-                
-                // --- NEW: PERSISTENT HELP BUTTON ---
                 'help_button': (BuildContext context, GraveStakesGame game) => Align(
                   alignment: Alignment.topRight,
                   child: SafeArea(
                     child: Padding(
-                      // Pushed slightly in to avoid the camera toggle button
                       padding: const EdgeInsets.only(top: 8.0, right: 60.0), 
                       child: IconButton(
                         icon: const Icon(Icons.help_outline, color: Colors.white54, size: 28),
@@ -497,8 +482,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                     ),
                   ),
                 ),
-                
-                // --- NEW: THE FULL SHADOW OVERLAY ---
                 'help': (BuildContext context, GraveStakesGame game) => InteractiveHelpOverlay(
                   onClose: () => game.overlays.remove('help'),
                   zones: [
@@ -507,7 +490,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       text: 'Drag to walk. You aim wherever you face. Push to the edge to sprint (loud), or push slightly to sneak silently.',
                       getTargetCenter: () {
                         final size = MediaQuery.of(context).size;
-                        return Offset(100, size.height - 100); // Standard joystick center
+                        return Offset(100, size.height - 100);
                       }
                     ),
                     HelpZone(
@@ -523,7 +506,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       text: 'Your equipped masks. Tap a slice to unleash a scare. Watch the slices for individual cooldowns and energy limits.',
                       getTargetCenter: () {
                         final size = MediaQuery.of(context).size;
-                        return Offset(size.width - 90, size.height - 90); // Standard Right Joy position
+                        return Offset(size.width - 90, size.height - 90);
                       }
                     ),
                     HelpZone(
@@ -531,7 +514,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       text: 'Drains constantly in the dark. If it hits zero, it flickers out entirely. Stand in lit areas to recharge.',
                       getTargetCenter: () {
                         final size = MediaQuery.of(context).size;
-                        // Shifted further to the right to clear the camera toggle
                         return Offset(size.width - 140, size.height - 40);
                       }
                     ),
@@ -548,7 +530,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       text: 'Instantly snap between top-down 2D tactical view and immersive First-Person perspective.',
                       getTargetCenter: () {
                         final size = MediaQuery.of(context).size;
-                        // Moved from top-right to bottom, just left of center
                         return Offset((size.width / 2) - 60, size.height - 30);
                       }
                     ),
@@ -581,7 +562,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       if (mounted) {
         setState(() => _isSearchingForMatch = false);
 
-        // 4. REFUND FAILSAFE
         if (!matchStartedCleanly && fee > 0) {
           FlyingCurrencyOverlay.fly(
             context: context,
@@ -600,7 +580,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             ),
           );
         } else {
-          // Sync ground truth wallet balance from the server
           _fetchPlayerData();
           _checkPendingGuildWarRewards(); 
         }
@@ -673,7 +652,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       children: [
                         // --- 1. BRANDING LOGO (BEHIND THE ENGINE) ---
                         Positioned(
-                          top: 250, // Swapped from 'bottom: 160' to push it above the fog
+                          top: 250,
                           left: 80,    
                           right: 80,   
                           child: IgnorePointer(
@@ -696,8 +675,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                         
                         // --- 2.5. CINEMATIC LORE SEQUENCE ---
                         const Positioned(
-                          top: 130, // Tucked slightly higher
-                          left: 100, // Pinched in to avoid sidebar buttons
+                          top: 130,
+                          left: 100,
                           right: 100,
                           child: IgnorePointer(
                             child: FadingLoreText(),
@@ -756,16 +735,14 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                               _buildSidebarIcon(
                                 icon: Icons.mail_outline, 
                                 color: Colors.white, 
-                                badgeCount: _unreadMessages, // The red bubble will now appear!
+                                badgeCount: _unreadMessages,
                                 onTap: () => Navigator.of(context).push(
                                   MaterialPageRoute(builder: (_) => const InboxScreen())
-                                ).then((_) => _fetchPlayerData()), // Clears the bubble when they return
+                                ).then((_) => _fetchPlayerData()),
                               ),
                               _buildSidebarIcon(icon: Icons.settings, color: Colors.grey, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()))),
                               _buildSidebarIcon(icon: Icons.local_fire_department, color: Colors.orangeAccent, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GuildWarMapScreen()))),
                               _buildSidebarIcon(icon: Icons.card_membership, color: Colors.purpleAccent, badgeCount: _unclaimedPassTiers, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CryptPassScreen())).then((_) => _fetchPlayerData())),
-                              
-                              // --- NEW: LINK TO THE ECHO CHAMBER (VANITY HUB) ---
                               _buildSidebarIcon(
                                 icon: Icons.auto_awesome, 
                                 color: Colors.pinkAccent, 
@@ -782,7 +759,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                           ),
                         ),
 
-                        // --- SECRET DEV BUTTON ---
+                        // --- SECRET DEV BUTTON (LAUNCHES CINEMATIC DIRECTLY) ---
                         if (supabase.auth.currentUser?.email == 'donkelleymusic@gmail.com')
                           Positioned(
                             top: 16,
@@ -793,17 +770,34 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                 icon: const Icon(Icons.movie_creation, color: Colors.greenAccent, size: 24),
                                 onPressed: () {
                                   SynthManager.instance.playMagicTap();
-                                  Future.delayed(const Duration(milliseconds: 25), () {
-                                    //Navigator.of(context).push(MaterialPageRoute(builder: (_) => Scaffold(body: GameWidget(game: GraveStakesGame(matchMode: 'cinematic')))));
-                                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => Scaffold(
-                                      body: GameWidget(game: GraveStakesGame(
-                                        matchMode: 'casual',
-                                        isGunner: true, // You are playing the Gunner
-                                        driverId: 'dummy_driver_123',
-                                        hasGunner: true,
-                                      ))
-                                    )));
-                                  });
+                                  AudioManager.instance.stopMusic();
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (routeCtx) => Scaffold(
+                                        backgroundColor: Colors.black,
+                                        body: GameWidget<GraveStakesGame>(
+                                          game: GraveStakesGame(
+                                            matchMode: 'cinematic',
+                                            onCinematicComplete: () {
+                                              if (Navigator.of(routeCtx).canPop()) {
+                                                Navigator.of(routeCtx).pop();
+                                              }
+                                            },
+                                          ),
+                                          loadingBuilder: (context) => Container(
+                                            color: Colors.black,
+                                          ),
+                                          overlayBuilderMap: {
+                                            'summary': (BuildContext context, GraveStakesGame game) => MatchSummaryOverlay(game: game),
+                                            'searching': (BuildContext context, GraveStakesGame game) => SearchingOverlay(game: game),
+                                            'countdown': (BuildContext context, GraveStakesGame game) => CountdownOverlay(game: game),
+                                            'help_button': (BuildContext context, GraveStakesGame game) => const SizedBox.shrink(),
+                                            'help': (BuildContext context, GraveStakesGame game) => const SizedBox.shrink(),
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  );
                                 },
                               ),
                             ),
@@ -818,8 +812,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                             children: [
                               _buildSidebarIcon(icon: Icons.group, color: Colors.white70, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PartyScreen())).then((_) => _fetchPlayerData())),
                               _buildSidebarIcon(icon: Icons.remove_red_eye, color: Colors.white70, onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SpectatorLobbyScreen()))),
-                              
-                              // Removed the 'if' statement so the button always renders
                               _buildSidebarIcon(
                                 icon: Icons.photo_library, 
                                 color: GraveStakesGame.lastMatchPhotos.isNotEmpty ? Colors.pinkAccent : Colors.grey, 
@@ -855,7 +847,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                     SynthManager.instance.playMagicTap();
                                     Future.delayed(const Duration(milliseconds: 25), () {
                                       Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LoadoutScreen())).then((_) {
-                                        _fetchPlayerData(); // Refresh to clear the red dot
+                                        _fetchPlayerData();
                                         _checkTutorialPhase();
                                       });
                                     });
@@ -864,8 +856,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                     icon: Icons.backpack, 
                                     label: 'CRYPT', 
                                     color: Colors.cyanAccent, 
-                                    badgeCount: _unclaimedCryptItems, // <-- INJECT RED DOT HERE
-                                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LoadoutScreen())).then((_) => _fetchPlayerData()), // Refresh here too
+                                    badgeCount: _unclaimedCryptItems,
+                                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LoadoutScreen())).then((_) => _fetchPlayerData()),
                                   ),
                                 ),
 
@@ -876,7 +868,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                     child: Column(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        // --- NEW: Wrap in Expanded and ScrollView to prevent squashed-screen crashes ---
                                         Flexible( 
                                           child: SingleChildScrollView(
                                             child: Column(
@@ -884,111 +875,108 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                               children: [
                                                 Container(
                                                   height: 36,
-                                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                                          decoration: BoxDecoration(
-                                            color: Colors.black87,
-                                            borderRadius: BorderRadius.circular(18),
-                                            border: Border.all(color: Colors.purpleAccent.withOpacity(0.5)),
-                                          ),
-                                          child: DropdownButtonHideUnderline(
-                                            child: DropdownButton<String>(
-                                              value: _selectedMatchMode,
-                                              dropdownColor: Colors.black,
-                                              icon: const Icon(Icons.arrow_drop_down, color: Colors.purpleAccent),
-                                              style: const TextStyle(color: Colors.purpleAccent, fontFamily: 'Orbitron', fontWeight: FontWeight.bold, fontSize: 12),
-                                              items: const [
-                                                DropdownMenuItem(value: 'casual', child: Text('CASUAL FFA', style: TextStyle(fontFamily: 'Orbitron'))),
-                                                DropdownMenuItem(value: '1v1', child: Text('1v1 RANKED', style: TextStyle(fontFamily: 'Orbitron'))),
-                                                DropdownMenuItem(value: '2v2', child: Text('2v2 SQUAD', style: TextStyle(fontFamily: 'Orbitron'))),
-                                              ],
-                                              onChanged: (String? newValue) async {
-                                                if (newValue != null) {
-                                                  SynthManager.instance.playMagicTap();
-                                                  final prefs = await SharedPreferences.getInstance();
-                                                  await prefs.setString('last_match_mode', newValue);
-                                                  setState(() => _selectedMatchMode = newValue);
-                                                }
-                                              },
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 12),
-                                        
-                                        Showcase(
-                                          key: _startKey,
-                                          description: 'STEP 8: Select Casual Mode and Enter the Darkness!',
-                                          disposeOnTap: true,
-                                          onTargetClick: () async {
-                                            SynthManager.instance.playMagicTap();
-                                            Future.delayed(const Duration(milliseconds: 25), () async {
-                                              final prefs = await SharedPreferences.getInstance();
-                                              await prefs.setString('tutorial_phase', 'completed');
-                                              try {
-                                                if (supabase.auth.currentUser?.id != null) {
-                                                  await supabase.from('profiles').update({'completed_tutorial': true}).eq('id', supabase.auth.currentUser!.id);
-                                                  _completedTutorial = true;
-                                                }
-                                              } catch (e) {}
-                                              if (mounted) _findMatchAndStart(context);
-                                            });
-                                          },
-                                          child: GestureDetector(
-                                            onTap: () async {
-                                              SynthManager.instance.playMagicTap();
-                                              Future.delayed(const Duration(milliseconds: 25), () async {
-                                                try {
-                                                  final prefs = await SharedPreferences.getInstance();
-                                                  if (prefs.getString('tutorial_phase') == 'match') await prefs.setString('tutorial_phase', 'completed');
-                                                } catch (e) {}
-                                                if (mounted) _findMatchAndStart(context);
-                                              });
-                                            },
-                                            child: Container(
-                                              // FIXED: Bumped from 70 to 76 to stop vertical clipping
-                                              height: 76,
-                                              decoration: BoxDecoration(
-                                                gradient: LinearGradient(colors: [Colors.red.shade900, Colors.redAccent]),
-                                                borderRadius: BorderRadius.circular(12),
-                                                border: Border.all(color: Colors.white54, width: 2),
-                                                boxShadow: [BoxShadow(color: Colors.redAccent.withOpacity(0.5), blurRadius: 15)],
-                                              ),
-                                              child: Center(
-                                                // --- THE NEW MATCH STAKE UI ---
-                                                child: Column(
-                                                  mainAxisAlignment: MainAxisAlignment.center,
-                                                  children: [
-                                                    Text(
-                                                      _isSearchingForMatch ? 'btn_searching'.tr() : 'btn_find_match'.tr(),
-                                                      textAlign: TextAlign.center, 
-                                                      style: const TextStyle(
-                                                        color: Colors.white, 
-                                                        fontSize: 18, 
-                                                        fontWeight: FontWeight.bold, 
-                                                        letterSpacing: 2, 
-                                                        fontFamily: 'Orbitron', 
-                                                        height: 1.1, // FIXED: Reduced line spacing to perfectly stack wide fonts
-                                                        shadows: [Shadow(color: Colors.black, blurRadius: 4)]
+                                                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.black87,
+                                                    borderRadius: BorderRadius.circular(18),
+                                                    border: Border.all(color: Colors.purpleAccent.withOpacity(0.5)),
+                                                  ),
+                                                  child: DropdownButtonHideUnderline(
+                                                    child: DropdownButton<String>(
+                                                      value: _selectedMatchMode,
+                                                      dropdownColor: Colors.black,
+                                                      icon: const Icon(Icons.arrow_drop_down, color: Colors.purpleAccent),
+                                                      style: const TextStyle(color: Colors.purpleAccent, fontFamily: 'Orbitron', fontWeight: FontWeight.bold, fontSize: 12),
+                                                      items: const [
+                                                        DropdownMenuItem(value: 'casual', child: Text('CASUAL FFA', style: TextStyle(fontFamily: 'Orbitron'))),
+                                                        DropdownMenuItem(value: '1v1', child: Text('1v1 RANKED', style: TextStyle(fontFamily: 'Orbitron'))),
+                                                        DropdownMenuItem(value: '2v2', child: Text('2v2 SQUAD', style: TextStyle(fontFamily: 'Orbitron'))),
+                                                      ],
+                                                      onChanged: (String? newValue) async {
+                                                        if (newValue != null) {
+                                                          SynthManager.instance.playMagicTap();
+                                                          final prefs = await SharedPreferences.getInstance();
+                                                          await prefs.setString('last_match_mode', newValue);
+                                                          setState(() => _selectedMatchMode = newValue);
+                                                        }
+                                                      },
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 12),
+                                                
+                                                Showcase(
+                                                  key: _startKey,
+                                                  description: 'STEP 8: Select Casual Mode and Enter the Darkness!',
+                                                  disposeOnTap: true,
+                                                  onTargetClick: () async {
+                                                    SynthManager.instance.playMagicTap();
+                                                    Future.delayed(const Duration(milliseconds: 25), () async {
+                                                      final prefs = await SharedPreferences.getInstance();
+                                                      await prefs.setString('tutorial_phase', 'completed');
+                                                      try {
+                                                        if (supabase.auth.currentUser?.id != null) {
+                                                          await supabase.from('profiles').update({'completed_tutorial': true}).eq('id', supabase.auth.currentUser!.id);
+                                                          _completedTutorial = true;
+                                                        }
+                                                      } catch (e) {}
+                                                      if (mounted) _findMatchAndStart(context);
+                                                    });
+                                                  },
+                                                  child: GestureDetector(
+                                                    onTap: () async {
+                                                      SynthManager.instance.playMagicTap();
+                                                      Future.delayed(const Duration(milliseconds: 25), () async {
+                                                        try {
+                                                          final prefs = await SharedPreferences.getInstance();
+                                                          if (prefs.getString('tutorial_phase') == 'match') await prefs.setString('tutorial_phase', 'completed');
+                                                        } catch (e) {}
+                                                        if (mounted) _findMatchAndStart(context);
+                                                      });
+                                                    },
+                                                    child: Container(
+                                                      height: 76,
+                                                      decoration: BoxDecoration(
+                                                        gradient: LinearGradient(colors: [Colors.red.shade900, Colors.redAccent]),
+                                                        borderRadius: BorderRadius.circular(12),
+                                                        border: Border.all(color: Colors.white54, width: 2),
+                                                        boxShadow: [BoxShadow(color: Colors.redAccent.withOpacity(0.5), blurRadius: 15)],
+                                                      ),
+                                                      child: Center(
+                                                        child: Column(
+                                                          mainAxisAlignment: MainAxisAlignment.center,
+                                                          children: [
+                                                            Text(
+                                                              _isSearchingForMatch ? 'btn_searching'.tr() : 'btn_find_match'.tr(),
+                                                              textAlign: TextAlign.center, 
+                                                              style: const TextStyle(
+                                                                color: Colors.white, 
+                                                                fontSize: 18, 
+                                                                fontWeight: FontWeight.bold, 
+                                                                letterSpacing: 2, 
+                                                                fontFamily: 'Orbitron', 
+                                                                height: 1.1,
+                                                                shadows: [Shadow(color: Colors.black, blurRadius: 4)]
+                                                              ),
+                                                            ),
+                                                            if (_getMatchEntryFee() > 0 && !_isSearchingForMatch) ...[
+                                                              const SizedBox(height: 2),
+                                                              Row(
+                                                                mainAxisSize: MainAxisSize.min,
+                                                                children: [
+                                                                  const Text('STAKE: ', style: TextStyle(color: Colors.white54, fontSize: 10, fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
+                                                                  Text('${_getMatchEntryFee()}', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Orbitron', shadows: [Shadow(color: Colors.black, blurRadius: 2)])),
+                                                                  const SizedBox(width: 4),
+                                                                  const Icon(Icons.dark_mode, color: Colors.white, size: 12, shadows: [Shadow(color: Colors.black, blurRadius: 2)]),
+                                                                ],
+                                                              ),
+                                                            ],
+                                                          ],
+                                                        ),
                                                       ),
                                                     ),
-                                                    if (_getMatchEntryFee() > 0 && !_isSearchingForMatch) ...[
-                                                      const SizedBox(height: 2),
-                                                      Row(
-                                                        mainAxisSize: MainAxisSize.min,
-                                                        children: [
-                                                          const Text('STAKE: ', style: TextStyle(color: Colors.white54, fontSize: 10, fontFamily: 'Orbitron', fontWeight: FontWeight.bold)),
-                                                          Text('${_getMatchEntryFee()}', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Orbitron', shadows: [Shadow(color: Colors.black, blurRadius: 2)])),
-                                                          const SizedBox(width: 4),
-                                                          const Icon(Icons.dark_mode, color: Colors.white, size: 12, shadows: [Shadow(color: Colors.black, blurRadius: 2)]),
-                                                        ],
-                                                      ),
-                                                    ],
-                                                  ],
+                                                  ),
                                                 ),
-                                                // -------------------------------
-                                              ),
-                                            ),
-                                          ),
-                                        ),
                                               ],
                                             ),
                                           ),
@@ -1249,7 +1237,7 @@ class CountdownOverlay extends StatelessWidget {
   }
 }
 
-// --- NEW: THE TRUE 3D FPS PERSPECTIVE ENGINE (WITH FOG) ---
+// --- THE TRUE 3D FPS PERSPECTIVE ENGINE (WITH FOG) ---
 class AmbientMenuGame extends FlameGame {
   double _spawnTimer = 3.0; 
   double _fogTimer = 0.0;
@@ -1269,7 +1257,6 @@ class AmbientMenuGame extends FlameGame {
       availableCharacters = List<Map<String, dynamic>>.from(res);
     } catch (e) {}
 
-    // Pre-warm the environment with fog so it isn't empty on load
     for (int i = 0; i < 25; i++) {
       add(MenuFog(initialZ: random.nextDouble() * 1000.0));
     }
@@ -1279,14 +1266,12 @@ class AmbientMenuGame extends FlameGame {
   void update(double dt) {
     super.update(dt);
     
-    // 1. Monster Spawner
     _spawnTimer -= dt;
     if (_spawnTimer <= 0) {
       _spawnRunner();
       _spawnTimer = 8.0 + random.nextDouble() * 7.0; 
     }
 
-    // 2. Fog Spawner (Continuously rolls in from the horizon)
     _fogTimer -= dt;
     if (_fogTimer <= 0) {
       add(MenuFog(initialZ: 1000.0));
@@ -1315,7 +1300,6 @@ class AmbientMenuGame extends FlameGame {
   }
 }
 
-// --- NEW: 3D VOLUMETRIC FOG ---
 class MenuFog extends PositionComponent with HasGameReference<AmbientMenuGame> {
   double worldX = 0;        
   double worldZ;   
@@ -1328,14 +1312,9 @@ class MenuFog extends PositionComponent with HasGameReference<AmbientMenuGame> {
   @override
   Future<void> onLoad() async {
     anchor = Anchor.center;
-    // Spread them widely across the horizon
     worldX = (game.random.nextDouble() * 1200.0) - 600.0;
-    
-    // Slow, drifting speeds
     speedZ = 20.0 + game.random.nextDouble() * 30.0;
     driftX = (game.random.nextDouble() * 20.0) - 10.0;
-    
-    // Massive cloud sizes
     baseRadius = 150.0 + game.random.nextDouble() * 200.0;
   }
 
@@ -1346,9 +1325,7 @@ class MenuFog extends PositionComponent with HasGameReference<AmbientMenuGame> {
     worldZ -= speedZ * dt;
     worldX += driftX * dt;
     
-    // Despawn when it flows past the camera
     if (worldZ <= -50.0) {
-      // FIX: Ensure it is fully attached to the tree before removing
       if (isMounted) removeFromParent(); 
       return;
     }
@@ -1358,7 +1335,7 @@ class MenuFog extends PositionComponent with HasGameReference<AmbientMenuGame> {
     double perspective = fov / z;
 
     double horizonY = game.size.y * 0.65; 
-    double cameraHeight = 100.0; // Slightly lower than monsters to hug the ground         
+    double cameraHeight = 100.0;
 
     double screenX = (game.size.x / 2) + (worldX * perspective);
     double screenY = horizonY + (cameraHeight * perspective);
@@ -1366,22 +1343,19 @@ class MenuFog extends PositionComponent with HasGameReference<AmbientMenuGame> {
     position = Vector2(screenX, screenY);
     scale = Vector2.all(perspective); 
     
-    // Exactly matches the monster priority math for perfect depth sorting!
     priority = (perspective * 1000).toInt();
   }
 
   @override
   void render(Canvas canvas) {
-    // Fade in from the deep black horizon, and fade out slightly as it hits the camera
     double distanceFade = ((worldZ - 50) / 500).clamp(0.0, 1.0);
     double opacity = 0.12 * distanceFade;
 
-    // A radial gradient is incredibly cheap to render compared to a blur filter
     final paint = Paint()
       ..shader = ui.Gradient.radial(
         Offset.zero,
         baseRadius,
-        [Colors.black.withOpacity(opacity), Colors.black.withOpacity(0.0)], // Swapped to black
+        [Colors.black.withOpacity(opacity), Colors.black.withOpacity(0.0)],
         [0.0, 1.0],
       );
       
@@ -1422,15 +1396,8 @@ class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame
 
   @override
   void updateTree(double dt) {
-    // 1. Calculate progress from 0.0 (distant) to 1.0 (at camera)
     double progress = ((1000.0 - worldZ) / 1050.0).clamp(0.0, 1.0);
-    
-    // 2. The Semi-Exponential Curve
-    // math.pow(progress, 2.0) curves gently at the start, then spikes.
-    // 1.0 base speed + up to 1.0 extra speed = 2.0x max speed!
     double timeMultiplier = 1.0 + math.pow(progress, 2.0);
-    
-    // 3. Pass the accelerated time to this component and its Voxel child
     super.updateTree(dt * timeMultiplier);
   }
 
@@ -1441,7 +1408,6 @@ class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame
     worldZ -= speedZ * dt;
     
     if (worldZ <= -50.0) {
-      // FIX: Ensure it is fully attached to the tree before removing
       if (isMounted) removeFromParent();
       return;
     }
@@ -1466,14 +1432,9 @@ class MenuRunner extends PositionComponent with HasGameReference<AmbientMenuGame
 
   @override
   void render(Canvas canvas) {
-    // Fades IN slowly from Z=1000 down to Z=300 (A long, 700-unit fade)
     double fadeIn = ((1000.0 - worldZ) / 700.0).clamp(0.0, 1.0);
-    
-    // Fades OUT quickly from Z=200 down to Z=-50
     double fadeOut = ((worldZ + 50.0) / 250.0).clamp(0.0, 1.0);
-    
     double ghostOpacity = math.min(fadeIn, fadeOut);
-
     double darknessAmount = ((worldZ - 400) / 600).clamp(0.0, 1.0);
     
     canvas.saveLayer(
@@ -1550,7 +1511,6 @@ class FrightNightLoginAlert extends StatelessWidget {
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[800]),
           onPressed: () async {
-            // Await the database write so it doesn't loop
             await _submitRSVP(eventData['id'], 'missed');
             if (context.mounted) Navigator.pop(context);
           },
@@ -1709,7 +1669,7 @@ class _FadingLoreTextState extends State<FadingLoreText> {
   Widget build(BuildContext context) {
     return AnimatedOpacity(
       opacity: _isVisible ? 1.0 : 0.0,
-      duration: const Duration(seconds: 1), // Snappy fade
+      duration: const Duration(seconds: 1),
       curve: Curves.easeInOut,
       child: Text(
         _loreLines[_currentIndex],
@@ -1717,8 +1677,8 @@ class _FadingLoreTextState extends State<FadingLoreText> {
         style: const TextStyle(
           color: Colors.white70,
           fontFamily: 'Orbitron',
-          fontSize: 12, // Reduced from 16
-          fontWeight: FontWeight.w800, // Thick, aggressive weight
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
           letterSpacing: 3.0,
           height: 1.5,
           shadows: [Shadow(color: Colors.black, blurRadius: 12)],

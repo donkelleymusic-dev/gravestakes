@@ -9,14 +9,17 @@ class CharacterAssetManager {
   static final Map<String, Future<List<int>>> _inFlightDownloads = {};
   static final Map<String, Uint8List> _webMemoryCache = {};
 
-  static Future<List<int>> getZipBytes(String zipPath) {
+  static Future<List<int>> getZipBytes(String zipPath) async {
     if (_inFlightDownloads.containsKey(zipPath)) {
-      return _inFlightDownloads[zipPath]!;
+      return await _inFlightDownloads[zipPath]!;
     }
     final future = _fetchBytesInternal(zipPath);
     _inFlightDownloads[zipPath] = future;
-    future.whenComplete(() => _inFlightDownloads.remove(zipPath));
-    return future;
+    try {
+      return await future;
+    } finally {
+      _inFlightDownloads.remove(zipPath);
+    }
   }
 
   static Future<List<int>> _fetchBytesInternal(String zipPath) async {
@@ -33,14 +36,13 @@ class CharacterAssetManager {
         throw Exception('HTTP ${response.statusCode} fetching $zipPath');
       }
 
-      // 1. Check local disk cache first (no network call)
+      // 1. Check local disk cache first
       final cachedFile = await DefaultCacheManager().getFileFromCache(zipPath);
       if (cachedFile != null && await cachedFile.file.exists()) {
         return await cachedFile.file.readAsBytes();
       }
 
-      // 2. Download via standard http.get with timeout instead of DefaultCacheManager's internal WebHelper queue
-      // This prevents unhandled zoned HttpExceptions (like 504 Gateway Timeout) from crashing Sentry/Play Review!
+      // 2. Download via standard http.get with timeout
       final response = await http.get(Uri.parse(zipPath)).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         final bytes = response.bodyBytes;

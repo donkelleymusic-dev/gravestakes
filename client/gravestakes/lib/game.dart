@@ -95,7 +95,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   String roomId;
   final bool isGunner;
   final String? driverId;
-  final String? partyPartnerUserId; // NEW: Keeps Squad Party partners on Team 1 together!
+  final String? partyPartnerUserId; // Keeps Squad Party partners on Team 1 together!
   final bool hasGunner;
   final String matchMode; 
   final String mapName;
@@ -105,6 +105,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   String? myGuildId;
   String guildActiveDoctrine = 'none';
   final String chaosModifier;
+  final VoidCallback? onCinematicComplete;
 
   bool isPuzzleRoomOccupied = false;
   bool isHallwaySolved = false;
@@ -205,6 +206,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     this.isGuildScrimmage = false,
     this.scrimmageMessageId,
     this.chaosModifier = 'none',
+    this.onCinematicComplete,
   });
 
   late final JoystickComponent leftJoystick;
@@ -366,14 +368,14 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       try {
         final profileRes = await Supabase.instance.client
             .from('profiles')
-            .select('completed_tutorial, level, username') // <-- Add username here
+            .select('completed_tutorial, level, username')
             .eq('id', user.id)
             .maybeSingle();
             
         if (profileRes != null) {
           needsTutorial = !(profileRes['completed_tutorial'] ?? false);
           myPlayerLevel = profileRes['level'] as int? ?? 1;
-          myUsername = profileRes['username'] as String? ?? 'Ghost'; // <-- Store it here
+          myUsername = profileRes['username'] as String? ?? 'Ghost';
         }
 
         final membership = await Supabase.instance.client
@@ -429,7 +431,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     player = Player(leftJoystick, rightJoystick, myChannel, isGunner: isGunner)..position = safeSpawnPoint;
     jumpScareEffect = JumpScareEffect();
 
-    // --- INJECT LOCAL DUMMY FOR TESTING of co-op ---
     // --- INJECT LOCAL DUMMY FOR TESTING ---
     if (driverId == 'dummy_driver_123') {
       final dummyDriver = RemotePlayer()..position = safeSpawnPoint.clone() + Vector2(100, 0);
@@ -445,7 +446,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         EffectController(duration: 4.0, reverseDuration: 4.0, infinite: true)
       ));
 
-      // ADD THIS: Rotates the dummy 45 degrees (pi / 4) every 2 seconds
       dummyDriver.add(TimerComponent(
         period: 2.0,
         repeat: true,
@@ -454,7 +454,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         },
       ));
 
-      // Add a giant sign to prove you are in the sandbox
       camera.viewport.add(FloatingText(
         text: 'I AM THE DUMMY', 
         worldPosition: dummyDriver.position - Vector2(40, 60)
@@ -462,11 +461,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
     // --------------------------------------
 
-    world.add(player);
+    await world.add(player);
     camera.follow(player);
-
-    // --- TEMP: INJECT BLATANT TEST TRAPDOOR ---
-    //world.add(Trapdoor(position: safeSpawnPoint + Vector2(100, 0)));
 
     camera.viewport.add(jumpScareEffect);
     camera.viewport.add(DarknessOverlay(player));
@@ -474,16 +470,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     // Ensure the 3D raycaster is always added
     await camera.viewport.add(FpsViewportOverlay());
 
-    // Initialize the timer in memory so Player.update doesn't crash
+    // Always initialize late HUD/Map fields so they never throw LateInitializationError in any mode!
     gameTimer = GameTimer();
+    mapOverlay = MapOverlay();
+    scoreHud = ScoreHud();
 
     // ==========================================
-    // NEW: 2D/3D ALTERNATOR
+    // 2D/3D ALTERNATOR
     // ==========================================
     final prefs = await SharedPreferences.getInstance();
     bool lastWasFps = prefs.getBool('last_match_was_fps') ?? false;
 
-    // Only alternate perspective on standard Casual matches
     if (matchMode == 'casual') {
       isFpsMode = !lastWasFps;
       await prefs.setBool('last_match_was_fps', isFpsMode);
@@ -514,16 +511,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         ..wanderSpeed = 0.0
         ..huntSpeed = 0.0
         ..priority = 10;
+      cinematicMonster!.assignedCharacterId = 'default';
 
-      world.add(stuntDoubleHero!);
-      world.add(cinematicMonster!);
+      await world.add(stuntDoubleHero!);
+      await world.add(cinematicMonster!);
       
       bots.add(stuntDoubleHero!);
       bots.add(cinematicMonster!);
 
-      // --- MOVED HERE SO IT LOADS IN CINEMATIC MODE ---
       cinematicStatusText = TextComponent(
-        text: 'WAITING FOR CLAPBOARD...',
+        text: '',
         position: Vector2(camera.viewport.size.x / 2, 20),
         anchor: Anchor.topCenter,
         priority: 500,
@@ -537,22 +534,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           ),
         ),
       );
-      camera.viewport.add(cinematicStatusText!);
+      // Uncomment the line below if you want the debug beat timer visible at the top of the screen:
+      // camera.viewport.add(cinematicStatusText!);
 
     } else {
       // --- NORMAL GAME UI & CONTROLS ---
       world.add(PowerUpHud(player: player));
 
-      /* if (isGunner) {
-        camera.viewport.add(rightJoystick);
-      } else {
-        camera.viewport.add(leftJoystick);
-      } */
-     camera.viewport.add(leftJoystick); // leftJoystick automatically adjusts for co-op mode now
+      camera.viewport.add(leftJoystick);
 
-      camera.viewport.add(ScoreHud());
-
-      // Add the pre-initialized timer to the screen
+      camera.viewport.add(scoreHud);
       camera.viewport.add(gameTimer);
       
       await camera.viewport.add(FpsTouchControls());
@@ -560,20 +551,18 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
       camera.viewport.add(QuickChatWheel());
 
-      mapOverlay = MapOverlay();
       await camera.viewport.add(mapOverlay);
       await camera.viewport.add(MapButton());
-
-      
 
       try {
         final logoSprite = await Sprite.load('Lumen_Breach_small.jpg');
         final logoComponent = SpriteComponent(
           sprite: logoSprite,
           size: Vector2(120, 60), 
-          position: Vector2(camera.viewport.size.x / 2, camera.viewport.size.y - 20), 
+          // Shifted 6px right (+5% width) and 3px up (-5% height), behind joysticks & attack wheel!
+          position: Vector2((camera.viewport.size.x / 2) + 6, camera.viewport.size.y - 23), 
           anchor: Anchor.bottomCenter,
-          priority: 200, 
+          priority: 50, 
         );
         camera.viewport.add(logoComponent);
       } catch (e) {}
@@ -599,16 +588,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         camera.viewport.add(TutorialManager());
       }
 
-      // Tell the engine to drop the persistent ? Flutter UI over the game!
-      overlays.add('help_button');
-
+      if (overlays.registeredOverlays.contains('help_button')) {
+        overlays.add('help_button');
+      }
     }
 
-    _setupSupabaseListener();
-
+    if (matchMode != 'cinematic') {
+      _setupSupabaseListener();
+    }
   }
 
- @override
+  @override
   void update(double dt) {
     super.update(dt);
 
@@ -617,170 +607,283 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         return; 
       }
 
-      final stageX = 15 * 64.0; // X = 960
-      final stageY = 15 * 64.0; // Y = 960
-
-      // --- THE BULLDOZER & INITIAL STAGE SETUP ---
+      // =========================================================================
+      // INITIAL STAGE & 3D RAYCASTER GRID SCULPTING (RUNS EXACTLY ONCE AT t = 0)
+      // =========================================================================
       if (cinematicTimer == 0.0) {
-        world.children.whereType<WallComponent>().forEach((wall) {
-          if (wall.position.x > stageX - 1500 && wall.position.x < stageX + 1500 &&
-              wall.position.y > stageY - 1000 && wall.position.y < stageY + 1000) {
-            wall.removeFromParent();
-          }
-        });
-
-        // Spawn a custom 2-block "Prop Wall" for Beat 3's corner hiding scene
-        world.add(WallComponent(position: Vector2(stageX - 200, stageY + 150), tileSize: 64.0));
-        world.add(WallComponent(position: Vector2(stageX - 200, stageY + 214), tileSize: 64.0));
-
-        // BEAT 1-2 SETUP: The Runway
-        player.position = Vector2(stageX - 100, stageY - 14); 
-        player.facingAngle = (pi / 2) - (25 * (pi / 180)); 
+        player.hasExtendedRange = true;
+        player.flashlightBattery = 100.0;
+        player.isFlashlightDead = false;
+        player.isRecharging = false;
+        player.isLightFlickeringOut = false;
         player.isInvisible = true;
 
-        stuntDoubleHero!.position = Vector2(stageX + 400, stageY - 64);
-        cinematicMonster!.position = Vector2(stageX + 800, stageY - 64);
+        void setGridCell(int gy, int gx, int val) {
+          if (gy >= 0 && gy < gameMap.mapGrid.length) {
+            final row = gameMap.mapGrid[gy];
+            if (gx >= 0 && gx < row.length) {
+              row[gx] = val;
+            }
+          }
+        }
+
+        // 1. Clear our stage area (Rows 11..18, Cols 7..24) to open floor (0)
+        for (int gy = 11; gy <= 18; gy++) {
+          for (int gx = 7; gx <= 24; gx++) {
+            setGridCell(gy, gx, 0);
+          }
+        }
+        // 2. Long main brick wall to run beside (Row 14, Cols 11..22; Corner edge is at X = 704)
+        for (int gx = 11; gx <= 22; gx++) {
+          setGridCell(14, gx, 1);
+        }
+        // 3. Corridor South back-wall (Row 17) & North alcove wall (Row 11)
+        for (int gx = 8; gx <= 23; gx++) {
+          setGridCell(17, gx, 1);
+          setGridCell(11, gx, 1);
+        }
+        // 4. West alley outer wall (Col 8)
+        for (int gy = 11; gy <= 17; gy++) {
+          setGridCell(gy, 8, 1);
+        }
+
+        cinematicStage1 = false;
+        cinematicStage2 = false;
+        cinematicStage3 = false;
+        cinematicStage4 = false;
       }
 
+      final double prevTime = cinematicTimer;
       cinematicTimer += dt;
-      //super.update(dt); 
+      bool crossed(double t) => prevTime < t && cinematicTimer >= t;
 
-      // --- SCRIPT MONITOR TEXT UPDATER ---
-      String currentBeat = 'WAITING';
-      if (cinematicTimer <= 5.0) currentBeat = 'BEAT 1-2: FLY-BY';
-      else if (cinematicTimer <= 10.0) currentBeat = 'BEAT 3: CORNER CREEP (EXT)';
-      else if (cinematicTimer <= 13.0) currentBeat = 'BEAT 4: FPS POV';
-      else if (cinematicTimer <= 15.0) currentBeat = 'BEAT 5: BLACKOUT';
-      else if (cinematicTimer <= 20.0) currentBeat = 'BEAT 6: EMPTY TURN';
-      else if (cinematicTimer <= 23.0) currentBeat = 'BEAT 7: SNAP SCARE';
-      else currentBeat = 'SCENE END';
+      double progress(double start, double end) =>
+          ((cinematicTimer - start) / (end - start)).clamp(0.0, 1.0);
 
-      cinematicStatusText?.text = 'TIME: [${cinematicTimer.toStringAsFixed(2)}s] | $currentBeat';
-
-      // --- CINEMATIC AI LOCKS ---
-      if (stuntDoubleHero != null && stuntDoubleHero!.parent != null) {
-         stuntDoubleHero!.attackCooldown = 999.0; 
-         stuntDoubleHero!.wanderSpeed = 0.0;
-         stuntDoubleHero!.huntSpeed = 0.0;
-         stuntDoubleHero!.isStunned = false;
-         if (stuntDoubleHero!.voxelComponent != null) {
-             stuntDoubleHero!.voxelComponent!.isMoving = cinematicTimer < 5.0; 
-         }
+      // Lock Bot AI so BotPlayer.update() never wanders or overrides our choreography
+      for (final actor in [stuntDoubleHero!, cinematicMonster!]) {
+        actor.attackCooldown = 999.0;
+        actor.wanderSpeed = 0.0;
+        actor.huntSpeed = 0.0;
+        actor.isStunned = false;
       }
-      
-      if (cinematicMonster != null && cinematicMonster!.parent != null) {
-         cinematicMonster!.attackCooldown = 999.0; 
-         cinematicMonster!.wanderSpeed = 0.0;
-         cinematicMonster!.huntSpeed = 0.0;
-         cinematicMonster!.isStunned = false;
-         if (cinematicMonster!.voxelComponent != null) {
-             // Monster runs in Beat 1, and walks in Beat 3
-             cinematicMonster!.voxelComponent!.isMoving = (cinematicTimer < 5.0) || (cinematicTimer >= 5.0 && cinematicTimer < 9.0);
-             try { cinematicMonster!.voxelComponent!.activeMaskImage ??= images.fromCache('siren_mask.png'); } catch(e){}
-         }
+      try {
+        cinematicMonster!.voxelComponent!.activeMaskImage ??= images.fromCache('siren_mask.png');
+      } catch (_) {}
+
+      // Keep 3D spatial audio listener synced with the camera
+      if (AudioManager.instance.isInitialized) {
+        try {
+          const double audioScale = 50.0;
+          SoLoud.instance.set3dListenerPosition(player.position.x / audioScale, player.position.y / audioScale, 0.0);
+          SoLoud.instance.set3dListenerAt(sin(player.facingAngle), -cos(player.facingAngle), 0.0);
+          SoLoud.instance.set3dListenerUp(0.0, 0.0, -1.0);
+        } catch (_) {}
       }
 
-      // BEAT 1 & 2: The Fly-By (0s - 5s)
-      if (cinematicTimer > 0.5 && !cinematicStage1) {
-        cinematicStage1 = true;
-        stuntDoubleHero!.facingAngle = -pi / 2;
-        cinematicMonster!.facingAngle = -pi / 2;
+      // =========================================================================
+      // BEAT 1 (0.0s - 5.2s): STATIONARY CAMERA FLY-BY (HUMAN, THEN MONSTER)
+      // =========================================================================
+      if (cinematicTimer < 5.2) {
+        cinematicStatusText?.text = 'BEAT 1: CORRIDOR CHASE [${cinematicTimer.toStringAsFixed(1)}s]';
 
-        stuntDoubleHero!.add(MoveToEffect(Vector2(stageX - 400, stageY - 64), EffectController(duration: 2.0)));
-        Future.delayed(const Duration(milliseconds: 1800), () {
-          cinematicMonster!.add(MoveToEffect(Vector2(stageX - 400, stageY - 64), EffectController(duration: 1.2)));
-        });
-      }
+        player.position.setValues(780.0, 1025.0);
+        player.facingAngle = 72.0 * (pi / 180.0);
 
-      // BEAT 3: External Corner Creep (5s - 10s)
-      bool cinematicStage2 = cinematicTimer > 5.0;
-      if (cinematicStage2 && cinematicTimer < 5.1) { // Trigger exactly once at 5.0
-        // Hero hides on the East side of the wall, facing North
-        stuntDoubleHero!.position = Vector2(stageX - 100, stageY + 250);
-        stuntDoubleHero!.facingAngle = 0.0;
-
-        // Camera moves to North-East, looking South-West at the Hero and Wall
-        player.position = Vector2(stageX - 50, stageY + 100);
-        player.facingAngle = (3 * pi) / 4; 
-
-        // Monster starts West of the wall, creeps Eastwards towards the corner edge
-        cinematicMonster!.position = Vector2(stageX - 500, stageY + 150);
-        cinematicMonster!.facingAngle = pi / 2; // Facing East
-        
-        // Creep slowly to just behind the corner wall
-        cinematicMonster!.add(MoveToEffect(Vector2(stageX - 250, stageY + 150), EffectController(duration: 4.0)));
-      }
-
-      // BEAT 4: FPS POV Cut (10s - 13s)
-      bool cinematicStage3 = cinematicTimer > 10.0;
-      if (cinematicStage3 && cinematicTimer < 10.1) {
-        stuntDoubleHero!.position = Vector2(-9999, -9999); 
-        
-        // Camera snaps into Hero's exact position behind the wall, looking North
-        player.position = Vector2(stageX - 100, stageY + 250);
-        player.facingAngle = 0.0; 
-        player.isInvisible = false;
-      }
-
-      // BEAT 5: The Blackout (13s - 15s)
-      bool cinematicStage4 = cinematicTimer > 13.0;
-      if (cinematicStage4 && cinematicTimer < 13.1) {
-        player.flashlightBattery = 0.0;
-        player.isFlashlightDead = true; 
-      }
-
-      // BEAT 6: Light Returns & First Slow Turn (15s - 20s)
-      bool cinematicStage5 = cinematicTimer > 15.0;
-      if (cinematicStage5 && cinematicTimer < 15.1) {
-        player.flashlightBattery = 100.0; 
-        player.isFlashlightDead = false;
-
-        // Teleport Monster 25 pixels directly behind (South of) the player's new position!
-        cinematicMonster!.position = player.position + Vector2(0, 25); 
-        cinematicMonster!.facingAngle = 0.0; // Looking at the back of Hero's head
-      }
-
-      if (cinematicTimer > 15.0 && cinematicTimer <= 20.0) {
-        double turnProgress = cinematicTimer - 15.0;
-        
-        // 15s to 18s: Slow 90-degree sweep to the Right (North to East)
-        if (turnProgress <= 3.0) {
-          player.facingAngle = (turnProgress / 3.0) * (pi / 2);
-        }
-        // 18s to 20s: The Pause (Hold exactly East, seeing nothing)
-        else {
-          player.facingAngle = pi / 2;
-        }
-      }
-
-      // BEAT 7: Snap Turn & Jump Scare (20s - 23s)
-      if (cinematicTimer > 20.0) {
-        double snapTime = cinematicTimer - 20.0;
-        
-        // 20.0s to 20.5s: Exponentially accelerating 90-degree turn to South
-        if (snapTime <= 0.5) {
-          // Cubing the progress creates a slow start that violently snaps at the end
-          double curve = pow(snapTime / 0.5, 3).toDouble();
-          player.facingAngle = (pi / 2) + (curve * (pi / 2));
+        if (cinematicTimer >= 0.2 && cinematicTimer <= 2.5) {
+          final double p = progress(0.2, 2.5);
+          stuntDoubleHero!.position.setValues(1120.0 - (500.0 * p), 985.0);
+          stuntDoubleHero!.facingAngle = -pi / 2;
+          stuntDoubleHero!.voxelComponent!.isMoving = true;
+          if ((prevTime * 4).floor() != (cinematicTimer * 4).floor()) {
+            AudioManager.instance.playEntityFootstep(stuntDoubleHero!.assignedCharacterId, stuntDoubleHero!.position);
+          }
         } else {
-          player.facingAngle = pi; // Lock facing South (Looking right at the monster)
+          stuntDoubleHero!.position.setValues(-9999, -9999);
+          stuntDoubleHero!.voxelComponent!.isMoving = false;
         }
 
-        // 20.5s: SCARE TRIGGER (Exactly as the camera locks onto South)
-        if (snapTime > 0.5 && snapTime < 0.55) {
-          if (cinematicMonster!.voxelComponent != null) {
-              cinematicMonster!.voxelComponent!.triggerScareAnimation('siren');
+        if (cinematicTimer >= 2.6 && cinematicTimer <= 4.8) {
+          final double p = progress(2.6, 4.8);
+          cinematicMonster!.position.setValues(1120.0 - (500.0 * p), 985.0);
+          cinematicMonster!.facingAngle = -pi / 2;
+          cinematicMonster!.voxelComponent!.isMoving = true;
+          if ((prevTime * 5).floor() != (cinematicTimer * 5).floor()) {
+            AudioManager.instance.playEntityFootstep('default', cinematicMonster!.position);
           }
-          if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
-            SoLoud.instance.play(AudioManager.instance.impactSource!); 
+        } else {
+          cinematicMonster!.position.setValues(-9999, -9999);
+          cinematicMonster!.voxelComponent!.isMoving = false;
+        }
+      }
+
+      // =========================================================================
+      // BEAT 2 (5.2s - 9.2s): 3RD-PERSON CORNER ROUNDING & 180 PEEK BEHIND WALL
+      // =========================================================================
+      else if (cinematicTimer < 9.2) {
+        cinematicStatusText?.text = 'BEAT 2: CORNER HIDE [${cinematicTimer.toStringAsFixed(1)}s]';
+        cinematicMonster!.position.setValues(-9999, -9999);
+        cinematicMonster!.voxelComponent!.isMoving = false;
+
+        player.position.setValues(655.0, 1050.0);
+        player.facingAngle = 14.0 * (pi / 180.0);
+
+        if (cinematicTimer < 6.8) {
+          final double p = progress(5.2, 6.8);
+          stuntDoubleHero!.position.setValues(675.0, 990.0 - (105.0 * p));
+          stuntDoubleHero!.facingAngle = 0.0;
+          stuntDoubleHero!.voxelComponent!.isMoving = true;
+        } else if (cinematicTimer < 7.8) {
+          final double p = progress(6.8, 7.8);
+          stuntDoubleHero!.position.setValues(675.0 + (37.0 * p), 885.0);
+          stuntDoubleHero!.facingAngle = pi / 2;
+          stuntDoubleHero!.voxelComponent!.isMoving = true;
+        } else {
+          final double p = progress(7.8, 8.6);
+          stuntDoubleHero!.position.setValues(712.0, 885.0);
+          stuntDoubleHero!.facingAngle = (pi / 2) + (p * (pi / 2));
+          stuntDoubleHero!.voxelComponent!.isMoving = false;
+        }
+      }
+
+      // =========================================================================
+      // BEAT 3 (9.2s - 13.0s): 1ST-PERSON POV BEHIND CORNER — MONSTER RUNS PAST!
+      // =========================================================================
+      else if (cinematicTimer < 13.0) {
+        cinematicStatusText?.text = 'BEAT 3: 1ST-PERSON PEEK [${cinematicTimer.toStringAsFixed(1)}s]';
+
+        stuntDoubleHero!.position.setValues(-9999, -9999);
+        stuntDoubleHero!.voxelComponent!.isMoving = false;
+
+        player.position.setValues(688.0, 915.0);
+        player.facingAngle = pi - 0.08;
+
+        if (cinematicTimer >= 9.5 && cinematicTimer <= 12.6) {
+          final double p = progress(9.5, 12.6);
+          cinematicMonster!.position.setValues(920.0 - (350.0 * p), 1005.0);
+          cinematicMonster!.facingAngle = -pi / 2;
+          cinematicMonster!.voxelComponent!.isMoving = true;
+          if ((prevTime * 5).floor() != (cinematicTimer * 5).floor()) {
+            AudioManager.instance.playEntityFootstep('default', cinematicMonster!.position);
+          }
+        } else {
+          cinematicMonster!.position.setValues(-9999, -9999);
+          cinematicMonster!.voxelComponent!.isMoving = false;
+        }
+      }
+
+      // =========================================================================
+      // BEAT 4 (13.0s - 16.5s): FLICKER, BLACKOUT, HEAVY BREATHING & RECHARGE
+      // =========================================================================
+      else if (cinematicTimer < 16.5) {
+        cinematicStatusText?.text = 'BEAT 4: BLACKOUT & RECHARGE [${cinematicTimer.toStringAsFixed(1)}s]';
+        cinematicMonster!.position.setValues(-9999, -9999);
+
+        if (cinematicTimer < 13.9) {
+          player.isLightFlickeringOut = (sin(cinematicTimer * 45.0) > 0.0);
+          player.flashlightBattery = 12.0;
+        } else if (cinematicTimer < 15.2) {
+          if (!cinematicStage1) {
+            cinematicStage1 = true;
+            if (AudioManager.instance.isInitialized && AudioManager.instance.heavyBreathingSource != null) {
+              SoLoud.instance.play(AudioManager.instance.heavyBreathingSource!, volume: 0.85);
+            }
+          }
+          player.isLightFlickeringOut = false;
+          player.isFlashlightDead = true;
+          player.isRecharging = false;
+          player.flashlightBattery = 0.0;
+        } else {
+          final double p = progress(15.2, 16.5);
+          player.isFlashlightDead = false;
+          player.isRecharging = true;
+          player.flashlightBattery = 10.0 + (65.0 * p);
+        }
+      }
+
+      // =========================================================================
+      // BEAT 5 (16.5s - 20.5s): SLOW TURN AWAY + HOLD BREATH + HEARTBEAT
+      // =========================================================================
+      else if (cinematicTimer < 20.5) {
+        cinematicStatusText?.text = 'BEAT 5: CREEPING DREAD [${cinematicTimer.toStringAsFixed(1)}s]';
+        player.isRecharging = false;
+        player.flashlightBattery = 100.0;
+
+        cinematicMonster!.position.setValues(688.0, 964.0);
+        cinematicMonster!.facingAngle = 0.0;
+        cinematicMonster!.voxelComponent!.isMoving = false;
+
+        if (cinematicTimer < 19.0) {
+          final double p = progress(16.5, 19.0);
+          final double smoothP = p * p * (3.0 - 2.0 * p);
+          player.facingAngle = pi - (smoothP * (pi / 2));
+        } else {
+          player.facingAngle = pi / 2;
+          if (!cinematicStage2) {
+            cinematicStage2 = true;
+            AudioManager.instance.stopPhysiologyLoops();
+            if (AudioManager.instance.isInitialized) {
+              if (AudioManager.instance.gaspBreathSource != null) {
+                SoLoud.instance.play(AudioManager.instance.gaspBreathSource!, volume: 0.9);
+              }
+              if (AudioManager.instance.heartBeatSource != null) {
+                SoLoud.instance.play(AudioManager.instance.heartBeatSource!, volume: 1.0);
+              }
+            }
+          }
+        }
+      }
+
+      // =========================================================================
+      // BEAT 6 (20.5s - 24.5s): PANIC BREATH, FAST 90° TURN RIGHT & JUMP SCARE!
+      // =========================================================================
+      else {
+        cinematicStatusText?.text = 'BEAT 6: THE BREACH [${cinematicTimer.toStringAsFixed(1)}s]';
+
+        if (!cinematicStage3) {
+          cinematicStage3 = true;
+          if (AudioManager.instance.isInitialized && AudioManager.instance.heavyBreathingSource != null) {
+            SoLoud.instance.play(AudioManager.instance.heavyBreathingSource!, volume: 1.0);
           }
         }
 
-        // 20.7s: FINAL CUT TO BLACK
-        if (snapTime >= 0.7) {
+        if (cinematicTimer < 20.8) {
+          player.facingAngle = pi / 2;
+        } else if (cinematicTimer < 21.15) {
+          final double p = progress(20.8, 21.15);
+          final double whipCurve = pow(p, 2.5).toDouble();
+          player.facingAngle = (pi / 2) + (whipCurve * (pi / 2));
+        } else {
+          player.facingAngle = pi;
+        }
+
+        if (cinematicTimer >= 21.2 && cinematicTimer < 22.6) {
+          if (!cinematicStage4) {
+            cinematicStage4 = true;
+            cinematicMonster!.voxelComponent!.triggerScareAnimation('siren');
+            jumpScareEffect.trigger();
+            if (AudioManager.instance.isInitialized) {
+              AudioManager.instance.playMaskScare('siren');
+              if (AudioManager.instance.powerupSource != null) {
+                SoLoud.instance.play(AudioManager.instance.powerupSource!, volume: 1.0);
+              }
+            }
+          }
+          final double lungeP = progress(21.2, 21.55);
+          cinematicMonster!.position.setValues(688.0, 964.0 - (27.0 * lungeP));
+        }
+
+        if (cinematicTimer >= 22.6) {
           player.flashlightBattery = 0.0;
           player.isFlashlightDead = true;
+          cinematicStatusText?.text = '';
+        }
+
+        if (crossed(23.6)) {
+          AudioManager.instance.stopPhysiologyLoops();
+          AudioManager.instance.playMenuMusic();
           pauseEngine();
+          onCinematicComplete?.call();
         }
       }
       return;
@@ -826,7 +929,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
 
     if (isHost && gameStarted && matchPhase == 'playing') {
-      // --- 50/50 Chance, Once Per Match ---
       if (willBlackoutHappen && !hasBlackoutFired) {
         timeUntilNextBlackout -= dt;
         if (timeUntilNextBlackout <= 0) {
@@ -863,7 +965,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           SoLoud.instance.play(AudioManager.instance.tickSource!);
         }
 
-        // --- START MATCH MUSIC ---
         if (AudioManager.instance.isInitialized) {
           AudioManager.instance.playRandomInGameTrack();
         }
@@ -892,7 +993,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       final pY = player.position.y / audioScale;
       SoLoud.instance.set3dListenerPosition(pX, pY, 0.0);
       
-      // FIXED: Use facingAngle (and glanceOffset) instead of PositionComponent.angle
       final activeAngle = player.facingAngle + player.glanceOffset;
       final forwardX = sin(activeAngle);
       final forwardY = -cos(activeAngle);
@@ -906,7 +1006,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         hostBotSyncTick = 0;
         List<Map<String, dynamic>> botData = [];
         for (var bot in bots) {
-          // Send facingAngle instead of angle, and include 'i' for invisibility
           botData.add({'x': bot.position.x, 'y': bot.position.y, 'a': bot.facingAngle, 'i': bot.isInvisible});
         }
         myChannel.sendBroadcastMessage(event: 'sync_bots', payload: {'bots': botData});
@@ -916,15 +1015,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
   @override
   void onRemove() {
-    // STRICT GUARDRAIL: Only overwrite the gallery if this instance actually took photos!
-    // This prevents aborted matchmaking lobbies or cinematic modes from wiping your history.
     if (matchPhotos.isNotEmpty) {
       lastMatchPhotos = List.from(matchPhotos);
     }
     
     myChannel.unsubscribe();
-    // FIXED: Only call leave_match RPC when roomId is a database UUID from active_matches!
-    if (!roomId.startsWith('public') && !roomId.startsWith('scrimmage_') && !roomId.startsWith('fright_')) {
+    if (matchMode != 'cinematic' && !roomId.startsWith('public') && !roomId.startsWith('scrimmage_') && !roomId.startsWith('fright_')) {
       try {
         Supabase.instance.client.rpc('leave_match', params: {'p_match_id': roomId});
       } catch (e) {}
@@ -979,7 +1075,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         final RemotePlayer rp = entry.value;
 
         if (matchMode == '2v2') {
-          // Check if this remote player is our Party Partner, Juggernaut Driver, or Guildmate!
           final bool isMyAlly = (rp.userId != null && (rp.userId == driverId || rp.userId == partyPartnerUserId)) ||
               (myGuildId != null && rp.guildId == myGuildId);
 
@@ -1023,10 +1118,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         if (matchMode == '2v2') nextTeam = (nextTeam == 1) ? 2 : 1; 
       }
 
-      // --- NEW: FRIGHT NIGHT CHAOS MODIFIERS ---
+      // --- FRIGHT NIGHT CHAOS MODIFIERS ---
       if (matchMode == 'fright_night' && chaosModifier == 'swarm') {
         List<Map<String, dynamic>> swarmData = [];
-        int baseSeed = roomId.hashCode; // A shared, consistent seed!
+        int baseSeed = roomId.hashCode;
         
         for (int i = 0; i < 25; i++) {
           if (availableSpawns.isEmpty) break;
@@ -1044,18 +1139,25 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             'angle': startAngle
           });
           
-          // Host spawns locally
           scareManager.spawnCritter(Critter(
             position: spawnPos, behavior: SwarmBehavior.scatter, 
             seed: baseSeed + i, index: i, initialAngle: startAngle, ownerId: 'server_swarm'
           ));
         }
         
-        // Blast the spawn instructions to the clients ONCE. Zero traffic after this!
         myChannel.sendBroadcastMessage(event: 'spawn_swarm', payload: {'swarm': swarmData});
+      } else if (matchMode == 'fright_night' && chaosModifier == 'pitch_black') {
+        isGlobalBlackout = true;
+        blackoutTimer = 9999.0;
+        myChannel.sendBroadcastMessage(event: 'global_blackout', payload: {'active': true, 'duration': 9999.0});
+      } else if (matchMode == 'fright_night' && chaosModifier == 'juggernaut') {
+        matchHasHunter = true;
+        hunterHasSpawned = true;
+        if (bots.isNotEmpty) {
+          bots.first.transformToHunter();
+          myChannel.sendBroadcastMessage(event: 'hunter_emerge', payload: {'bot_index': 0});
+        }
       }
-      // -----------------------------------------
-
     }
 
     final random = Random();
@@ -1090,14 +1192,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
   Future<void> endGame() async {
     gameStarted = false; 
 
-    // --- STOP MUSIC FOR SCORE SCREEN ---
     if (AudioManager.instance.isInitialized) {
       AudioManager.instance.stopPhysiologyLoops();
-      
-      // Explicitly kill the local player's breathing loop!
       player.stopAudio();
       
-      // FIXED: Type-safe audio shutdown across all bots and remote players
       for (var bot in bots) {
         bot.stopAudio();
       }
@@ -1115,10 +1213,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       RemotePlayer? partner;
       
       if (isGunner && driverId != null) {
-        // The Gunner already knows exactly who their Driver is
         partner = networkPlayers[driverId];
+        if (partner == null) {
+          for (var remote in networkPlayers.values) {
+            if (remote.userId == driverId) {
+              partner = remote;
+              break;
+            }
+          }
+        }
       } else if (hasGunner) {
-        // The Driver finds their Gunner by looking for the player riding on their back
         for (var remote in networkPlayers.values) {
           if (remote.position.distanceTo(player.position) < 50.0) {
             partner = remote;
@@ -1128,21 +1232,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       }
 
       if (partner != null) {
-        // Merge the combat points (Gunner) and the navigation loot (Driver)
         int combinedScore = player.score + partner.score;
-        
-        // Assign the massive pooled score to both players
         player.score = combinedScore;
         partner.score = combinedScore;
         
-        // Optional: Fire a UI popup so they know their scores merged
         camera.viewport.add(FloatingText(
           text: 'SQUAD SCORE MERGED!', 
           worldPosition: Vector2(player.position.x - 50, player.position.y - 80)
         ));
       }
     }
-    // ==========================================
 
     overlays.add('summary');
     
@@ -1154,16 +1253,14 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     int highestScore = allScores.first;
     bool isTie = allScores.where((s) => s == highestScore).length > 1;
     
-    int baseStake = 27 + Random().nextInt(16); // Random win between 27 and 42
+    int baseStake = 27 + Random().nextInt(16);
 
-    // --- NEW: The "Participation" Threshold ---
     if (player.score == 0) {
-      // You did nothing. You lose Lumen, no free rides!
       matchLumenDelta = -(baseStake - 2); 
     } else if (player.score == highestScore) {
       matchLumenDelta = isTie ? 2 : baseStake;
     } else {
-      matchLumenDelta = -(baseStake - 2); // Lose 2 points less than the win value
+      matchLumenDelta = -(baseStake - 2);
     }
 
     // --- 2. EXISTING TEAM SCORING LOGIC ---
@@ -1188,12 +1285,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           text: 'VICTORY BONUS! +1500', 
           worldPosition: Vector2(player.position.x - 40, player.position.y - 80)
         ));
-        // If playing squads, winning the match overrides individual placements for Lumen
         matchLumenDelta = baseStake; 
       } else if (myTeamScore < enemyTeamScore) {
         matchLumenDelta = -(baseStake - 2);
       } else {
-        matchLumenDelta = 2; // Tie
+        matchLumenDelta = 2;
       }
     }
 
@@ -1201,17 +1297,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       int xpEarned = (player.score * 0.1).toInt();
       int shadowsEarned = (player.score * 0.05).toInt();
       
-      // NEW: THE LOSER TAX
-      // If you lose Lumen (a defeat), your coin payout is wiped out completely.
-      // We grant a tiny pity payout of 10 Shadows.
       int finalCoins = player.coinsEarned;
       if (matchLumenDelta < 0) {
          finalCoins = 0;
          shadowsEarned = 10;
       }
 
-      // --- THE ROOKIE BOOST ---
-      // Guarantees massive progression for brand new players to hook them immediately
       if (myPlayerLevel < 3) {
         xpEarned *= 3; 
         shadowsEarned += 2500; 
@@ -1223,12 +1314,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         ));
       }
 
-      // FIXED: Store the real match earnings so ProgressionScreen displays accurate numbers!
       lastMatchXpEarned = xpEarned;
       lastMatchShadowsEarned = shadowsEarned;
       lastMatchCoinsEarned = finalCoins;
 
-      // --- 3. SEND LUMEN TO DATABASE ---
       if (player.score > 0 || player.coinsEarned > 0 || matchLumenDelta != 0 || myPlayerLevel < 3) {
         try {
           await Supabase.instance.client.rpc(
@@ -1243,7 +1332,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         } catch (e) {
           debugPrint('Reward error: $e');
         }
-        // --- SEND TACTICAL TELEMETRY ---
         try {
           await Supabase.instance.client.from('player_tactics_log').insert({
             'user_id': Supabase.instance.client.auth.currentUser!.id,
@@ -1333,7 +1421,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           debugPrint('Failed to post scrimmage results to chat: $e');
         }
       }
-      // --- NEW: FRIGHT NIGHT SCOREBOARD & HIGHLIGHT REEL ---
       if (matchMode == 'fright_night' && myGuildId != null) {
         try {
           String _short(String id) => id.length >= 4 ? id.substring(0, 4) : id;
@@ -1365,7 +1452,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             'sender_id': Supabase.instance.client.auth.currentUser!.id,
             'message': 'The bloodbath has concluded.',
             'metadata': {
-              'type': 'fright_night_results', // <-- Moved inside metadata!
+              'type': 'fright_night_results',
               'results': sortedResults,
               'highlight': highlightMeta, 
             }
@@ -1375,10 +1462,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         }
       }
     }
-
-    /* if (!isGuildScrimmage && buildContext != null) {
-      VesselOpenerOverlay.show(buildContext!, 'shadow_reliquary');
-    } */
   }
 
   void claimSpookyBox(String boxId) {
@@ -1398,13 +1481,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
 
     if (playerId == mySessionId) {
-      // 1. Check if this specific box is a dropped relic
       if (boxId == activeCursedRelicBoxId) {
         player.applyChestReward(ChestReward(type: ChestRewardType.cursedRelic, label: 'THE CURSED RELIC!'));
         activeCursedRelicBoxId = null;
         return;
       }
-      // Keep the original weighted base pool, but drastically nerf the SOULS (Score) payouts
       List<ChestReward> rewards = [
         ChestReward(type: ChestRewardType.points, label: '+50 SOULS', value: 50),
         ChestReward(type: ChestRewardType.points, label: '+50 SOULS', value: 50),
@@ -1417,11 +1498,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         ChestReward(type: ChestRewardType.teleport, label: 'TELEPORTED!'),
         ChestReward(type: ChestRewardType.rangeIncrease, label: 'RANGE EXTENDED!'),
         ChestReward(type: ChestRewardType.rangeIncrease, label: 'RANGE EXTENDED!'),
-        ChestReward(type: ChestRewardType.disguise, label: 'DISGUISE!'), // Stays rare!
+        ChestReward(type: ChestRewardType.disguise, label: 'DISGUISE!'),
         ChestReward(type: ChestRewardType.cursedRelic, label: 'THE CURSED RELIC!'),
       ];
 
-      // New players get a slightly better chance to pull hard currency to hook them
       if (myPlayerLevel < 4) {
         rewards.addAll([
           ChestReward(type: ChestRewardType.currency, label: '+3 COINS', value: 3),
@@ -1430,7 +1510,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           ChestReward(type: ChestRewardType.currency, label: '+5 COINS', value: 5),
         ]);
       } else {
-        // Punishing economy for veterans (1 or 2 coins MAX)
         rewards.addAll([
           ChestReward(type: ChestRewardType.currency, label: '+1 COIN', value: 1),
           ChestReward(type: ChestRewardType.currency, label: '+1 COIN', value: 1),
@@ -1444,7 +1523,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     }
   }
 
-  // --- NEW: Allow Competitive Bots to Loot (Nerfed to match player economy) ---
   void claimSpookyBoxForBot(String boxId, BotPlayer bot) {
     final boxes = world.children.whereType<SpookyBox>().where((b) => b.id == boxId).toList();
     if (boxes.isEmpty) return;
@@ -1458,7 +1536,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       SoLoud.instance.play(AudioManager.instance.powerupSource!);
     }
 
-    bot.simulatedScore += 75; // Nerfed from 300 to keep it balanced with players
+    bot.simulatedScore += 75;
     camera.viewport.add(FloatingText(text: '+75 SOULS', worldPosition: Vector2(boxPos.x - 20, boxPos.y - 40)));
   }
   
@@ -1466,12 +1544,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     int hitCount = 0;
     final forward = Vector2(sin(attackerAngle), -cos(attackerAngle));
     
-    // --- DYNAMIC RADIUS ASSIGNMENT ---
     double scareRadius = range;
     if (hasExtendedRange) scareRadius = 600.0;
     if (maskId == 'siren') scareRadius = 2000.0;
-    if (maskId == 'gorgon') scareRadius = 1200.0; // Massive room-wide blast
-    if (maskId == 'banshee') scareRadius = 1500.0; // Extreme sniper range
+    if (maskId == 'gorgon') scareRadius = 1200.0;
+    if (maskId == 'banshee') scareRadius = 1500.0;
 
     for (var bot in bots) {
       if (bot.isHunter) bot.hearLoudNoise(attackerPos);
@@ -1502,32 +1579,26 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           }
         } 
         else {
-          // --- MASK-SPECIFIC RAYCAST RULES - now checking an 
-          //     expanding angle to checking their absolute 
-          //     perpendicular distance from your banshee ---
           bool isHit = false;
           
           if (maskId == 'banshee') {
-             // Banshee fires a fixed-width laser cylinder, ignoring walls
              final rawVector = bot.position - attackerPos;
-             final proj = rawVector.dot(forward); // Distance along the laser
+             final proj = rawVector.dot(forward);
              if (proj > 0) { 
-               final perpDist = (rawVector - (forward * proj)).length; // Distance from center of laser
-               if (perpDist < 128.0) isHit = true; // 256px wide total corridor
+               final perpDist = (rawVector - (forward * proj)).length;
+               if (perpDist < 128.0) isHit = true;
              }
           } else {
-             // Standard masks use expanding vision cones and check for walls
              final coneThreshold = isPoweredUp ? -0.2 : 0.1;
              bool hasLOS = gameMap.hasLineOfSight(bot.position, attackerPos);
              if (dot > coneThreshold && hasLOS) isHit = true;
           }
           
-          // Gorgon requires the victim to be facing the attacker
           bool isLookingAtAttacker = true;
           if (maskId == 'gorgon') {
              final botForward = Vector2(sin(bot.facingAngle), -cos(bot.facingAngle));
              final botToAttacker = (attackerPos - bot.position).normalized();
-             isLookingAtAttacker = botForward.dot(botToAttacker) > 0.2; // They must be facing you
+             isLookingAtAttacker = botForward.dot(botToAttacker) > 0.2;
           }
 
           if (isHit && isLookingAtAttacker) {
@@ -1546,9 +1617,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               double stunDuration = _matchesDoctrine(bot) ? 4.4 : 4.0;
               if (isPrey) stunDuration *= 1.15; 
               
-              // --- PARASITE VAMPIRISM ---
               if (maskId == 'parasite') {
-                stunDuration = 1.5; // Very short stun
+                stunDuration = 1.5;
                 player.flashlightBattery = (player.flashlightBattery + 25.0).clamp(0.0, 100.0);
                 player.energy = (player.energy + 3.0).clamp(0.0, player.maxEnergy);
               }
@@ -1574,7 +1644,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     // 2. REMOTE PLAYER COLLISION LOOP
     // ==========================================
     for (var remoteId in networkPlayers.keys) {
-      // Never allow Juggernaut partners to stun each other!
       if ((isGunner || hasGunner) && (remoteId == driverId || networkPlayers[remoteId]?.userId == driverId || networkPlayers[remoteId]?.userId == partyPartnerUserId)) {
         continue;
       }
@@ -1600,19 +1669,16 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             myChannel.sendBroadcastMessage(event: 'charm', payload: {'id': remoteId, 'duration': 15.0, 'charmer_x': attackerPos.x, 'charmer_y': attackerPos.y});
           }
         } else {
-          // --- MASK-SPECIFIC RAYCAST RULES ---
           bool isHit = false;
           
           if (maskId == 'banshee') {
-             // Banshee fires a fixed-width laser cylinder, ignoring walls
              final rawVector = remotePlayer.position - attackerPos;
-             final proj = rawVector.dot(forward); // Distance along the laser
+             final proj = rawVector.dot(forward);
              if (proj > 0) { 
-               final perpDist = (rawVector - (forward * proj)).length; // Distance from center of laser
-               if (perpDist < 128.0) isHit = true; // <-- DOUBLED: 256px wide total corridor
+               final perpDist = (rawVector - (forward * proj)).length;
+               if (perpDist < 128.0) isHit = true;
              }
           } else {
-             // Standard masks use expanding vision cones and check for walls
              final coneThreshold = isPoweredUp ? -0.2 : 0.1;
              bool hasLOS = gameMap.hasLineOfSight(remotePlayer.position, attackerPos);
              if (dot > coneThreshold && hasLOS) isHit = true;
@@ -1625,7 +1691,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
              isLookingAtAttacker = rpForward.dot(rpToAttacker) > 0.2; 
           }
 
-          // FIX: Now we just check the isHit boolean!
           if (isHit && isLookingAtAttacker) {
             hitCount++;
             player.scaresLanded++;
@@ -1635,7 +1700,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             double stunDuration = _matchesDoctrine(remotePlayer) ? 2.2 : 2.0;
             if (isPrey) stunDuration *= 1.15;
             
-            // --- PARASITE VAMPIRISM ---
             if (maskId == 'parasite') {
               stunDuration = 1.5; 
               player.flashlightBattery = (player.flashlightBattery + 25.0).clamp(0.0, 100.0);
@@ -1645,7 +1709,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             myChannel.sendBroadcastMessage(event: 'stun', payload: {
               'id': remoteId, 'duration': stunDuration, 
               'attacker_id': mySessionId, 'attacker_x': attackerPos.x, 'attacker_y': attackerPos.y,
-              'mask_id': maskId // <-- Pass the mask ID so the victim knows to drain their own battery!
+              'mask_id': maskId
             });
 
             logScareSnapshot(ScareSnapshot(
@@ -1668,7 +1732,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     gameStarted = true;
     gameTimer.start();
     camera.viewport.children.whereType<StartButton>().toList().forEach((btn) => btn.removeFromParent());
-    // --- START MATCH MUSIC ---
     if (AudioManager.instance.isInitialized) {
       AudioManager.instance.playRandomInGameTrack();
     }
@@ -1724,11 +1787,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
         final activeIds = allUsers.map((u) => u['id']).toSet();
         networkPlayers.keys.toList().forEach((id) {
-          /* if (!activeIds.contains(id)) {
-            networkPlayers[id]?.removeFromParent();
-            networkPlayers.remove(id);
-          } */
-          // Protect the dummy from being deleted by the network sync!
           if (!activeIds.contains(id) && id != 'dummy_driver_123') {
             networkPlayers[id]?.removeFromParent();
             networkPlayers.remove(id);
@@ -1743,11 +1801,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             for (int i = 0; i < swarmList.length; i++) {
               final data = swarmList[i];
               scareManager.spawnCritter(Critter(
-                position: Vector2(data['x'] as double, data['y'] as double),
+                position: Vector2((data['x'] as num).toDouble(), (data['y'] as num).toDouble()),
                 behavior: SwarmBehavior.scatter,
-                seed: data['seed'] as int,
+                seed: (data['seed'] as num).toInt(),
                 index: i,
-                initialAngle: data['angle'] as double,
+                initialAngle: (data['angle'] as num).toDouble(),
                 ownerId: 'server_swarm'
               ));
             }
@@ -1758,7 +1816,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         event: 'hunter_emerge',
         callback: (payload) {
           if (!isHost) {
-            final index = payload['bot_index'] as int?;
+            final index = (payload['bot_index'] as num?)?.toInt();
             if (index != null && index >= 0 && index < bots.length) {
               bots[index].transformToHunter();
             }
@@ -1769,15 +1827,14 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         event: 'bot_scare',
         callback: (payload) {
           if (!isHost) {
-            final index = payload['bot_index'] as int;
+            final index = (payload['bot_index'] as num).toInt();
             if (index >= 0 && index < bots.length) {
               final bot = bots[index];
               bot.currentMaskId = payload['mask_id'] as String;
-              bot.position.x = payload['x'] as double;
-              bot.position.y = payload['y'] as double;
-              bot.facingAngle = payload['a'] as double;
+              bot.position.x = (payload['x'] as num).toDouble();
+              bot.position.y = (payload['y'] as num).toDouble();
+              bot.facingAngle = (payload['a'] as num).toDouble();
               
-              // FIXED: Prevent giant stuck animations from off-screen bots
               if (bot.position.distanceTo(player.position) < 1000.0) {
                 if (bot.voxelComponent != null) bot.voxelComponent!.triggerScareAnimation(bot.currentMaskId);
               }
@@ -1806,11 +1863,10 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         callback: (payload) {
           final senderId = payload['id'] as String?;
           final text = payload['text'] as String? ?? '';
-          final colorValue = payload['color'] as int;
+          final colorValue = (payload['color'] as num).toInt();
           
           if (senderId == null || senderId == mySessionId) return;
 
-          // 1. Is it a Remote Player?
           if (networkPlayers.containsKey(senderId)) {
             final remote = networkPlayers[senderId]!;
             remote.add(ChatBubbleComponent(
@@ -1822,7 +1878,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               SoLoud.instance.play(AudioManager.instance.tickSource!, volume: 0.8);
             }
           } 
-          // 2. Is it a Bot?
           else if (senderId.startsWith('bot_')) {
             int botIndex = int.tryParse(senderId.split('_')[1]) ?? -1;
             if (botIndex >= 0 && botIndex < bots.length) {
@@ -1841,8 +1896,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           final id = payload['id'] as String?;
           if (id != null && networkPlayers.containsKey(id)) {
             final remote = networkPlayers[id]!;
-            remote.position.x = payload['x'] as double;
-            remote.position.y = payload['y'] as double;
+            remote.position.x = (payload['x'] as num).toDouble();
+            remote.position.y = (payload['y'] as num).toDouble();
             remote.triggerPrivateHighlight();
             
             if (AudioManager.instance.isInitialized && AudioManager.instance.impactSource != null) {
@@ -1857,15 +1912,15 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           final id = payload['id'] as String?;
           if (id == null || id == mySessionId) return;
           if (id != mySessionId) {
-            final x = payload['x'] as double;
-            final y = payload['y'] as double;
-            final angle = payload['a'] as double;
+            final x = (payload['x'] as num).toDouble();
+            final y = (payload['y'] as num).toDouble();
+            final angle = (payload['a'] as num).toDouble();
             final colorStr = payload['c'] as String?; 
-            final newScore = payload['s'] as int?; 
+            final newScore = (payload['s'] as num?)?.toInt(); 
             final isDisguised = payload['d'] as bool? ?? false;
             final isMoving = payload['m'] as bool? ?? false;
             final isInvisible = payload['i'] as bool? ?? false;
-            final fScale = payload['f'] as double? ?? 1.0;
+            final fScale = (payload['f'] as num?)?.toDouble() ?? 1.0;
             final sp = payload['sp'] as String? ?? 'humanoid';
 
             final maskId = payload['mask_id'] as String? ?? 'standard';
@@ -1902,16 +1957,15 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           if (id == null || id == mySessionId || !networkPlayers.containsKey(id)) return;
           if (id != mySessionId && networkPlayers.containsKey(id)) {
             final remote = networkPlayers[id]!;
-            remote.position.x = payload['x'] as double;
-            remote.position.y = payload['y'] as double;
-            remote.facingAngle = payload['a'] as double;
+            remote.position.x = (payload['x'] as num).toDouble();
+            remote.position.y = (payload['y'] as num).toDouble();
+            remote.facingAngle = (payload['a'] as num).toDouble();
             
             final maskId = payload['mask_id'] as String? ?? 'standard'; 
-            final seed = payload['seed'] as int? ?? 0;
+            final seed = (payload['seed'] as num?)?.toInt() ?? 0;
 
             remote.currentMaskId = maskId;
 
-            // FIXED: Prevent giant stuck animations from off-screen remote players
             if (remote.position.distanceTo(player.position) < 1000.0) {
               if (remote.voxelComponent != null) remote.voxelComponent!.triggerScareAnimation(maskId);
             }
@@ -1932,19 +1986,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             } else if (maskId == 'banshee') {
                world.add(BansheeBeam(position: remote.position.clone(), angle: remote.facingAngle));
             } else if (maskId == 'wendigo') {
-               // FIXED: Added null-coalescing fallback and force-cast for the IDs
                world.add(WendigoDecoy(
                  position: remote.position.clone(), 
                  angle: remote.facingAngle, 
-                 ownerId: id!, 
+                 ownerId: id, 
                  charId: remote.equippedCharacterId ?? 'default'
                ));
             } else if (maskId == 'poltergeist') {
-               // FIXED: Added force-cast for the ID
                world.add(PoltergeistTrap(
                  position: remote.position.clone(), 
                  angle: remote.facingAngle, 
-                 ownerId: id!
+                 ownerId: id
                ));
             } else {
               world.add(ScareBlast(position: remote.position.clone(), angle: remote.facingAngle - (pi / 2))..priority = remote.priority + 5);
@@ -1976,14 +2028,12 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         callback: (payload) {
           final ownerId = payload['owner_id'] as String?;
           
-          // Only render this if WE aren't the owner (since the owner already rendered it locally)
           if (ownerId != null && ownerId != mySessionId) {
             final trapX = (payload['x'] as num).toDouble();
             final trapY = (payload['y'] as num).toDouble();
             final trapAngle = (payload['a'] as num).toDouble();
             final trapPos = Vector2(trapX, trapY);
 
-            // Spawn the visuals and audio for bystanders
             world.add(ScareBlast(position: trapPos.clone(), angle: trapAngle - (pi / 2))..priority = 1000);
             AudioManager.instance.playSpatialScare('standard', trapPos);
             
@@ -1998,7 +2048,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         event: 'taunt',
         callback: (payload) {
           final id = payload['id'] as String?;
-          if (id == null || id == mySessionId) return; // Don't echo your own taunt
+          if (id == null || id == mySessionId) return;
           
           final tauntId = payload['taunt_id'] as String? ?? 'default';
           final tauntPos = Vector2((payload['x'] as num).toDouble(), (payload['y'] as num).toDouble());
@@ -2043,7 +2093,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           if (targetId == null) return;
           final duration = (payload['duration'] as num).toDouble();
           final attackerId = payload['attacker_id'] as String?;
-          final maskId = payload['mask_id'] as String? ?? 'standard'; // Check the weapon
+          final maskId = payload['mask_id'] as String? ?? 'standard';
 
           if (targetId == mySessionId) {
             jumpScareEffect.trigger();
@@ -2053,7 +2103,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
               atkPos = Vector2((payload['attacker_x'] as num).toDouble(), (payload['attacker_y'] as num).toDouble());
             }
 
-            // --- THE PARASITE PENALTY ---
             if (maskId == 'parasite') {
               player.flashlightBattery = (player.flashlightBattery - 25.0).clamp(0.0, 100.0);
               player.energy = (player.energy - 3.0).clamp(0.0, player.maxEnergy);
@@ -2081,7 +2130,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           if (!isHost) {
             final boxList = payload['boxes'] as List<dynamic>;
             for (var data in boxList) {
-              world.add(SpookyBox(id: data['id'] as String, position: Vector2(data['x'] as double, data['y'] as double)));
+              world.add(SpookyBox(id: data['id'] as String, position: Vector2((data['x'] as num).toDouble(), (data['y'] as num).toDouble())));
             }
           }
         },
@@ -2093,7 +2142,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             if (payload.containsKey('teams')) {
               final teamsData = payload['teams'] as Map<String, dynamic>;
               teamsData.forEach((key, value) {
-                playerTeams[key] = value as int;
+                playerTeams[key] = (value as num).toInt();
               });
 
               if (matchMode == '2v2') {
@@ -2126,7 +2175,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       .onBroadcast(
         event: 'match_control',
         callback: (payload) {
-          final action = payload['action'] as String?; // <-- SAFE CAST
+          final action = payload['action'] as String?;
           if (action == 'start') triggerLocalStart(); else if (action == 'end') endGame();
         },
       )
@@ -2148,10 +2197,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
                 bots.add(dummyBot);
                 world.add(dummyBot);
               }
-              bots[i].position.x = data['x'] as double;
-              bots[i].position.y = data['y'] as double;
-              // Ensure we write to facingAngle and decode 'i'
-              bots[i].facingAngle = data['a'] as double;
+              bots[i].position.x = (data['x'] as num).toDouble();
+              bots[i].position.y = (data['y'] as num).toDouble();
+              bots[i].facingAngle = (data['a'] as num).toDouble();
               bots[i].isInvisible = data['i'] as bool? ?? false;
             }
           }
@@ -2165,7 +2213,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
             final time = (payload['timeLeft'] as num).toDouble();
             
             gameTimer.timeLeft = time; 
-            // --- NEW: Sync the absolute clock to match the host ---
             gameTimer.matchEndTime = DateTime.now().add(Duration(milliseconds: (time * 1000).toInt()));
             
             if (isRunning && !gameStarted) {
@@ -2179,7 +2226,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       .onBroadcast(
         event: 'consume_powerup',
         callback: (payload) {
-          final id = payload['id'] as String?; // <-- SAFE CAST
+          final id = payload['id'] as String?;
           if (id != null) {
              world.children.whereType<PowerUp>().where((p) => p.id == id).toList().forEach((p) => p.removeFromParent());
           }
@@ -2187,7 +2234,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       )
       .subscribe((status, [error]) async {
         if (status == RealtimeSubscribeStatus.subscribed) {
-          // Add your username to the tracking payload!
           await myChannel.track({ 
             'id': mySessionId, 
             'user_id': Supabase.instance.client.auth.currentUser?.id,
@@ -2212,7 +2258,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       
       String zipPath = charRes['zip_asset_path'];
       
-      // FIX: Strip the accidental double prefix if it exists in the database
       if (zipPath.startsWith('assets/assets/')) {
         zipPath = zipPath.replaceFirst('assets/assets/', 'assets/');
       }
@@ -2239,7 +2284,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         characterRigCache[charId] = rig;
       }
     } catch (e) {
-      // Fails gracefully; engine will safely fallback to the default base mesh
       debugPrint('Lazy load bypassed for missing asset $charId: $e');
     }
   }
