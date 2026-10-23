@@ -794,7 +794,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                 onPressed: () {
                                   SynthManager.instance.playMagicTap();
                                   Future.delayed(const Duration(milliseconds: 25), () {
-                                    //Navigator.of(context).push(MaterialPageRoute(builder: (_) => Scaffold(body: GameWidget(game: GraveStakesGame(matchMode: 'cinematic')))));
+                                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => Scaffold(body: GameWidget(game: GraveStakesGame(matchMode: 'cinematic')))));
                                     Navigator.of(context).push(MaterialPageRoute(builder: (_) => Scaffold(
                                       body: GameWidget(game: GraveStakesGame(
                                         matchMode: 'casual',
