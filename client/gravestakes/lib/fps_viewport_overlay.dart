@@ -37,9 +37,9 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
   final Paint _mortarLinePaint = Paint()..color = Colors.black38;
   final Paint _fogPaint = Paint();
 
-  // Zero-allocation pool of 35 drifting gloomy fog clouds (Cranked up for dense gameplay coverage)
+  // Zero-allocation pool of 20 drifting gloomy fog clouds (Perfectly balanced)
   final Random _fogRng = Random(1337);
-  final List<_FpsFogPuff> _fogPuffs = List.generate(35, (_) => _FpsFogPuff());
+  final List<_FpsFogPuff> _fogPuffs = List.generate(20, (_) => _FpsFogPuff());
   double _lastFogTime = -1.0;
 
   @override
@@ -54,7 +54,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
 
   void _respawnFogPuff(_FpsFogPuff puff, Vector2 playerPos, double viewAngle, {bool initial = false}) {
     // Spawn within the camera's forward cone (or all around on initial seed)
-    final double angleSpread = initial ? (pi * 2.0) : (pi * 0.95);
+    final double angleSpread = initial ? (pi * 2.0) : (pi * 0.90);
     final double angle = viewAngle + (_fogRng.nextDouble() - 0.5) * angleSpread;
     final double dist = initial
         ? (35.0 + _fogRng.nextDouble() * 260.0)
@@ -65,13 +65,13 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
 
     // Slow, eerie lateral drift across the corridor
     final double driftAngle = _fogRng.nextDouble() * pi * 2.0;
-    final double speed = 10.0 + _fogRng.nextDouble() * 22.0;
+    final double speed = 10.0 + _fogRng.nextDouble() * 18.0;
     puff.vx = cos(driftAngle) * speed;
     puff.vy = sin(driftAngle) * speed;
 
-    // Massive puffy clouds
-    puff.radius = 90.0 + _fogRng.nextDouble() * 140.0;
-    puff.heightBias = 0.05 + _fogRng.nextDouble() * 0.35;
+    // Medium puffy clouds
+    puff.radius = 80.0 + _fogRng.nextDouble() * 110.0;
+    puff.heightBias = 0.10 + _fogRng.nextDouble() * 0.30;
     puff.phase = _fogRng.nextDouble() * pi * 2.0;
     puff.initialized = true;
   }
@@ -537,7 +537,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     }
 
     // -------------------------------------------------------------
-    // 3.5. THICK VOLUMETRIC GLOOMY 3D FOG (DRIFTS IN & OUT)
+    // 3.5. VOLUMETRIC GLOOMY 3D FOG (DRIFTS IN & OUT)
     // -------------------------------------------------------------
     if (maxRayDistance > 15.0) {
       final double now = game.currentTime();
@@ -591,15 +591,15 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
 
         final double wallH = min(screenHeight * 2.5, (tileSize * focalLength) / camY);
         
-        // Pushed lower (+0.25) so the mist hugs the floor and feet
+        // Pushed lower so the mist hugs the floor and feet
         final double screenY = (screenHeight / 2) + (wallH * (puff.heightBias + 0.25));
 
         final double nearFade = ((camY - 16.0) / 55.0).clamp(0.0, 1.0);
         final double farFade = (1.0 - (camY / maxRayDistance)).clamp(0.0, 1.0);
         final double pulse = 0.7 + 0.3 * sin(now * 1.3 + puff.phase);
         
-        // CRANKED UP OPACITY: It now pops heavily in the flashlight beam!
-        final double alpha = (0.95 * nearFade * farFade * pulse * globalMistWave).clamp(0.0, 1.0);
+        // BALANCED OPACITY: Subtle enough not to blind you
+        final double alpha = (0.40 * nearFade * farFade * pulse * globalMistWave).clamp(0.0, 0.50);
 
         if (alpha <= 0.02) continue;
 
@@ -608,11 +608,11 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
           center,
           projRadius,
           [
-            const Color(0xFF5C697D).withOpacity(alpha),       // Brighter, hazier core
-            const Color(0xFF191B24).withOpacity(alpha * 0.7), // Dark edge blending
+            const Color(0xFF384555).withOpacity(alpha),       // Atmospheric mid-grey-blue
+            const Color(0xFF10121A).withOpacity(alpha * 0.6), // Dark edge blending
             Colors.transparent,
           ],
-          const [0.0, 0.45, 1.0],
+          const [0.0, 0.50, 1.0],
         );
 
         canvas.drawCircle(center, projRadius, _fogPaint);
