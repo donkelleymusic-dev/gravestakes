@@ -381,7 +381,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
     ]);
 
     await _loadVoxelAssets(); 
-    await ensureCharacterLoaded('survivor'); // Ensure The Survivor assets are pre-warmed for cinematic
+    await ensureCharacterLoaded('survivor');
 
     mySessionId = DateTime.now().millisecondsSinceEpoch.toString();
     final user = Supabase.instance.client.auth.currentUser;
@@ -490,6 +490,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
 
     await camera.viewport.add(FpsViewportOverlay());
 
+    // Always initialize late HUD/Map fields so they never throw LateInitializationError in any mode!
     gameTimer = GameTimer();
     mapOverlay = MapOverlay();
     scoreHud = ScoreHud();
@@ -514,7 +515,6 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       player.facingAngle = 0.0; 
       player.isInvisible = true; 
 
-      // Stunt double uses 'survivor' (The Survivor humanoid character)
       stuntDoubleHero = BotPlayer(isHunter: false)
         ..position = Vector2(stageX + 400, stageY - 64) 
         ..wanderSpeed = 0.0
@@ -571,6 +571,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         final logoComponent = SpriteComponent(
           sprite: logoSprite,
           size: Vector2(120, 60), 
+          // Shifted 6px right (+5% width) and 3px up (-5% height), behind joysticks & attack wheel!
           position: Vector2((camera.viewport.size.x / 2) + 6, camera.viewport.size.y - 23), 
           anchor: Anchor.bottomCenter,
           priority: 50, 
@@ -638,18 +639,22 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           }
         }
 
+        // 1. Clear our stage area (Rows 11..18, Cols 7..24) to open floor (0)
         for (int gy = 11; gy <= 18; gy++) {
           for (int gx = 7; gx <= 24; gx++) {
             setGridCell(gy, gx, 0);
           }
         }
+        // 2. Long main brick wall to run beside (Row 14, Cols 11..22; Corner edge is at X = 704)
         for (int gx = 11; gx <= 22; gx++) {
           setGridCell(14, gx, 1);
         }
+        // 3. Corridor South back-wall (Row 17) & North alcove wall (Row 11)
         for (int gx = 8; gx <= 23; gx++) {
           setGridCell(17, gx, 1);
           setGridCell(11, gx, 1);
         }
+        // 4. West alley outer wall (Col 8)
         for (int gy = 11; gy <= 17; gy++) {
           setGridCell(gy, 8, 1);
         }
@@ -667,6 +672,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       double progress(double start, double end) =>
           ((cinematicTimer - start) / (end - start)).clamp(0.0, 1.0);
 
+      // Lock Bot AI so BotPlayer.update() never wanders or overrides our choreography
       for (final actor in [stuntDoubleHero!, cinematicMonster!]) {
         actor.attackCooldown = 999.0;
         actor.wanderSpeed = 0.0;
@@ -677,831 +683,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         cinematicMonster!.voxelComponent!.activeMaskImage ??= images.fromCache('siren_mask.png');
       } catch (_) {}
 
-      if (AudioManager.instance.isInitialized) {
-        try {
-          const double audioScale = 50.0;
-          SoLoud.instance.set3dListenerPosition(player.position.x / audioScale, player.position.y / audioScale, 0.0);
-          SoLoud.instance.set3dListenerAt(sin(player.facingAngle), -cos(player.facingAngle), 0.0);
-          SoLoud.instance.set3dListenerUp(0.0, 0.0, -1.0);
-        } catch (_) {}
-      }
-
-      // =========================================================================
-      // BEAT 1 (0.0s - 5.2s): STATIONARY CAMERA FLY-BY (HUMAN + HEAVY BREATHING)
-      // =========================================================================
-      if (cinematicTimer < 5.2) {
-        cinematicStatusText?.text = 'BEAT 1: CORRIDOR CHASE [${cinematicTimer.toStringAsFixed(1)}s]';
-
-        player.position.setValues(780.0, 1025.0);
-        player.facingAngle = 72.0 * (pi / 180.0);
-
-        if (cinematicTimer >= 0.2 && cinematicTimer <= 2.5) {
-          final double p = progress(0.2, 2.5);
-          stuntDoubleHero!.position.setValues(1120.0 - (500.0 * p), 985.0);
-          stuntDoubleHero!.facingAngle = -pi / 2;
-          stuntDoubleHero!.voxelComponent!.isMoving = true;
-
-          // Play heavy breathing audio for the running human
-          if (!cinematicStage1) {
-            cinematicStage1 = true;
-            if (AudioManager.instance.isInitialized && AudioManager.instance.heavyBreathingSource != null) {
-              SoLoud.instance.play(AudioManager.instance.heavyBreathingSource!, volume: 0.7);
-            }
-          }
-
-          // Force faster sprint leg animation (2.5x speed)
-          stuntDoubleHero!.voxelComponent!.update(dt * 2.5);
-
-          if ((prevTime * 4).floor() != (cinematicTimer * 4).floor()) {
-            AudioManager.instance.playEntityFootstep(stuntDoubleHero!.assignedCharacterId, stuntDoubleHero!.position);
-          }
-        } else {
-          stuntDoubleHero!.position.setValues(-9999, -9999);
-          stuntDoubleHero!.voxelComponent!.isMoving = false;
-        }
-
-        if (cinematicTimer >= 2.6 && cinematicTimer <= 4.8) {
-          final double p = progress(2.6, 4.8);
-          cinematicMonster!.position.setValues(1120.0 - (500.0 * p), 985.0);
-          cinematicMonster!.facingAngle = -pi / 2;
-          cinematicMonster!.voxelComponent!.isMoving = true;
-
-          // Force faster sprint leg animation for monster too
-          cinematicMonster!.voxelComponent!.update(dt * 2.5);
-
-          if ((prevTime * 5).floor() != (cinematicTimer * 5).floor()) {
-            AudioManager.instance.playEntityFootstep('default', cinematicMonster!.position);
-          }
-        } else {
-          cinematicMonster!.position.setValues(-9999, -9999);
-          cinematicMonster!.voxelComponent!.isMoving = false;
-        }
-      }
-
-      // =========================================================================
-      // BEAT 2 (5.2s - 9.2s): 3RD-PERSON CORNER ROUNDING & 180 PEEK BEHIND WALL
-      // =========================================================================
-      else if (cinematicTimer < 9.2) {
-        cinematicStatusText?.text = 'BEAT 2: CORNER HIDE [${cinematicTimer.toStringAsFixed(1)}s]';
-        cinematicMonster!.position.setValues(-9999, -9999);
-        cinematicMonster!.voxelComponent!.isMoving = false;
-
-        player.position.setValues(655.0, 1050.0);
-        player.facingAngle = 14.0 * (pi / 180.0);
-
-        if (cinematicTimer < 6.8) {
-          final double p = progress(5.2, 6.8);
-          stuntDoubleHero!.position.setValues(675.0, 990.0 - (105.0 * p));
-          stuntDoubleHero!.facingAngle = 0.0;
-          stuntDoubleHero!.voxelComponent!.isMoving = true;
-        } else if (cinematicTimer < 7.8) {
-          final double p = progress(6.8, 7.8);
-          stuntDoubleHero!.position.setValues(675.0 + (37.0 * p), 885.0);
-          stuntDoubleHero!.facingAngle = pi / 2;
-          stuntDoubleHero!.voxelComponent!.isMoving = true;
-        } else {
-          final double p = progress(7.8, 8.6);
-          stuntDoubleHero!.position.setValues(712.0, 885.0);
-          stuntDoubleHero!.facingAngle = (pi / 2) + (p * (pi / 2));
-          stuntDoubleHero!.voxelComponent!.isMoving = false;
-        }
-      }
-
-      // =========================================================================
-      // BEAT 3 (9.2s - 13.0s): 1ST-PERSON POV BEHIND CORNER — MONSTER RUNS PAST!
-      // =========================================================================
-      else if (cinematicTimer < 13.0) {
-        cinematicStatusText?.text = 'BEAT 3: 1ST-PERSON PEEK [${cinematicTimer.toStringAsFixed(1)}s]';
-
-        stuntDoubleHero!.position.setValues(-9999, -9999);
-        stuntDoubleHero!.voxelComponent!.isMoving = false;
-
-        player.position.setValues(688.0, 915.0);
-        player.facingAngle = pi - 0.08;
-
-        if (cinematicTimer >= 9.5 && cinematicTimer <= 12.6) {
-          final double p = progress(9.5, 12.6);
-          cinematicMonster!.position.setValues(920.0 - (350.0 * p), 1005.0);
-          cinematicMonster!.facingAngle = -pi / 2;
-          cinematicMonster!.voxelComponent!.isMoving = true;
-          if ((prevTime * 5).floor() != (cinematicTimer * 5).floor()) {
-            AudioManager.instance.playEntityFootstep('default', cinematicMonster!.position);
-          }
-        } else {
-          cinematicMonster!.position.setValues(-9999, -9999);
-          cinematicMonster!.voxelComponent!.isMoving = false;
-        }
-      }
-
-      // =========================================================================
-      // BEAT 4 (13.0s - 17.5s): EXTENDED BLACKOUT & RECHARGE
-      // =========================================================================
-      else if (cinematicTimer < 17.5) {
-        cinematicStatusText?.text = 'BEAT 4: BLACKOUT & RECHARGE [${cinematicTimer.toStringAsFixed(1)}s]';
-        cinematicMonster!.position.setValues(-9999, -9999);
-
-        if (cinematicTimer < 13.9) {
-          player.isLightFlickeringOut = (sin(cinematicTimer * 45.0) > 0.0);
-          player.flashlightBattery = 12.0;
-        } else if (cinematicTimer < 15.6) {
-          if (!cinematicStage2) {
-            cinematicStage2 = true;
-            if (AudioManager.instance.isInitialized && AudioManager.instance.heavyBreathingSource != null) {
-              SoLoud.instance.play(AudioManager.instance.heavyBreathingSource!, volume: 0.85);
-            }
-          }
-          player.isLightFlickeringOut = false;
-          player.isFlashlightDead = true;
-          player.isRecharging = false;
-          player.flashlightBattery = 0.0;
-        } else {
-          // Flashlight gradually recharges during the beginning of the turn (15.6s - 17.5s)
-          final double p = progress(15.6, 17.5);
-          player.isFlashlightDead = false;
-          player.isRecharging = true;
-          player.flashlightBattery = 10.0 + (90.0 * p);
-        }
-      }
-
-      import 'dart:math';
-import 'dart:ui' as ui;
-import 'dart:convert';
-import 'package:flutter/services.dart';
-import 'package:archive/archive.dart';
-import 'package:http/http.dart' as http;
-
-import 'package:flame/components.dart';
-import 'package:flame/events.dart';
-import 'package:flame/game.dart';
-import 'package:flame/palette.dart';
-import 'package:flutter/painting.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_soloud/flutter_soloud.dart';
-import 'package:flame/effects.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
-import 'player.dart';
-import 'remote_player.dart';
-import 'floating_text.dart';
-import 'bot_player.dart'; 
-import 'game_map.dart';
-import 'darkness_overlay.dart';
-import 'jump_scare_effect.dart';
-import 'score_hud.dart';
-import 'game_timer.dart';
-import 'start_button.dart';
-import 'attack_button.dart';
-import 'defense_button.dart';
-import 'player_hud.dart';
-import 'scare_blast.dart';
-import 'level_manager.dart';
-import 'tutorial_manager.dart';
-import 'power_up.dart';
-import 'power_up_hud.dart';
-import 'spooky_box.dart';
-import 'special_button.dart';
-import 'chest_reward.dart';
-import 'mask_data.dart';
-import 'flying_scare_blast.dart';
-import 'critter.dart';
-import 'vessel_opener_overlay.dart';
-import 'scare_manager.dart';
-import 'flashlight_hud.dart';
-import 'siren_blast.dart';
-import 'map_overlay.dart';
-import 'map_button.dart';
-import 'fps_viewport_overlay.dart';
-import 'mode_toggle_button.dart';
-import 'fps_touch_controls.dart';
-import 'audio_manager.dart';
-import 'character_asset_manager.dart';
-import 'hallway_triggers.dart';
-import 'puzzle_manager.dart';
-import 'chat_bubble_component.dart';
-import 'quick_chat_wheel.dart';
-import 'tactical_entities.dart';
-
-class ScareSnapshot {
-  final String attackerName;
-  final String attackerCharId;
-  final String attackerMaskId;
-  final String victimName;
-  final String victimCharId;
-  final String victimMaskId;
-  final String? victimId;
-  final int timestamp; 
-  final double mapX;
-  final double mapY;
-
-  ScareSnapshot({
-    required this.attackerName,
-    required this.attackerCharId,
-    required this.attackerMaskId,
-    required this.victimName,
-    required this.victimCharId,
-    required this.victimMaskId,
-    this.victimId,
-    required this.timestamp,
-    required this.mapX,
-    required this.mapY,
-  });
-}
-
-class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCollisionDetection {
-  static List<ScareSnapshot> lastMatchPhotos = [];
-  // --- Lumen & Match Reward Tracking ---
-  int matchLumenDelta = 0;
-  int lastMatchXpEarned = 0;
-  int lastMatchShadowsEarned = 0;
-  int lastMatchCoinsEarned = 0;
-
-  String roomId;
-  final bool isGunner;
-  final String? driverId;
-  final String? partyPartnerUserId; // Keeps Squad Party partners on Team 1 together!
-  final bool hasGunner;
-  final String matchMode; 
-  final String mapName;
-  final int targetPlayers;
-  final bool isGuildScrimmage;
-  final String? scrimmageMessageId;
-  String? myGuildId;
-  String guildActiveDoctrine = 'none';
-  final String chaosModifier;
-  final VoidCallback? onCinematicComplete;
-
-  bool isPuzzleRoomOccupied = false;
-  bool isHallwaySolved = false;
-
-  bool isGlobalBlackout = false;
-  double blackoutTimer = 0.0;
-
-  double timeUntilNextBlackout = 60.0 + Random().nextDouble() * 60.0;
-  bool willBlackoutHappen = Random().nextBool();
-  bool hasBlackoutFired = false;
-
-  bool isWaitingInLobby = true;
-
-  bool matchHasHunter = false;
-  bool hunterHasSpawned = false;
-
-  String? activeCursedRelicBoxId;
-
-  String matchPhase = 'searching'; 
-  double lobbyTimer = 10.0;
-  double countdownTimer = 3.0;
-  int _lastTick = 4;
-
-  double cinematicTimer = 0.0;
-  bool cinematicStage1 = false, cinematicStage2 = false, cinematicStage3 = false, cinematicStage4 = false;
-  BotPlayer? stuntDoubleHero;
-  BotPlayer? cinematicMonster;
-  TextComponent? cinematicStatusText;
-  
-  static Map<String, Map<String, ui.Image>> characterImagesCache = {};
-  static Map<String, Map<String, dynamic>> characterRigCache = {};
-
-  // --- CACHED CHARACTER CATALOG (ELIMINATES N+1 DB QUERIES) ---
-  static List<Map<String, dynamic>>? _cachedCharacters;
-  static Future<List<Map<String, dynamic>>>? _charactersLoadFuture;
-
-  static Future<List<Map<String, dynamic>>> getEnabledCharacters() async {
-    if (_cachedCharacters != null && _cachedCharacters!.isNotEmpty) {
-      return _cachedCharacters!;
-    }
-    if (_charactersLoadFuture != null) {
-      return _charactersLoadFuture!;
-    }
-    _charactersLoadFuture = _fetchCharactersFromSupabase();
-    return _charactersLoadFuture!;
-  }
-
-  static Future<List<Map<String, dynamic>>> _fetchCharactersFromSupabase() async {
-    try {
-      final res = await Supabase.instance.client
-          .from('characters')
-          .select('*')
-          .eq('enabled', true);
-      if (res != null) {
-        _cachedCharacters = List<Map<String, dynamic>>.from(res);
-        return _cachedCharacters!;
-      }
-    } catch (e) {
-      debugPrint('Error caching characters catalog: $e');
-    } finally {
-      _charactersLoadFuture = null;
-    }
-    return [];
-  }
-  
-  Map<String, ui.Image> loadedAssetImages = {};
-  Map<String, dynamic>? loadedRigData;
-  bool isFpsMode = false;
-
-  Map<String, int> playerTeams = {};
-
-  bool _isFavoredPrey(String attackerSpecies, String victimSpecies) {
-    final a = attackerSpecies.toLowerCase();
-    final v = victimSpecies.toLowerCase();
-    if (a.contains('ghost') && v.contains('humanoid')) return true;
-    if (a.contains('humanoid') && v.contains('cybernetic')) return true;
-    if (a.contains('cybernetic') && v.contains('alien')) return true;
-    if (a.contains('alien') && v.contains('beast')) return true;
-    if (a.contains('beast') && v.contains('ghost')) return true;
-    return false;
-  }
-
-  bool _matchesDoctrine(dynamic target) {
-    if (guildActiveDoctrine == 'none') return false;
-    String targetSpecies = 'humanoid'; 
-    try {
-      targetSpecies = target.species ?? 'humanoid';
-    } catch (_) {
-      targetSpecies = 'humanoid';
-    }
-    return targetSpecies == guildActiveDoctrine;
-  }
-
-  void dropCursedRelic(Vector2 dropPos) {
-    activeCursedRelicBoxId = 'relic_${DateTime.now().millisecondsSinceEpoch}';
-    
-    world.add(SpookyBox(id: activeCursedRelicBoxId!, position: dropPos));
-    
-    myChannel.sendBroadcastMessage(event: 'spawn_boxes', payload: {
-      'boxes': [{'id': activeCursedRelicBoxId, 'x': dropPos.x, 'y': dropPos.y}]
-    });
-  }
-
-  int getEntityTeam(dynamic entity) {
-    if (matchMode != '2v2') return 0; 
-    
-    if (entity is Player) return playerTeams[mySessionId] ?? 1;
-    if (entity is BotPlayer) return entity.teamId;
-    if (entity is String) return playerTeams[entity] ?? 0; 
-    
-    if (entity is RemotePlayer) {
-      String? remoteId;
-      networkPlayers.forEach((key, val) { if (val == entity) remoteId = key; });
-      return playerTeams[remoteId] ?? 0;
-    }
-    return 0;
-  }
-  
-  GraveStakesGame({
-    this.roomId = 'public_match', 
-    this.isGunner = false,
-    this.driverId,
-    this.partyPartnerUserId,
-    this.hasGunner = false,
-    this.mapName = 'L1T1V1.0.0',
-    this.matchMode = 'casual',
-    this.targetPlayers = 8,
-    this.isGuildScrimmage = false,
-    this.scrimmageMessageId,
-    this.chaosModifier = 'none',
-    this.onCinematicComplete,
-  });
-
-  late final JoystickComponent leftJoystick;
-  late final JoystickComponent rightJoystick;
-  late final Player player;
-  late final ScareManager scareManager;
-  late final PuzzleManager puzzleManager;
-
-  late final String mySessionId; 
-  bool isHost = false; 
-  Map<String, RemotePlayer> networkPlayers = {}; 
-
-  late final JumpScareEffect jumpScareEffect;
-  late final GameMap gameMap; 
-
-  late MapOverlay mapOverlay;
-
-  late final GameTimer gameTimer;
-  late final ScoreHud scoreHud;
-  bool gameStarted = false;
-  int myPlayerLevel = 1; 
-  String myUsername = 'Ghost';
-  
-  final List<BotPlayer> bots = [];
-  final List<ScareSnapshot> matchPhotos = [];
-
-  final int maxMatchPhotos = Random().nextDouble() < 0.20 ? 2 : 1;
-
-  @override
-  void lifecycleStateChange(AppLifecycleState state) {
-    super.lifecycleStateChange(state);
-
-    if (!gameStarted || matchPhase != 'playing') return;
-
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      player.applyDissonance(10.0);
-      
-      myChannel.sendBroadcastMessage(
-        event: 'dissonance', 
-        payload: {'id': mySessionId, 'duration': 10.0}
-      );
-    }
-  }
-
-  void logScareSnapshot(ScareSnapshot snapshot, {required bool isHuman}) {
-    if (matchPhotos.any((p) => p.victimName == snapshot.victimName)) return;
-
-    if (matchPhotos.length < maxMatchPhotos) {
-      matchPhotos.add(snapshot);
-      return;
-    }
-
-    if (isHuman) {
-      int botIndex = matchPhotos.indexWhere((p) => !p.victimName.startsWith('Player '));
-      if (botIndex != -1) {
-        matchPhotos[botIndex] = snapshot;
-      }
-    }
-  }
-
-  double hostBotSyncTick = 0;
-  final double hostBotSyncRate = 0.12;
-
-  late final RealtimeChannel myChannel;
-
-  void broadcastStartGame() async {
-    myChannel.sendBroadcastMessage(event: 'match_control', payload: {'action': 'start'});
-    triggerLocalStart(); 
-    try {
-      await Supabase.instance.client.from('active_matches').update({'status': 'playing'}).eq('id', roomId);
-    } catch (e) {}
-  }
-
-  void resetForNextRound() async {
-    overlays.remove('summary'); 
-    player.score = 0;
-    player.hasExtendedRange = false; 
-    player.isDisguised = false;      
-    player.isInvisible = false;      
-
-    for (var remote in networkPlayers.values) remote.score = 0; 
-    
-    List<Vector2> availableSpawns = List.from(baseSpawnPoints)..shuffle();
-    player.position = gameMap.getSafeSpawnLocation(availableSpawns.first, Vector2.all(32.0));
-    camera.viewport.add(StartButton()); 
-    final hud = camera.viewport.children.whereType<PlayerHud>().firstOrNull;
-    hud?.fetchPlayerData();
-
-    if (isHost) {
-      try {
-        await Supabase.instance.client.from('active_matches').update({'status': 'waiting'}).eq('id', roomId);
-      } catch (e) {}
-    }
-  }
-
-  final List<Vector2> baseSpawnPoints = [
-    Vector2(150, 150),     
-    Vector2(1770, 1770),   
-    Vector2(1770, 150),    
-    Vector2(150, 1770),    
-    Vector2(960, 150),     
-    Vector2(960, 1770),    
-    Vector2(150, 960),     
-    Vector2(1770, 960),    
-  ];
-
-  Future<void> _loadVoxelAssets() async {
-    try {
-      final ByteData data = await rootBundle.load('assets/character_assets.zip');
-      final List<int> bytes = data.buffer.asUint8List();
-      final archive = ZipDecoder().decodeBytes(bytes);
-      
-      for (final file in archive) {
-        if (file.isFile) {
-          if (file.name == 'rig.json') {
-            final jsonStr = utf8.decode(file.content as List<int>);
-            loadedRigData = jsonDecode(jsonStr);
-          } else if (file.name.endsWith('.png')) {
-            final ui.Codec codec = await ui.instantiateImageCodec(file.content as Uint8List);
-            final ui.FrameInfo frameInfo = await codec.getNextFrame();
-            loadedAssetImages[file.name] = frameInfo.image;
-          }
-        }
-      }
-      if (loadedRigData != null) {
-        characterRigCache['default'] = loadedRigData!;
-        characterImagesCache['default'] = loadedAssetImages;
-      }
-    } catch (e) {
-      debugPrint('CRITICAL: Default zip failed to load: $e');
-    }
-  }
-
-  @override
-  Future<void> onLoad() async {
-    await images.load('Base_BaseChip_pipo.png');
-    await images.loadAll([
-      'standard_mask.png', 
-      'flying_mask.png', 
-      'vermin_mask.png', 
-      'siren_mask.png'
-    ]);
-
-    await _loadVoxelAssets(); 
-    await ensureCharacterLoaded('survivor'); // Ensure The Survivor assets are pre-warmed for cinematic
-
-    mySessionId = DateTime.now().millisecondsSinceEpoch.toString();
-    final user = Supabase.instance.client.auth.currentUser;
-    bool needsTutorial = false;
-
-    if (user != null) {
-      try {
-        final profileRes = await Supabase.instance.client
-            .from('profiles')
-            .select('completed_tutorial, level, username')
-            .eq('id', user.id)
-            .maybeSingle();
-            
-        if (profileRes != null) {
-          needsTutorial = !(profileRes['completed_tutorial'] ?? false);
-          myPlayerLevel = profileRes['level'] as int? ?? 1;
-          myUsername = profileRes['username'] as String? ?? 'Ghost';
-        }
-
-        final membership = await Supabase.instance.client
-            .from('guild_members')
-            .select('guild_id, guilds(active_doctrine)')
-            .eq('user_id', user.id)
-            .maybeSingle();
-            
-        if (membership != null && membership['guilds'] != null) {
-          myGuildId = membership['guild_id'];
-          guildActiveDoctrine = membership['guilds']['active_doctrine'] ?? 'none';
-        }
-      } catch (e) {}
-    }
-    
-    myChannel = Supabase.instance.client.channel('room_$roomId');
-    camera.viewfinder.anchor = Anchor.center;
-
-    final knobPaint = BasicPalette.white.withAlpha(100).paint();
-    final backgroundPaint = BasicPalette.white.withAlpha(40).paint();
-
-    leftJoystick = JoystickComponent(
-      knob: CircleComponent(radius: 20, paint: knobPaint),
-      background: CircleComponent(radius: 60, paint: backgroundPaint),
-      margin: const EdgeInsets.only(left: 40, bottom: 40),
-      priority: 100,
-    );
-
-    rightJoystick = JoystickComponent(
-      knob: CircleComponent(radius: 20, paint: Paint()..color = Colors.redAccent.withAlpha(204)),
-      background: CircleComponent(radius: 60, paint: backgroundPaint),
-      margin: const EdgeInsets.only(right: 40, bottom: 40),
-      priority: 100,
-    );
-
-    gameMap = GameMap(roomId: roomId, mapName: mapName); 
-    await world.add(gameMap);
-
-    scareManager = ScareManager();
-    await world.add(scareManager);
-
-    puzzleManager = PuzzleManager();
-    await world.add(puzzleManager);
-
-    List<Vector2> availableSpawns = gameMap.playerSpawns.isNotEmpty 
-        ? List<Vector2>.from(gameMap.playerSpawns)
-        : [Vector2(150, 150), Vector2(400, 400)]; 
-    
-    availableSpawns.shuffle(); 
-    final rawSpawnPoint = availableSpawns.removeAt(0);
-    final safeSpawnPoint = gameMap.getSafeSpawnLocation(rawSpawnPoint, Vector2.all(32.0));
-
-    player = Player(leftJoystick, rightJoystick, myChannel, isGunner: isGunner)..position = safeSpawnPoint;
-    jumpScareEffect = JumpScareEffect();
-
-    if (driverId == 'dummy_driver_123') {
-      final dummyDriver = RemotePlayer()..position = safeSpawnPoint.clone() + Vector2(100, 0);
-      dummyDriver.facingAngle = 0.0;
-      dummyDriver.equippedCharacterId = 'default'; 
-      dummyDriver.applyTeamColor(1);
-      
-      networkPlayers['dummy_driver_123'] = dummyDriver;
-      world.add(dummyDriver);
-      
-      dummyDriver.add(MoveEffect.by(
-        Vector2(400, 0), 
-        EffectController(duration: 4.0, reverseDuration: 4.0, infinite: true)
-      ));
-
-      dummyDriver.add(TimerComponent(
-        period: 2.0,
-        repeat: true,
-        onTick: () {
-          dummyDriver.facingAngle += pi / 4;
-        },
-      ));
-
-      camera.viewport.add(FloatingText(
-        text: 'I AM THE DUMMY', 
-        worldPosition: dummyDriver.position - Vector2(40, 60)
-      ));
-    }
-
-    await world.add(player);
-    camera.follow(player);
-
-    camera.viewport.add(jumpScareEffect);
-    camera.viewport.add(DarknessOverlay(player));
-
-    await camera.viewport.add(FpsViewportOverlay());
-
-    gameTimer = GameTimer();
-    mapOverlay = MapOverlay();
-    scoreHud = ScoreHud();
-
-    final prefs = await SharedPreferences.getInstance();
-    bool lastWasFps = prefs.getBool('last_match_was_fps') ?? false;
-
-    if (matchMode == 'casual') {
-      isFpsMode = !lastWasFps;
-      await prefs.setBool('last_match_was_fps', isFpsMode);
-    }
-
-    if (matchMode == 'cinematic') {
-      matchPhase = 'cinematic';
-      gameStarted = true;
-      isFpsMode = true; 
-
-      final stageX = 15 * 64.0; 
-      final stageY = 15 * 64.0; 
-
-      player.position = Vector2(stageX, stageY + 128); 
-      player.facingAngle = 0.0; 
-      player.isInvisible = true; 
-
-      // Stunt double uses 'survivor' (The Survivor humanoid character)
-      stuntDoubleHero = BotPlayer(isHunter: false)
-        ..position = Vector2(stageX + 400, stageY - 64) 
-        ..wanderSpeed = 0.0
-        ..huntSpeed = 0.0
-        ..priority = 10;
-      stuntDoubleHero!.assignedCharacterId = 'survivor';
-
-      cinematicMonster = BotPlayer(isHunter: false) 
-        ..position = Vector2(stageX + 800, stageY - 64) 
-        ..wanderSpeed = 0.0
-        ..huntSpeed = 0.0
-        ..priority = 10;
-      cinematicMonster!.assignedCharacterId = 'default';
-
-      await world.add(stuntDoubleHero!);
-      await world.add(cinematicMonster!);
-      
-      bots.add(stuntDoubleHero!);
-      bots.add(cinematicMonster!);
-
-      cinematicStatusText = TextComponent(
-        text: '',
-        position: Vector2(camera.viewport.size.x / 2, 20),
-        anchor: Anchor.topCenter,
-        priority: 500,
-        textRenderer: TextPaint(
-          style: const TextStyle(
-            color: Colors.cyanAccent,
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            fontFamily: 'Courier',
-            shadows: [Shadow(color: Colors.black, blurRadius: 6)],
-          ),
-        ),
-      );
-    } else {
-      world.add(PowerUpHud(player: player));
-
-      camera.viewport.add(leftJoystick);
-
-      camera.viewport.add(scoreHud);
-      camera.viewport.add(gameTimer);
-      
-      await camera.viewport.add(FpsTouchControls());
-      await camera.viewport.add(ModeToggleButton());
-
-      camera.viewport.add(QuickChatWheel());
-
-      await camera.viewport.add(mapOverlay);
-      await camera.viewport.add(MapButton());
-
-      try {
-        final logoSprite = await Sprite.load('Lumen_Breach_small.jpg');
-        final logoComponent = SpriteComponent(
-          sprite: logoSprite,
-          size: Vector2(120, 60), 
-          position: Vector2((camera.viewport.size.x / 2) + 6, camera.viewport.size.y - 23), 
-          anchor: Anchor.bottomCenter,
-          priority: 50, 
-        );
-        camera.viewport.add(logoComponent);
-      } catch (e) {}
-
-      if (matchMode == 'casual') {
-        matchPhase = 'playing'; 
-        camera.viewport.add(StartButton());
-      } else {
-        overlays.add('searching');
-      }
-      
-      camera.viewport.add(AttackButton());
-      camera.viewport.add(DefenseButton());
-      camera.viewport.add(PlayerHud());
-      camera.viewport.add(FlashlightHud());
-      camera.viewport.add(SpecialButton());
-
-      if (needsTutorial) {
-        gameStarted = true;
-        gameTimer.start();
-        camera.viewport.children.whereType<StartButton>().toList().forEach((btn) => btn.removeFromParent());
-        world.add(PowerUp(id: 'tutorial_spark', position: safeSpawnPoint + Vector2(100, 0)));
-        camera.viewport.add(TutorialManager());
-      }
-
-      if (overlays.registeredOverlays.contains('help_button')) {
-        overlays.add('help_button');
-      }
-    }
-
-    if (matchMode != 'cinematic') {
-      _setupSupabaseListener();
-    }
-  }
-
-  @override
-  void update(double dt) {
-    super.update(dt);
-
-    if (matchPhase == 'cinematic') {
-      if (stuntDoubleHero?.voxelComponent == null || cinematicMonster?.voxelComponent == null) {
-        return; 
-      }
-
-      // =========================================================================
-      // INITIAL STAGE & 3D RAYCASTER GRID SCULPTING (RUNS EXACTLY ONCE AT t = 0)
-      // =========================================================================
-      if (cinematicTimer == 0.0) {
-        player.hasExtendedRange = true;
-        player.flashlightBattery = 100.0;
-        player.isFlashlightDead = false;
-        player.isRecharging = false;
-        player.isLightFlickeringOut = false;
-        player.isInvisible = true;
-
-        void setGridCell(int gy, int gx, int val) {
-          if (gy >= 0 && gy < gameMap.mapGrid.length) {
-            final row = gameMap.mapGrid[gy];
-            if (gx >= 0 && gx < row.length) {
-              row[gx] = val;
-            }
-          }
-        }
-
-        for (int gy = 11; gy <= 18; gy++) {
-          for (int gx = 7; gx <= 24; gx++) {
-            setGridCell(gy, gx, 0);
-          }
-        }
-        for (int gx = 11; gx <= 22; gx++) {
-          setGridCell(14, gx, 1);
-        }
-        for (int gx = 8; gx <= 23; gx++) {
-          setGridCell(17, gx, 1);
-          setGridCell(11, gx, 1);
-        }
-        for (int gy = 11; gy <= 17; gy++) {
-          setGridCell(gy, 8, 1);
-        }
-
-        cinematicStage1 = false;
-        cinematicStage2 = false;
-        cinematicStage3 = false;
-        cinematicStage4 = false;
-      }
-
-      final double prevTime = cinematicTimer;
-      cinematicTimer += dt;
-      bool crossed(double t) => prevTime < t && cinematicTimer >= t;
-
-      double progress(double start, double end) =>
-          ((cinematicTimer - start) / (end - start)).clamp(0.0, 1.0);
-
-      for (final actor in [stuntDoubleHero!, cinematicMonster!]) {
-        actor.attackCooldown = 999.0;
-        actor.wanderSpeed = 0.0;
-        actor.huntSpeed = 0.0;
-        actor.isStunned = false;
-      }
-      try {
-        cinematicMonster!.voxelComponent!.activeMaskImage ??= images.fromCache('siren_mask.png');
-      } catch (_) {}
-
+      // Keep 3D spatial audio listener synced with the camera
       if (AudioManager.instance.isInitialized) {
         try {
           const double audioScale = 50.0;
@@ -1660,23 +842,19 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         cinematicMonster!.position.setValues(-9999.0, -9999.0);
         cinematicMonster!.voxelComponent!.isMoving = false;
 
-        // Clockwise 90° turn: panning from South (pi) to West (3*pi/2 or -pi/2)
+        // Clockwise 90° turn: panning from South (pi) to West (3*pi/2)
         if (cinematicTimer < 19.8) {
           final double p = progress(17.5, 19.8);
           final double smoothP = p * p * (3.0 - 2.0 * p);
-          player.facingAngle = pi + (smoothP * (pi / 2)); // Turns clockwise towards West (3*pi/2)
+          player.facingAngle = pi + (smoothP * (pi / 2));
         } else {
           player.facingAngle = (3 * pi) / 2; // Locked facing West into the open alcove
           if (!cinematicStage3) {
             cinematicStage3 = true;
             AudioManager.instance.stopPhysiologyLoops();
-            if (AudioManager.instance.isInitialized) {
-              if (AudioManager.instance.gaspBreathSource != null) {
-                SoLoud.instance.play(AudioManager.instance.gaspBreathSource!, volume: 0.9);
-              }
-              if (AudioManager.instance.heartBeatSource != null) {
-                SoLoud.instance.play(AudioManager.instance.heartBeatSource!, volume: 1.0);
-              }
+            // ONLY play the tense heartbeat here (no vocal gasp sound yet!)
+            if (AudioManager.instance.isInitialized && AudioManager.instance.heartBeatSource != null) {
+              SoLoud.instance.play(AudioManager.instance.heartBeatSource!, volume: 1.0);
             }
           }
         }
@@ -1688,45 +866,42 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       else {
         cinematicStatusText?.text = 'BEAT 6: THE BREACH [${cinematicTimer.toStringAsFixed(1)}s]';
 
-        if (!cinematicStage4) {
-          cinematicStage4 = true;
-          if (AudioManager.instance.isInitialized && AudioManager.instance.heavyBreathingSource != null) {
-            SoLoud.instance.play(AudioManager.instance.heavyBreathingSource!, volume: 1.0);
-          }
-        }
+        // Fast 90° clockwise whip-pan from West (3*pi/2) to North (2*pi / 0.0) between 21.0s and 21.3s
+        if (cinematicTimer < 21.3) {
+          final double p = progress(21.0, 21.3);
+          final double whipCurve = pow(p, 2.2).toDouble();
+          player.facingAngle = ((3 * pi) / 2) + (whipCurve * (pi / 2));
 
-        // Place the monster directly NORTH of our camera at (688.0, 850.0), facing South (pi) at us
-        cinematicMonster!.position.setValues(688.0, 850.0);
-        cinematicMonster!.facingAngle = pi;
-        cinematicMonster!.voxelComponent!.isMoving = false;
-
-        // Fast 90° clockwise snap turn from West (3*pi/2) to North (2*pi / 0.0)
-        if (cinematicTimer < 21.2) {
-          player.facingAngle = (3 * pi) / 2;
-        } else if (cinematicTimer < 21.55) {
-          final double p = progress(21.2, 21.55);
-          final double whipCurve = pow(p, 2.5).toDouble();
-          player.facingAngle = ((3 * pi) / 2) + (whipCurve * (pi / 2)); // Reaches 2*pi (0.0 North)
+          // Monster is already waiting right up close at Y = 883.0 (32px North of player at Y = 915.0)
+          cinematicMonster!.position.setValues(688.0, 883.0);
+          cinematicMonster!.facingAngle = pi; // Staring South straight into our eyes
+          cinematicMonster!.voxelComponent!.isMoving = false;
         } else {
           player.facingAngle = 0.0; // Locked dead-on looking North at the Monster!
         }
 
-        // 21.6s: EXACT MOMENT OF JUMP SCARE & "AH!" SOUND EFFECT!
-        if (cinematicTimer >= 21.6 && cinematicTimer < 23.0) {
-          if (!cinematicStage1) { // Re-using stage flag for trigger lock
-            cinematicStage1 = true;
-            cinematicMonster!.voxelComponent!.triggerScareAnimation('siren');
-            jumpScareEffect.trigger();
-            if (AudioManager.instance.isInitialized) {
-              AudioManager.instance.playMaskScare('siren'); // Fires the "AH!" scare sound right now!
-              if (AudioManager.instance.powerupSource != null) {
-                SoLoud.instance.play(AudioManager.instance.powerupSource!, volume: 1.0);
-              }
+        // 21.3s: EXACT MILLISECOND THE FAST TURN LOCKS ONTO THE MONSTER!
+        if (crossed(21.3)) {
+          cinematicMonster!.voxelComponent!.triggerScareAnimation('siren');
+          jumpScareEffect.trigger();
+          if (AudioManager.instance.isInitialized) {
+            if (AudioManager.instance.gaspBreathSource != null) {
+              SoLoud.instance.play(AudioManager.instance.gaspBreathSource!, volume: 1.0);
+            }
+            AudioManager.instance.playMaskScare('siren');
+            if (AudioManager.instance.powerupSource != null) {
+              SoLoud.instance.play(AudioManager.instance.powerupSource!, volume: 1.0);
             }
           }
-          // Monster physically lunges from Y=850 (36px away) to Y=820 (6px away in the lens!)
-          final double lungeP = progress(21.6, 21.95);
-          cinematicMonster!.position.setValues(688.0, 850.0 - (30.0 * lungeP));
+        }
+
+        // 21.3s -> 23.0s: Monster starts close (Y = 883, 32px away) and slowly INCHES CLOSER
+        // toward the player (Y = 915), reaching Y = 899 (only 16px from the camera lens!)
+        if (cinematicTimer >= 21.3 && cinematicTimer < 23.0) {
+          final double creepP = progress(21.3, 23.0);
+          cinematicMonster!.position.setValues(688.0, 883.0 + (16.0 * creepP));
+          cinematicMonster!.facingAngle = pi;
+          cinematicMonster!.voxelComponent!.isMoving = false;
         }
 
         if (cinematicTimer >= 23.0) {
