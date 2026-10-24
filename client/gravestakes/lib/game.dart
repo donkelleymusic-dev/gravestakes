@@ -550,6 +550,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           ),
         ),
       );
+
+      // Show the in-game Flashlight energy meter in the bottom-right during the cinematic!
+      camera.viewport.add(FlashlightHud());
     } else {
       world.add(PowerUpHud(player: player));
 
@@ -624,7 +627,8 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       // =========================================================================
       if (cinematicTimer == 0.0) {
         player.hasExtendedRange = true;
-        player.flashlightBattery = 100.0;
+        // Start battery at 45% so the HUD bar visibly drains to 0% right at the 13.0s blackout!
+        player.flashlightBattery = 45.0;
         player.isFlashlightDead = false;
         player.isRecharging = false;
         player.isLightFlickeringOut = false;
@@ -699,6 +703,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       if (cinematicTimer < 5.2) {
         cinematicStatusText?.text = 'BEAT 1: CORRIDOR CHASE [${cinematicTimer.toStringAsFixed(1)}s]';
 
+        // Steadily drain battery bar from 45% -> 30%
+        player.flashlightBattery = 45.0 - (15.0 * progress(0.0, 5.2));
+        player.isFlashlightDead = false;
+        player.isRecharging = false;
+
         player.position.setValues(780.0, 1025.0);
         player.facingAngle = 72.0 * (pi / 180.0);
 
@@ -753,6 +762,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         cinematicMonster!.position.setValues(-9999, -9999);
         cinematicMonster!.voxelComponent!.isMoving = false;
 
+        // Battery drains from 30% -> 18%
+        player.flashlightBattery = 30.0 - (12.0 * progress(5.2, 9.2));
+        player.isFlashlightDead = false;
+        player.isRecharging = false;
+
         player.position.setValues(655.0, 1050.0);
         player.facingAngle = 14.0 * (pi / 180.0);
 
@@ -780,6 +794,11 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       else if (cinematicTimer < 13.0) {
         cinematicStatusText?.text = 'BEAT 3: 1ST-PERSON PEEK [${cinematicTimer.toStringAsFixed(1)}s]';
 
+        // Battery drains down to critical 18% -> 5% right before the flicker at 13.0s!
+        player.flashlightBattery = 18.0 - (13.0 * progress(9.2, 13.0));
+        player.isFlashlightDead = false;
+        player.isRecharging = false;
+
         stuntDoubleHero!.position.setValues(-9999, -9999);
         stuntDoubleHero!.voxelComponent!.isMoving = false;
 
@@ -801,16 +820,19 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       }
 
       // =========================================================================
-      // BEAT 4 (13.0s - 17.5s): EXTENDED BLACKOUT & RECHARGE
+      // BEAT 4 (13.0s - 17.5s): FLICKER & FULL PITCH-BLACK DARKNESS (NO RECHARGE YET)
       // =========================================================================
       else if (cinematicTimer < 17.5) {
-        cinematicStatusText?.text = 'BEAT 4: BLACKOUT & RECHARGE [${cinematicTimer.toStringAsFixed(1)}s]';
+        cinematicStatusText?.text = 'BEAT 4: BLACKOUT [${cinematicTimer.toStringAsFixed(1)}s]';
         cinematicMonster!.position.setValues(-9999, -9999);
 
         if (cinematicTimer < 13.9) {
-          player.isLightFlickeringOut = (sin(cinematicTimer * 45.0) > 0.0);
-          player.flashlightBattery = 12.0;
-        } else if (cinematicTimer < 15.6) {
+          final bool flickerOn = sin(cinematicTimer * 45.0) > 0.0;
+          player.isLightFlickeringOut = true;
+          player.isFlashlightDead = !flickerOn;
+          player.flashlightBattery = 5.0 * (1.0 - progress(13.0, 13.9));
+        } else {
+          // Stay 100% pitch black all the way until 17.5s when the slow turn starts!
           if (!cinematicStage2) {
             cinematicStage2 = true;
             if (AudioManager.instance.isInitialized && AudioManager.instance.heavyBreathingSource != null) {
@@ -821,26 +843,32 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           player.isFlashlightDead = true;
           player.isRecharging = false;
           player.flashlightBattery = 0.0;
-        } else {
-          // Flashlight gradually recharges during the beginning of the turn (15.6s - 17.5s)
-          final double p = progress(15.6, 17.5);
-          player.isFlashlightDead = false;
-          player.isRecharging = true;
-          player.flashlightBattery = 10.0 + (90.0 * p);
         }
       }
 
       // =========================================================================
-      // BEAT 5 (17.5s - 21.0s): CLOCKWISE SLOW TURN AWAY (TOWARDS WEST ALLEY) + HOLD BREATH
+      // BEAT 5 (17.5s - 21.0s): CLOCKWISE SLOW TURN AWAY + DELAYED RECHARGE FADE-IN
       // =========================================================================
       else if (cinematicTimer < 21.0) {
         cinematicStatusText?.text = 'BEAT 5: CREEPING DREAD [${cinematicTimer.toStringAsFixed(1)}s]';
-        player.isRecharging = false;
-        player.flashlightBattery = 100.0;
 
         // Keep monster hidden off-screen until we complete the slow turn
         cinematicMonster!.position.setValues(-9999.0, -9999.0);
         cinematicMonster!.voxelComponent!.isMoving = false;
+
+        // Delayed recharge: Fades in from 0% to 100% between 17.5s and 20.6s,
+        // so it is fading up as we finish our 90° clockwise rotation (19.8s)
+        // and reaches 100% full brightness right as we pause before the snap turn!
+        if (cinematicTimer < 20.6) {
+          final double chargeP = progress(17.5, 20.6);
+          player.isFlashlightDead = false;
+          player.isRecharging = true;
+          player.flashlightBattery = 100.0 * chargeP;
+        } else {
+          player.isFlashlightDead = false;
+          player.isRecharging = false;
+          player.flashlightBattery = 100.0;
+        }
 
         // Clockwise 90° turn: panning from South (pi) to West (3*pi/2)
         if (cinematicTimer < 19.8) {
@@ -861,13 +889,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       }
 
       // =========================================================================
-      // BEAT 6 (21.0s - 24.5s): CLOCKWISE FAST 90° TURN NORTH & JUMP SCARE!
+      // BEAT 6 (21.0s - 22.6s): CLOCKWISE FAST 90° TURN, 0.45s INCH-FORWARD & HARD CUT!
       // =========================================================================
       else {
         cinematicStatusText?.text = 'BEAT 6: THE BREACH [${cinematicTimer.toStringAsFixed(1)}s]';
 
         // Fast 90° clockwise whip-pan from West (3*pi/2) to North (2*pi / 0.0) between 21.0s and 21.3s
         if (cinematicTimer < 21.3) {
+          player.isRecharging = false;
+          player.isFlashlightDead = false;
+          player.flashlightBattery = 100.0;
+
           final double p = progress(21.0, 21.3);
           final double whipCurve = pow(p, 2.2).toDouble();
           player.facingAngle = ((3 * pi) / 2) + (whipCurve * (pi / 2));
@@ -895,22 +927,25 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           }
         }
 
-        // 21.3s -> 23.0s: Monster starts close (Y = 883, 32px away) and slowly INCHES CLOSER
-        // toward the player (Y = 915), reaching Y = 899 (only 16px from the camera lens!)
-        if (cinematicTimer >= 21.3 && cinematicTimer < 23.0) {
-          final double creepP = progress(21.3, 23.0);
-          cinematicMonster!.position.setValues(688.0, 883.0 + (16.0 * creepP));
+        // 21.3s -> 21.75s (0.45 seconds): Monster lunges right into the camera lens (Y: 883 -> 902)
+        if (cinematicTimer >= 21.3 && cinematicTimer < 21.75) {
+          player.flashlightBattery = 100.0;
+          final double creepP = progress(21.3, 21.75);
+          cinematicMonster!.position.setValues(688.0, 883.0 + (19.0 * creepP));
           cinematicMonster!.facingAngle = pi;
           cinematicMonster!.voxelComponent!.isMoving = false;
         }
 
-        if (cinematicTimer >= 23.0) {
+        // 21.75s (0.45s after jump scare starts): HARD CUT TO BLACK while monster is right in our face!
+        if (cinematicTimer >= 21.75) {
           player.flashlightBattery = 0.0;
           player.isFlashlightDead = true;
+          cinematicMonster!.position.setValues(-9999.0, -9999.0);
           cinematicStatusText?.text = '';
         }
 
-        if (crossed(24.0)) {
+        // 22.6s: Cleanly exit to Main Menu / Bootup music!
+        if (crossed(22.6)) {
           AudioManager.instance.stopPhysiologyLoops();
           AudioManager.instance.playMenuMusic();
           pauseEngine();
