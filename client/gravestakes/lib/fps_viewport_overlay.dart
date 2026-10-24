@@ -37,9 +37,9 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
   final Paint _mortarLinePaint = Paint()..color = Colors.black38;
   final Paint _fogPaint = Paint();
 
-  // Zero-allocation pool of 14 drifting gloomy fog clouds
+  // Zero-allocation pool of 35 drifting gloomy fog clouds (Cranked up for dense gameplay coverage)
   final Random _fogRng = Random(1337);
-  final List<_FpsFogPuff> _fogPuffs = List.generate(14, (_) => _FpsFogPuff());
+  final List<_FpsFogPuff> _fogPuffs = List.generate(35, (_) => _FpsFogPuff());
   double _lastFogTime = -1.0;
 
   @override
@@ -54,7 +54,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
 
   void _respawnFogPuff(_FpsFogPuff puff, Vector2 playerPos, double viewAngle, {bool initial = false}) {
     // Spawn within the camera's forward cone (or all around on initial seed)
-    final double angleSpread = initial ? (pi * 2.0) : (pi * 0.85);
+    final double angleSpread = initial ? (pi * 2.0) : (pi * 0.95);
     final double angle = viewAngle + (_fogRng.nextDouble() - 0.5) * angleSpread;
     final double dist = initial
         ? (35.0 + _fogRng.nextDouble() * 260.0)
@@ -65,12 +65,13 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
 
     // Slow, eerie lateral drift across the corridor
     final double driftAngle = _fogRng.nextDouble() * pi * 2.0;
-    final double speed = 10.0 + _fogRng.nextDouble() * 18.0;
+    final double speed = 10.0 + _fogRng.nextDouble() * 22.0;
     puff.vx = cos(driftAngle) * speed;
     puff.vy = sin(driftAngle) * speed;
 
-    puff.radius = 75.0 + _fogRng.nextDouble() * 95.0;
-    puff.heightBias = 0.08 + _fogRng.nextDouble() * 0.32;
+    // Massive puffy clouds
+    puff.radius = 90.0 + _fogRng.nextDouble() * 140.0;
+    puff.heightBias = 0.05 + _fogRng.nextDouble() * 0.35;
     puff.phase = _fogRng.nextDouble() * pi * 2.0;
     puff.initialized = true;
   }
@@ -536,15 +537,15 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
     }
 
     // -------------------------------------------------------------
-    // 3.5. VOLUMETRIC GLOOMY 3D FOG (DRIFTS IN & OUT OF CORRIDORS)
+    // 3.5. THICK VOLUMETRIC GLOOMY 3D FOG (DRIFTS IN & OUT)
     // -------------------------------------------------------------
     if (maxRayDistance > 15.0) {
       final double now = game.currentTime();
       final double dtFog = (_lastFogTime < 0.0) ? 0.016 : (now - _lastFogTime).clamp(0.0, 0.1);
       _lastFogTime = now;
 
-      // Subtle global ebb and flow so mist rolls in and thins out organically
-      final double globalMistWave = 0.65 + 0.35 * sin(now * 0.55);
+      // Surges the mist in and out of the corridor naturally
+      final double globalMistWave = 0.5 + 0.5 * sin(now * 0.4);
 
       for (final puff in _fogPuffs) {
         if (!puff.initialized) {
@@ -558,7 +559,7 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         final double dy = puff.worldY - playerPos.y;
         final double distSq = dx * dx + dy * dy;
 
-        // If the camera cut to a new position or the puff drifted out of range, recycle it ahead
+        // Recycle if it drifts too far away or falls behind the camera
         if (distSq > 340.0 * 340.0 || distSq < 14.0 * 14.0) {
           _respawnFogPuff(puff, playerPos, totalViewAngle);
           continue;
@@ -575,7 +576,8 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         }
 
         final double screenX = (screenWidth / 2) + (camX / camY) * focalLength;
-        final double projRadius = (puff.radius * (focalLength / camY)).clamp(24.0, screenWidth * 0.65);
+        // Allowed to bloom larger on screen
+        final double projRadius = (puff.radius * (focalLength / camY)).clamp(32.0, screenWidth * 0.95);
 
         if (screenX + projRadius < 0 || screenX - projRadius > screenWidth) {
           continue;
@@ -588,26 +590,29 @@ class FpsViewportOverlay extends PositionComponent with HasGameReference<GraveSt
         }
 
         final double wallH = min(screenHeight * 2.5, (tileSize * focalLength) / camY);
-        final double screenY = (screenHeight / 2) + (wallH * puff.heightBias);
+        
+        // Pushed lower (+0.25) so the mist hugs the floor and feet
+        final double screenY = (screenHeight / 2) + (wallH * (puff.heightBias + 0.25));
 
-        // Smooth fade-in near lens, fade-out near flashlight tip, and slow breathing pulse
         final double nearFade = ((camY - 16.0) / 55.0).clamp(0.0, 1.0);
         final double farFade = (1.0 - (camY / maxRayDistance)).clamp(0.0, 1.0);
-        final double pulse = 0.55 + 0.45 * sin(now * 1.3 + puff.phase);
-        final double alpha = (0.20 * nearFade * farFade * pulse * globalMistWave).clamp(0.0, 0.24);
+        final double pulse = 0.7 + 0.3 * sin(now * 1.3 + puff.phase);
+        
+        // CRANKED UP OPACITY: It now pops heavily in the flashlight beam!
+        final double alpha = (0.95 * nearFade * farFade * pulse * globalMistWave).clamp(0.0, 1.0);
 
-        if (alpha <= 0.01) continue;
+        if (alpha <= 0.02) continue;
 
         final Offset center = Offset(screenX, screenY);
         _fogPaint.shader = ui.Gradient.radial(
           center,
           projRadius,
           [
-            const Color(0xFF1A222E).withOpacity(alpha),       // Gloomy cold slate mist core
-            const Color(0xFF090B10).withOpacity(alpha * 0.5), // Dark shadow mid-ring
+            const Color(0xFF5C697D).withOpacity(alpha),       // Brighter, hazier core
+            const Color(0xFF191B24).withOpacity(alpha * 0.7), // Dark edge blending
             Colors.transparent,
           ],
-          const [0.0, 0.55, 1.0],
+          const [0.0, 0.45, 1.0],
         );
 
         canvas.drawCircle(center, projRadius, _fogPaint);
