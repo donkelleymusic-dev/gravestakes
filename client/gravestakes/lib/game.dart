@@ -847,9 +847,9 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       }
 
       // =========================================================================
-      // BEAT 5 (17.5s - 21.0s): CLOCKWISE SLOW TURN AWAY + DELAYED RECHARGE FADE-IN
+      // BEAT 5 (17.5s - 20.7s): CLOCKWISE SLOW TURN AWAY + DELAYED RECHARGE FADE-IN
       // =========================================================================
-      else if (cinematicTimer < 21.0) {
+      else if (cinematicTimer < 20.7) {
         cinematicStatusText?.text = 'BEAT 5: CREEPING DREAD [${cinematicTimer.toStringAsFixed(1)}s]';
 
         // Keep monster hidden off-screen until we complete the slow turn
@@ -857,8 +857,7 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
         cinematicMonster!.voxelComponent!.isMoving = false;
 
         // Delayed recharge: Fades in from 0% to 100% between 17.5s and 20.6s,
-        // so it is fading up as we finish our 90° clockwise rotation (19.8s)
-        // and reaches 100% full brightness right as we pause before the snap turn!
+        // reaching 100% full brightness right before the 20.7s snap turn!
         if (cinematicTimer < 20.6) {
           final double chargeP = progress(17.5, 20.6);
           player.isFlashlightDead = false;
@@ -889,22 +888,22 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
       }
 
       // =========================================================================
-      // BEAT 6 (21.0s - 22.6s): CLOCKWISE FAST 90° TURN, 0.45s INCH-FORWARD & HARD CUT!
+      // BEAT 6 (20.7s - 22.6s): FAST TURN LANDS 300ms EARLY (21.0s), SCARE AT 21.3s!
       // =========================================================================
       else {
         cinematicStatusText?.text = 'BEAT 6: THE BREACH [${cinematicTimer.toStringAsFixed(1)}s]';
 
-        // Fast 90° clockwise whip-pan from West (3*pi/2) to North (2*pi / 0.0) between 21.0s and 21.3s
-        if (cinematicTimer < 21.3) {
+        // 20.7s -> 21.0s: Fast 90° clockwise whip-pan from West (3*pi/2) to North (0.0)
+        // Completes 300ms earlier (at 21.0s) so we lock eyes with the motionless monster for 0.3s!
+        if (cinematicTimer < 21.0) {
           player.isRecharging = false;
           player.isFlashlightDead = false;
           player.flashlightBattery = 100.0;
 
-          final double p = progress(21.0, 21.3);
+          final double p = progress(20.7, 21.0);
           final double whipCurve = pow(p, 2.2).toDouble();
           player.facingAngle = ((3 * pi) / 2) + (whipCurve * (pi / 2));
 
-          // Monster is already waiting right up close at Y = 883.0 (32px North of player at Y = 915.0)
           cinematicMonster!.position.setValues(688.0, 883.0);
           cinematicMonster!.facingAngle = pi; // Staring South straight into our eyes
           cinematicMonster!.voxelComponent!.isMoving = false;
@@ -912,7 +911,17 @@ class GraveStakesGame extends FlameGame with HasKeyboardHandlerComponents, HasCo
           player.facingAngle = 0.0; // Locked dead-on looking North at the Monster!
         }
 
-        // 21.3s: EXACT MILLISECOND THE FAST TURN LOCKS ONTO THE MONSTER!
+        // 21.0s -> 21.3s: 300ms of frozen, terrifying eye contact before the lunge!
+        if (cinematicTimer >= 21.0 && cinematicTimer < 21.3) {
+          player.isRecharging = false;
+          player.isFlashlightDead = false;
+          player.flashlightBattery = 100.0;
+          cinematicMonster!.position.setValues(688.0, 883.0);
+          cinematicMonster!.facingAngle = pi;
+          cinematicMonster!.voxelComponent!.isMoving = false;
+        }
+
+        // 21.3s: JUMP SCARE & SCREAM ERUPT!
         if (crossed(21.3)) {
           cinematicMonster!.voxelComponent!.triggerScareAnimation('siren');
           jumpScareEffect.trigger();
